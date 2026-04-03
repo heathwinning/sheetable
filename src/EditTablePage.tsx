@@ -217,6 +217,10 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     return refSchema?.columns.map(c => c.name) ?? [];
   }, [state]);
 
+  const getRefTableRows = useCallback((refTableId: string): Row[] => {
+    return state.getRows(refTableId);
+  }, [state]);
+
   const getRefTableColumnPaths = useCallback((refTableId: string): { path: string; label: string }[] => {
     return state.model.getColumnPaths(refTableId);
   }, [state.model]);
@@ -853,8 +857,10 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         {migrationsDialogOpen && (
           <MigrationsToolsDialog
             columns={columns}
+            rows={state.getRows(tableId!)}
             otherTableIds={otherTableIds}
             getRefTableColumns={getRefTableColumns}
+            getRefTableRows={getRefTableRows}
             initialTargetColIdx={migrationTargetColIdx}
             initialResultColName={migrationTargetColIdx !== null ? (columns[migrationTargetColIdx]?.name.trim() ?? '') : ''}
             onRunNormalize={applyTrimNormalizationNow}
@@ -1038,8 +1044,10 @@ const refDialogSelectStyles = {
 
 const MigrationsToolsDialog: React.FC<{
   columns: ColumnDef[];
+  rows: Row[];
   otherTableIds: string[];
   getRefTableColumns: (tableId: string) => string[];
+  getRefTableRows: (tableId: string) => Row[];
   initialTargetColIdx: number | null;
   initialResultColName: string;
   onRunNormalize: (columnNames: string[]) => void;
@@ -1047,8 +1055,10 @@ const MigrationsToolsDialog: React.FC<{
   onClose: () => void;
 }> = ({
   columns,
+  rows,
   otherTableIds,
   getRefTableColumns,
+  getRefTableRows,
   initialTargetColIdx,
   initialResultColName,
   onRunNormalize,
@@ -1094,6 +1104,38 @@ const MigrationsToolsDialog: React.FC<{
 
   const validPairs = pairs.filter(p => p.sourceColumn && p.refColumn);
   const canRunReference = !!resultColName.trim() && !!refTable && validPairs.length > 0;
+
+  const referencePreview = useMemo(() => {
+    if (!refTable || validPairs.length === 0) {
+      return { matched: 0, unmatched: 0, empty: 0, total: rows.length };
+    }
+
+    const refRows = getRefTableRows(refTable);
+    let matched = 0;
+    let unmatched = 0;
+    let empty = 0;
+
+    for (const row of rows) {
+      const sourceValues = validPairs.map(p => String(row[p.sourceColumn] ?? '').trim());
+      if (sourceValues.every(v => v === '')) {
+        empty++;
+        continue;
+      }
+
+      const refMatch = refRows.find(refRow =>
+        validPairs.every((p, i) => {
+          const left = sourceValues[i].toLowerCase();
+          const right = String(refRow[p.refColumn] ?? '').trim().toLowerCase();
+          return left === right;
+        })
+      );
+
+      if (refMatch) matched++;
+      else unmatched++;
+    }
+
+    return { matched, unmatched, empty, total: rows.length };
+  }, [refTable, validPairs, rows, getRefTableRows]);
 
   return (
     <div className="app-dialog-overlay" onClick={onClose}>
@@ -1197,6 +1239,9 @@ const MigrationsToolsDialog: React.FC<{
                     + Add Match Pair
                   </button>
                 </div>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px' }}>
+                Preview: {referencePreview.matched} matched, {referencePreview.unmatched} unmatched, {referencePreview.empty} empty of {referencePreview.total} rows.
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
