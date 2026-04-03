@@ -451,9 +451,9 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     state.updateSchema(tableId, buildSchema(newColumns));
   };
 
-  // Migrate a column to reference by matching one or more source->ref column pairs.
+  // Migrate to reference by matching source->ref column pairs into a named result column.
   const applyTextToReferenceMigrationNow = (
-    colIndex: number,
+    resultColName: string,
     refTableId: string,
     pairs: { sourceColumn: string; refColumn: string }[],
   ) => {
@@ -463,45 +463,69 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     const refTable = state.model.getTable(refTableId);
     if (!refTable) return;
 
-    const colName = columns[colIndex].name.trim();
+    const colName = resultColName.trim();
     if (!colName) return;
+
+    const sourceColumns = Array.from(new Set(pairs.map(p => p.sourceColumn))).filter(Boolean);
 
     let matched = 0;
     let unmatched = 0;
     for (const row of table.rows) {
       const sourceValues = pairs.map(p => String(row[p.sourceColumn] ?? '').trim());
-      if (sourceValues.every(v => v === '')) {
-        row[colName] = '';
-        continue;
+      let refValue = '';
+
+      if (!sourceValues.every(v => v === '')) {
+        const refMatch = refTable.rows.find(refRow =>
+          pairs.every((p, i) => {
+            const left = sourceValues[i].toLowerCase();
+            const right = String(refRow[p.refColumn] ?? '').trim().toLowerCase();
+            return left === right;
+          })
+        );
+
+        if (refMatch) {
+          refValue = refMatch[INTERNAL_ROW_ID];
+          matched++;
+        } else {
+          unmatched++;
+        }
       }
 
-      const refMatch = refTable.rows.find(refRow =>
-        pairs.every((p, i) => {
-          const left = sourceValues[i].toLowerCase();
-          const right = String(refRow[p.refColumn] ?? '').trim().toLowerCase();
-          return left === right;
-        })
-      );
-
-      if (refMatch) {
-        row[colName] = refMatch[INTERNAL_ROW_ID];
-        matched++;
-      } else {
-        row[colName] = '';
-        unmatched++;
-      }
+      // Remove selected source columns, then keep only the resulting reference column.
+      for (const sc of sourceColumns) delete row[sc];
+      row[colName] = refValue;
     }
 
     const uniqueRefColumns = Array.from(new Set(pairs.map(p => p.refColumn))).filter(Boolean);
 
-    const refUpdates: Partial<ColumnDef> = {
+    const sourceSet = new Set(sourceColumns);
+    const removedIndices = columns
+      .map((c, i) => ({ name: c.name.trim(), i }))
+      .filter(x => sourceSet.has(x.name))
+      .map(x => x.i);
+    const removedNames = new Set(removedIndices.map(i => columns[i].name.trim()));
+    const insertAt = removedIndices.length > 0 ? Math.min(...removedIndices) : columns.length;
+
+    const baseColumns = columns.filter((c) => {
+      const n = c.name.trim();
+      if (sourceSet.has(n)) return false;
+      if (n === colName) return false;
+      return true;
+    });
+
+    const newRefCol: ColumnDef = {
+      name: colName,
       type: 'reference' as ColumnType,
       refTable: refTableId,
       refDisplayColumns: uniqueRefColumns,
       refSearchColumns: uniqueRefColumns,
     };
-    const newColumns = columns.map((c, i) => i === colIndex ? { ...c, ...refUpdates } : c);
+    const newColumns = [...baseColumns];
+    newColumns.splice(Math.min(insertAt, newColumns.length), 0, newRefCol);
+
     setColumns(newColumns);
+    setUniqueKeys(prev => prev.filter(k => !removedNames.has(k) && k !== colName));
+    setDefaultSort(prev => prev.filter(s => !removedNames.has(s.column) && s.column !== colName));
     state.updateSchema(tableId, buildSchema(newColumns));
     setNotice({
       kind: unmatched > 0 ? 'info' : 'success',
@@ -832,6 +856,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             otherTableIds={otherTableIds}
             getRefTableColumns={getRefTableColumns}
             initialTargetColIdx={migrationTargetColIdx}
+            initialResultColName={migrationTargetColIdx !== null ? (columns[migrationTargetColIdx]?.name.trim() ?? '') : ''}
             onRunNormalize={applyTrimNormalizationNow}
             onRunReference={applyTextToReferenceMigrationNow}
             onClose={() => {
@@ -1016,14 +1041,16 @@ const MigrationsToolsDialog: React.FC<{
   otherTableIds: string[];
   getRefTableColumns: (tableId: string) => string[];
   initialTargetColIdx: number | null;
+  initialResultColName: string;
   onRunNormalize: (columnNames: string[]) => void;
-  onRunReference: (targetColIdx: number, refTableId: string, pairs: { sourceColumn: string; refColumn: string }[]) => void;
+  onRunReference: (resultColName: string, refTableId: string, pairs: { sourceColumn: string; refColumn: string }[]) => void;
   onClose: () => void;
 }> = ({
   columns,
   otherTableIds,
   getRefTableColumns,
   initialTargetColIdx,
+  initialResultColName,
   onRunNormalize,
   onRunReference,
   onClose,
@@ -1034,19 +1061,12 @@ const MigrationsToolsDialog: React.FC<{
   );
 
   const [normalizeCols, setNormalizeCols] = useState<string[]>([]);
-  const [targetColIdx, setTargetColIdx] = useState<number | null>(
-    initialTargetColIdx ?? (namedCols[0]?.idx ?? null)
-  );
+  const [resultColName, setResultColName] = useState(initialResultColName);
   const [refTable, setRefTable] = useState(otherTableIds[0] ?? '');
   const [pairs, setPairs] = useState<{ sourceColumn: string; refColumn: string }[]>([]);
 
   const sourceColOptions = useMemo(
     () => namedCols.filter(c => c.type !== 'image').map(c => ({ value: c.name, label: c.name })),
-    [namedCols]
-  );
-
-  const targetColOptions = useMemo(
-    () => namedCols.filter(c => c.type !== 'image').map(c => ({ value: c.idx, label: c.name })),
     [namedCols]
   );
 
@@ -1062,13 +1082,18 @@ const MigrationsToolsDialog: React.FC<{
     }
     const firstSource = sourceColOptions[0]?.value ?? '';
     const firstRef = refColOptions[0]?.value ?? '';
-    if (pairs.length === 0 && firstSource && firstRef) {
-      setPairs([{ sourceColumn: firstSource, refColumn: firstRef }]);
+    if (pairs.length === 0 && firstRef) {
+      const initialSource = initialTargetColIdx !== null
+        ? (columns[initialTargetColIdx]?.name.trim() || firstSource)
+        : firstSource;
+      if (initialSource) {
+        setPairs([{ sourceColumn: initialSource, refColumn: firstRef }]);
+      }
     }
-  }, [refTable, sourceColOptions, refColOptions, pairs.length]);
+  }, [refTable, sourceColOptions, refColOptions, pairs.length, initialTargetColIdx, columns]);
 
   const validPairs = pairs.filter(p => p.sourceColumn && p.refColumn);
-  const canRunReference = targetColIdx !== null && !!refTable && validPairs.length > 0;
+  const canRunReference = !!resultColName.trim() && !!refTable && validPairs.length > 0;
 
   return (
     <div className="app-dialog-overlay" onClick={onClose}>
@@ -1104,14 +1129,12 @@ const MigrationsToolsDialog: React.FC<{
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Text to Reference Migration</div>
             <div style={{ display: 'grid', gap: 10 }}>
               <div>
-                <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Target Column (becomes reference)</label>
-                <Select
-                  options={targetColOptions}
-                  value={targetColOptions.find(o => o.value === targetColIdx) ?? null}
-                  onChange={opt => setTargetColIdx(opt?.value ?? null)}
-                  styles={refDialogSelectStyles}
-                  isClearable
-                  menuPlacement="auto"
+                <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Resulting Reference Column Name</label>
+                <input
+                  className="edit-table-input"
+                  value={resultColName}
+                  onChange={e => setResultColName(e.target.value)}
+                  placeholder="Enter resulting reference column name"
                 />
               </div>
               <div>
@@ -1181,8 +1204,7 @@ const MigrationsToolsDialog: React.FC<{
                 className="app-dialog-btn app-dialog-btn-primary"
                 disabled={!canRunReference}
                 onClick={() => {
-                  if (targetColIdx === null) return;
-                  onRunReference(targetColIdx, refTable, validPairs);
+                  onRunReference(resultColName.trim(), refTable, validPairs);
                   onClose();
                 }}
               >
