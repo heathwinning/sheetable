@@ -101,6 +101,11 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     setFilterActive(Object.keys(model).length > 0);
   }, []);
 
+  const clearAllFilters = useCallback(() => {
+    gridRef.current?.api.setFilterModel(null);
+    setFilterActive(false);
+  }, []);
+
   // Map row _rowId to index in the real rows array (excluding draft)
   const rowIdToIndex = useMemo(() => {
     const map = new Map<string, number>();
@@ -406,6 +411,15 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       {error && (
         <div className="error-banner">
           {error}
+        </div>
+      )}
+
+      {filterActive && (
+        <div className="bulk-edit-bar" style={{ marginBottom: 8 }}>
+          <span className="bulk-edit-count">Filters are active</span>
+          <button className="btn-secondary btn-sm" onClick={clearAllFilters}>
+            Clear Filters
+          </button>
         </div>
       )}
 
