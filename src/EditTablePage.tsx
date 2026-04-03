@@ -161,6 +161,13 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     refUpdates?: Partial<ColumnDef>;
   } | null>(null);
 
+  // Text -> reference migration config dialog state
+  const [textRefMigration, setTextRefMigration] = useState<{
+    colIndex: number;
+    refTable: string;
+    refColumn: string;
+  } | null>(null);
+
   // Extract-to-table preview dialog open
   const [extractPreview, setExtractPreview] = useState(false);
 
@@ -303,6 +310,17 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
           const rows = state.getRows(tableId);
           const colName = columns[idx].name.trim();
           if (rows.length > 0 && colName) {
+            // Text -> reference needs user-configured matching table/column
+            if (oldType === 'text' && newType === 'reference') {
+              const initialRefTable = otherTableIds[0] ?? '';
+              const initialRefColumn = initialRefTable ? (getRefTableColumns(initialRefTable)[0] ?? '') : '';
+              setTextRefMigration({
+                colIndex: idx,
+                refTable: initialRefTable,
+                refColumn: initialRefColumn,
+              });
+              return false;
+            }
             const preview = previewMigration(rows, colName, oldType, newType);
             if (preview.nonEmptyCount > 0) {
               setMigrationPreview({ preview, colIndex: idx, newType, refUpdates });
@@ -388,7 +406,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       },
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [columns, uniqueKeys, defaultSort, otherTableIds, openRefConfigDialog]);
+  ], [columns, uniqueKeys, defaultSort, otherTableIds, openRefConfigDialog, getRefTableColumns]);
 
   if (tableId && !schema) {
     return (
@@ -438,6 +456,62 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     setColumns(newColumns);
     // Save schema immediately
     state.updateSchema(tableId, buildSchema(newColumns));
+  };
+
+  // Migrate a text column to reference by matching source text against a chosen ref table column.
+  const applyTextToReferenceMigrationNow = (colIndex: number, refTableId: string, refColumn: string) => {
+    if (!tableId) return;
+    const table = state.model.getTable(tableId);
+    if (!table) return;
+    const refTable = state.model.getTable(refTableId);
+    if (!refTable) return;
+
+    const colName = columns[colIndex].name.trim();
+    if (!colName) return;
+
+    const lookup = new Map<string, string>();
+    for (const refRow of refTable.rows) {
+      const raw = String(refRow[refColumn] ?? '');
+      const key = raw.trim().toLowerCase();
+      if (!key) continue;
+      if (!lookup.has(key)) {
+        lookup.set(key, refRow[INTERNAL_ROW_ID]);
+      }
+    }
+
+    let matched = 0;
+    let unmatched = 0;
+    for (const row of table.rows) {
+      const raw = String(row[colName] ?? '');
+      if (!raw) {
+        row[colName] = '';
+        continue;
+      }
+      const key = raw.trim().toLowerCase();
+      const refId = lookup.get(key);
+      if (refId) {
+        row[colName] = refId;
+        matched++;
+      } else {
+        row[colName] = '';
+        unmatched++;
+      }
+    }
+
+    const refUpdates: Partial<ColumnDef> = {
+      type: 'reference' as ColumnType,
+      refTable: refTableId,
+      refDisplayColumns: [refColumn],
+      refSearchColumns: [refColumn],
+    };
+    const newColumns = columns.map((c, i) => i === colIndex ? { ...c, ...refUpdates } : c);
+    setColumns(newColumns);
+    state.updateSchema(tableId, buildSchema(newColumns));
+    setError(
+      unmatched > 0
+        ? `Matched ${matched} value${matched !== 1 ? 's' : ''}; ${unmatched} unmatched value${unmatched !== 1 ? 's were' : ' was'} cleared.`
+        : `Matched ${matched} value${matched !== 1 ? 's' : ''}.`
+    );
   };
 
   // Extract unique tuples from selected columns into a new reference table
@@ -714,6 +788,68 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             onUpdate={(idx, updates) => updateColumn(idx, updates)}
             onClose={() => setRefDialogCol(null)}
           />
+        )}
+
+        {/* Text -> reference migration dialog */}
+        {textRefMigration && (
+          <div className="app-dialog-overlay" onClick={() => setTextRefMigration(null)}>
+            <div className="app-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+              <h3 className="app-dialog-title">Text to Reference Migration</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  Choose a table and column to match existing text values against.
+                  Unmatched values will be cleared.
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Referenced Table</label>
+                  <Select
+                    value={textRefMigration.refTable ? { value: textRefMigration.refTable, label: textRefMigration.refTable } : null}
+                    onChange={opt => {
+                      const nextTable = opt?.value ?? '';
+                      const nextColumn = nextTable ? (getRefTableColumns(nextTable)[0] ?? '') : '';
+                      setTextRefMigration(prev => prev ? { ...prev, refTable: nextTable, refColumn: nextColumn } : prev);
+                    }}
+                    options={otherTableIds.map(id => ({ value: id, label: id }))}
+                    placeholder="Select table..."
+                    styles={refDialogSelectStyles}
+                    isClearable
+                    menuPlacement="auto"
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Match Column</label>
+                  <Select
+                    value={textRefMigration.refColumn ? { value: textRefMigration.refColumn, label: textRefMigration.refColumn } : null}
+                    onChange={opt => setTextRefMigration(prev => prev ? { ...prev, refColumn: opt?.value ?? '' } : prev)}
+                    options={(textRefMigration.refTable ? getRefTableColumns(textRefMigration.refTable) : []).map(c => ({ value: c, label: c }))}
+                    placeholder="Select match column..."
+                    styles={refDialogSelectStyles}
+                    isClearable
+                    menuPlacement="auto"
+                  />
+                </div>
+              </div>
+              <div className="app-dialog-actions">
+                <button className="app-dialog-btn app-dialog-btn-secondary" onClick={() => setTextRefMigration(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="app-dialog-btn app-dialog-btn-primary"
+                  disabled={!textRefMigration.refTable || !textRefMigration.refColumn}
+                  onClick={() => {
+                    applyTextToReferenceMigrationNow(
+                      textRefMigration.colIndex,
+                      textRefMigration.refTable,
+                      textRefMigration.refColumn,
+                    );
+                    setTextRefMigration(null);
+                  }}
+                >
+                  Convert
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Migration preview dialog */}
