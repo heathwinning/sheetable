@@ -5,7 +5,7 @@ import { DataModel } from './dataModel';
 import { log } from './DebugLogger';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, GetMainMenuItemsParams } from 'ag-grid-community';
+import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, GetMainMenuItemsParams, ColumnMovedEvent } from 'ag-grid-community';
 import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
@@ -19,6 +19,7 @@ interface SpreadsheetGridProps {
   onEdit: (rowIndex: number, columnName: string, newValue: string) => ValidationError[];
   onInsert: (row: Row) => ValidationError[];
   onDeleteRow: (rowIndex: number) => ValidationError[];
+  onColumnOrderChange?: (orderedColumnNames: string[]) => void;
   revision: number;
   folderId: string | null;
 }
@@ -45,6 +46,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   onEdit,
   onInsert,
   onDeleteRow,
+  onColumnOrderChange,
   revision,
   folderId,
 }) => {
@@ -105,6 +107,17 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     gridRef.current?.api.setFilterModel(null);
     setFilterActive(false);
   }, []);
+
+  const onColumnMoved = useCallback((event: ColumnMovedEvent) => {
+    if (!event.finished || !onColumnOrderChange) return;
+    const schemaColNames = new Set(schema.columns.map(c => c.name));
+    const ordered = (event.api.getAllGridColumns() ?? [])
+      .map(col => col.getColId())
+      .filter(id => schemaColNames.has(id));
+    if (ordered.length === schema.columns.length) {
+      onColumnOrderChange(ordered);
+    }
+  }, [onColumnOrderChange, schema.columns]);
 
   // Map row _rowId to index in the real rows array (excluding draft)
   const rowIdToIndex = useMemo(() => {
@@ -474,6 +487,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           rowSelection={rowSelectionConfig}
           onSelectionChanged={onSelectionChanged}
           onFilterChanged={onFilterChanged}
+          onColumnMoved={onColumnMoved}
           getMainMenuItems={getMainMenuItems}
         />
       </div>

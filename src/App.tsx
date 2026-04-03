@@ -150,6 +150,20 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             }
             onInsert={(row) => state.insertRow(tableId, row)}
             onDeleteRow={(rowIndex) => state.deleteRow(tableId, rowIndex)}
+            onColumnOrderChange={(orderedColumnNames) => {
+              const current = activeSchema.columns.map(c => c.name);
+              if (orderedColumnNames.length !== current.length) return;
+              if (orderedColumnNames.every((name, i) => name === current[i])) return;
+              const byName = new Map(activeSchema.columns.map(c => [c.name, c]));
+              const reordered = orderedColumnNames
+                .map(name => byName.get(name))
+                .filter((c): c is typeof activeSchema.columns[number] => !!c);
+              if (reordered.length !== activeSchema.columns.length) return;
+              state.updateSchema(tableId, {
+                ...activeSchema,
+                columns: reordered,
+              });
+            }}
             revision={state.revision}
             folderId={state.folderId}
           />
