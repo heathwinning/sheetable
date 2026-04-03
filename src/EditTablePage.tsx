@@ -140,6 +140,19 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   );
   const [error, setError] = useState<string | null>(null);
 
+  // Sync local state when schema loads asynchronously (e.g. Drive reload)
+  const [schemaLoaded, setSchemaLoaded] = useState(!!schema);
+  useEffect(() => {
+    if (schema && !schemaLoaded) {
+      setTableName(schema.name ?? '');
+      setColumns(schema.columns.map(c => ({ ...c })));
+      setUniqueKeys(schema.uniqueKeys ?? []);
+      setDefaultSort(schema.defaultSort ?? []);
+      setDraftRowPosition(schema.draftRowPosition ?? 'bottom');
+      setSchemaLoaded(true);
+    }
+  }, [schema, schemaLoaded]);
+
   // Type migration preview (for existing tables only)
   const [migrationPreview, setMigrationPreview] = useState<{
     preview: MigrationPreview;
