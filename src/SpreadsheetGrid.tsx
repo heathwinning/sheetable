@@ -5,7 +5,7 @@ import { DataModel } from './dataModel';
 import { log } from './DebugLogger';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams } from 'ag-grid-community';
+import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent } from 'ag-grid-community';
 import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
@@ -52,6 +52,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   const gridRef = useRef<AgGridReact>(null);
   const draftCounter = useRef(0);
   const { openDialog, dialogElement } = useImageDialog();
+  const [filterActive, setFilterActive] = useState(false);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [bulkEditCol, setBulkEditCol] = useState('');
   const [bulkEditValue, setBulkEditValue] = useState('');
@@ -75,13 +76,15 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   const draftPosition = schema.draftRowPosition ?? 'bottom';
 
   const rowData = useMemo(() => {
-    const draft = makeDraftRow();
+    const draft = filterActive ? null : makeDraftRow();
+    if (!draft) return [...rows];
     return draftPosition === 'top' ? [draft, ...rows] : [...rows, draft];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, revision, makeDraftRow, draftPosition]);
+  }, [rows, revision, makeDraftRow, draftPosition, filterActive]);
 
   // Keep draft row pinned at top or bottom regardless of sorting
   const postSortRows = useCallback((params: PostSortRowsParams) => {
+    if (filterActive) return;
     const nodes = params.nodes;
     const draftIdx = nodes.findIndex(n => n.data?.[INTERNAL_ROW_ID] === DRAFT_ROW_ID);
     if (draftIdx < 0) return;
@@ -91,7 +94,12 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     } else {
       nodes.push(draftNode);
     }
-  }, [draftPosition]);
+  }, [draftPosition, filterActive]);
+
+  const onFilterChanged = useCallback((event: FilterChangedEvent) => {
+    const model = event.api.getFilterModel();
+    setFilterActive(Object.keys(model).length > 0);
+  }, []);
 
   // Map row _rowId to index in the real rows array (excluding draft)
   const rowIdToIndex = useMemo(() => {
@@ -196,16 +204,20 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         const displayCols = col.refDisplayColumns ?? [];
         const searchCols = col.refSearchColumns ?? [];
 
-        // Show display columns instead of raw _rowId
-        def.valueFormatter = (params) => {
-          const rowId = params.value;
+        const resolveRefDisplay = (rowId: string): string => {
           if (!rowId) return '';
           const refRow = model.getReferencedRow(refTable, rowId);
           if (!refRow) return `[missing: ${rowId}]`;
           const cols = displayCols.length > 0 ? displayCols : searchCols;
           if (cols.length === 0) return `Row ${rowId}`;
-          return cols.map(c => refRow[c] ?? '').filter(Boolean).join(' · ');
+          return cols.map(c => model.resolveColumnPath(refTable, refRow, c)).filter(Boolean).join(' · ');
         };
+
+        // Show display columns instead of raw _rowId, resolving nested references
+        def.valueFormatter = (params) => resolveRefDisplay(params.value);
+
+        // Filter on resolved display text, not raw _rowId
+        def.filterValueGetter = (params) => resolveRefDisplay(params.data?.[col.name] ?? '');
 
         def.cellEditorSelector = () => {
           return {
@@ -214,11 +226,22 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
             popupPosition: 'under',
             params: {
               refRows: model.getReferenceRows(refTable),
+              refTable,
+              model,
               searchColumns: searchCols,
               displayColumns: displayCols,
             },
           };
         };
+      }
+
+      // Set filter type based on column type
+      if (col.type === 'integer' || col.type === 'decimal') {
+        def.filter = 'agNumberColumnFilter';
+      } else if (col.type === 'date' || col.type === 'datetime') {
+        def.filter = 'agDateColumnFilter';
+      } else if (col.type !== 'image') {
+        def.filter = 'agTextColumnFilter';
       }
 
       // Bool columns: use a select dropdown
@@ -391,9 +414,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           postSortRows={postSortRows}
           rowSelection={rowSelectionConfig}
           onSelectionChanged={onSelectionChanged}
-          onFirstDataRendered={draftPosition === 'bottom' ? () => {
-            gridRef.current?.api.ensureIndexVisible(rowData.length - 1, 'bottom');
-          } : undefined}
+          onFilterChanged={onFilterChanged}
         />
       </div>
     </div>

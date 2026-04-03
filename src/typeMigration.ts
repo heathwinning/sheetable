@@ -220,34 +220,43 @@ export function applyMigration(
 }
 
 export interface ExtractPreview {
-  columnName: string;
-  uniqueValues: string[];
+  sourceColumns: string[];
+  uniqueTuples: string[][];
   totalRows: number;
   nonEmptyCount: number;
-  newTableName: string;
 }
 
 /**
- * Preview extracting unique values from a column into a new reference table.
+ * Preview extracting unique tuples from one or more columns into a new reference table.
  */
 export function previewExtract(
   rows: Row[],
-  columnName: string,
-  newTableName: string,
+  columnNames: string[],
 ): ExtractPreview {
   const seen = new Set<string>();
+  const tuples: string[][] = [];
   let nonEmptyCount = 0;
   for (const row of rows) {
-    const val = row[columnName] ?? '';
-    if (val === '') continue;
+    const values = columnNames.map(cn => row[cn] ?? '');
+    if (values.every(v => v === '')) continue;
     nonEmptyCount++;
-    seen.add(val);
+    const key = JSON.stringify(values);
+    if (!seen.has(key)) {
+      seen.add(key);
+      tuples.push(values);
+    }
   }
+  tuples.sort((a, b) => {
+    for (let i = 0; i < a.length; i++) {
+      const cmp = a[i].localeCompare(b[i]);
+      if (cmp !== 0) return cmp;
+    }
+    return 0;
+  });
   return {
-    columnName,
-    uniqueValues: Array.from(seen).sort(),
+    sourceColumns: columnNames,
+    uniqueTuples: tuples,
     totalRows: rows.length,
     nonEmptyCount,
-    newTableName,
   };
 }

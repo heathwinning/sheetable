@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { Row } from './types';
 import { INTERNAL_ROW_ID } from './types';
+import type { DataModel } from './dataModel';
 import { log } from './DebugLogger';
 
 interface RefCellEditorProps {
@@ -8,30 +9,36 @@ interface RefCellEditorProps {
   onValueChange: (value: string | null) => void;
   stopEditing: () => void;
   refRows: Row[];
+  refTable: string;
+  model: DataModel;
   searchColumns: string[];
   displayColumns: string[];
 }
 
 export default function RefCellEditor(props: RefCellEditorProps) {
-  const { refRows, searchColumns, displayColumns, onValueChange, stopEditing } = props;
+  const { refRows, refTable, model, searchColumns, displayColumns, onValueChange, stopEditing } = props;
   const [search, setSearch] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const getDisplayText = useCallback((row: Row): string => {
-    const cols = displayColumns.length > 0 ? displayColumns : searchColumns;
-    return cols.map(c => row[c] ?? '').filter(Boolean).join(' · ');
-  }, [displayColumns, searchColumns]);
+  // Pre-resolve display and search text for all rows (handles nested references)
+  const resolvedRows = useMemo(() => {
+    const dCols = displayColumns.length > 0 ? displayColumns : searchColumns;
+    const sCols = searchColumns.length > 0 ? searchColumns : displayColumns;
+    return refRows.map(row => ({
+      row,
+      displayText: dCols.map(c => model.resolveColumnPath(refTable, row, c)).filter(Boolean).join(' · '),
+      searchText: sCols.map(c => model.resolveColumnPath(refTable, row, c).toLowerCase()).join(' '),
+    }));
+  }, [refRows, refTable, model, displayColumns, searchColumns]);
 
-  const getSearchText = useCallback((row: Row): string => {
-    const cols = searchColumns.length > 0 ? searchColumns : displayColumns;
-    return cols.map(c => (row[c] ?? '').toLowerCase()).join(' ');
-  }, [searchColumns, displayColumns]);
-
-  const filtered = search
-    ? refRows.filter(row => getSearchText(row).includes(search.toLowerCase()))
-    : refRows;
+  const filtered = useMemo(() =>
+    search
+      ? resolvedRows.filter(r => r.searchText.includes(search.toLowerCase()))
+      : resolvedRows,
+    [resolvedRows, search]
+  );
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -63,7 +70,7 @@ export default function RefCellEditor(props: RefCellEditorProps) {
       if (selectedIndex === 0) {
         selectValue('');
       } else if (selectedIndex > 0 && selectedIndex <= filtered.length) {
-        selectValue(filtered[selectedIndex - 1][INTERNAL_ROW_ID]);
+        selectValue(filtered[selectedIndex - 1].row[INTERNAL_ROW_ID]);
       }
     } else if (e.key === 'Escape') {
       stopEditing();
@@ -87,13 +94,13 @@ export default function RefCellEditor(props: RefCellEditorProps) {
         >
           <em>Clear</em>
         </div>
-        {filtered.map((row, i) => (
+        {filtered.map((r, i) => (
           <div
-            key={row[INTERNAL_ROW_ID]}
-            className={`ref-editor-option ${selectedIndex === i + 1 ? 'selected' : ''} ${row[INTERNAL_ROW_ID] === props.value ? 'current' : ''}`}
-            onClick={() => selectValue(row[INTERNAL_ROW_ID])}
+            key={r.row[INTERNAL_ROW_ID]}
+            className={`ref-editor-option ${selectedIndex === i + 1 ? 'selected' : ''} ${r.row[INTERNAL_ROW_ID] === props.value ? 'current' : ''}`}
+            onClick={() => selectValue(r.row[INTERNAL_ROW_ID])}
           >
-            {getDisplayText(row) || <span style={{ opacity: 0.5 }}>Row {row[INTERNAL_ROW_ID]}</span>}
+            {r.displayText || <span style={{ opacity: 0.5 }}>Row {r.row[INTERNAL_ROW_ID]}</span>}
           </div>
         ))}
         {filtered.length === 0 && (

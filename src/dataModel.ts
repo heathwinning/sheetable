@@ -319,6 +319,75 @@ export class DataModel {
     return target.rows.find(r => r[INTERNAL_ROW_ID] === rowId);
   }
 
+  /**
+   * Resolve a dot-notation column path through reference chains.
+   * E.g. "city.name" on table "customers" means: look up the "city" column (a reference),
+   * follow it to the referenced row, and return the "name" column value.
+   * Supports arbitrary depth (e.g. "city.country.name").
+   * Returns '' if any link in the chain is missing.
+   */
+  resolveColumnPath(tableName: string, row: Row, path: string): string {
+    const parts = path.split('.');
+    const tableData = this.tables.get(tableName);
+    if (!tableData) return '';
+
+    const colName = parts[0];
+    const value = row[colName] ?? '';
+
+    if (parts.length === 1) {
+      // Single column — but check if this column is a reference and auto-resolve
+      const col = tableData.schema.columns.find(c => c.name === colName);
+      if (col?.type === 'reference' && col.refTable && value) {
+        const refRow = this.getReferencedRow(col.refTable, value);
+        if (!refRow) return '';
+        // Use the reference's own display columns to resolve
+        const displayCols = col.refDisplayColumns ?? [];
+        if (displayCols.length > 0) {
+          return displayCols.map(dc => this.resolveColumnPath(col.refTable!, refRow, dc)).filter(Boolean).join(' · ');
+        }
+        return value;
+      }
+      return value;
+    }
+
+    // Multi-part path: first part must be a reference column
+    const col = tableData.schema.columns.find(c => c.name === colName);
+    if (!col || col.type !== 'reference' || !col.refTable || !value) return '';
+
+    const refRow = this.getReferencedRow(col.refTable, value);
+    if (!refRow) return '';
+
+    // Recurse with remaining path parts
+    return this.resolveColumnPath(col.refTable, refRow, parts.slice(1).join('.'));
+  }
+
+  /**
+   * Get available column paths for a table, expanding reference columns one level deep.
+   * Returns paths like ["name", "city.name", "city.population"] for use in ref config.
+   */
+  getColumnPaths(tableName: string): { path: string; label: string }[] {
+    const tableData = this.tables.get(tableName);
+    if (!tableData) return [];
+
+    const result: { path: string; label: string }[] = [];
+    for (const col of tableData.schema.columns) {
+      if (col.type === 'reference' && col.refTable) {
+        const refTableData = this.tables.get(col.refTable);
+        if (refTableData) {
+          for (const refCol of refTableData.schema.columns) {
+            result.push({
+              path: `${col.name}.${refCol.name}`,
+              label: `${col.name} → ${refCol.name}`,
+            });
+          }
+        }
+      } else {
+        result.push({ path: col.name, label: col.name });
+      }
+    }
+    return result;
+  }
+
   // @deprecated — use getReferenceRows instead
   getReferenceValues(refTable: string): string[] {
     const target = this.tables.get(refTable);

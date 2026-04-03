@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Select from 'react-select';
-import type { ColumnDef, ColumnType, TableSchema } from './types';
+import type { ColumnDef, ColumnType, Row, TableSchema } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import type { UseAppStateReturn } from './useAppState';
 import { useDialog } from './DialogProvider';
@@ -10,7 +10,7 @@ import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
 import type { ColDef, ValueSetterParams, CellClickedEvent } from 'ag-grid-community';
 import type { CustomCellEditorProps } from 'ag-grid-react';
 import { previewMigration, applyMigration, previewExtract } from './typeMigration';
-import type { MigrationPreview, ExtractPreview } from './typeMigration';
+import type { MigrationPreview } from './typeMigration';
 
 const typeOptions: { value: ColumnType; label: string }[] = [
   { value: 'text', label: 'Text' },
@@ -148,11 +148,8 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     refUpdates?: Partial<ColumnDef>;
   } | null>(null);
 
-  // Extract-to-table preview
-  const [extractPreview, setExtractPreview] = useState<{
-    preview: ExtractPreview;
-    colIndex: number;
-  } | null>(null);
+  // Extract-to-table preview: stores the primary column index (null = closed)
+  const [extractPreview, setExtractPreview] = useState<number | null>(null);
 
   const otherTableIds = useMemo(
     () => state.tableIds.filter(id => id !== tableId),
@@ -201,6 +198,10 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     const refSchema = state.getSchema(refTableId);
     return refSchema?.columns.map(c => c.name) ?? [];
   }, [state]);
+
+  const getRefTableColumnPaths = useCallback((refTableId: string): { path: string; label: string }[] => {
+    return state.model.getColumnPaths(refTableId);
+  }, [state.model]);
 
   // Reference config dialog
   const openRefConfigDialog = useCallback(async (colIndex: number) => {
@@ -256,7 +257,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       cellRenderer: (params: { value: string; data: { type: string; name: string; _idx: number } }) => {
         const label = typeOptions.find(o => o.value === params.value)?.label ?? params.value;
         const isRef = params.data.type === 'reference';
-        const canExtract = !isCreate && tableId && params.data.name?.trim() && !isRef;
         return React.createElement('div', {
           style: { display: 'flex', alignItems: 'center', gap: 4, width: '100%' },
         },
@@ -270,23 +270,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             title: 'Configure reference',
             style: { cursor: 'pointer', color: 'var(--ref-color, #2563eb)', fontSize: 14, lineHeight: 1, padding: '0 2px' },
           }, '✎'),
-          canExtract && React.createElement('span', {
-            onMouseDown: (e: React.MouseEvent) => {
-              e.stopPropagation();
-              e.preventDefault();
-              const idx = params.data._idx;
-              const colName = columns[idx].name.trim();
-              const rows = state.getRows(tableId!);
-              const preview = previewExtract(rows, colName, colName);
-              if (preview.uniqueValues.length === 0) {
-                setError('No values to extract — column is empty');
-                return;
-              }
-              setExtractPreview({ preview, colIndex: idx });
-            },
-            title: 'Extract to reference table',
-            style: { cursor: 'pointer', color: 'var(--text-muted, #888)', fontSize: 14, lineHeight: 1, padding: '0 2px' },
-          }, '⤴'),
         );
       },
       valueSetter: (params: ValueSetterParams) => {
@@ -444,58 +427,80 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     state.updateSchema(tableId, buildSchema(newColumns));
   };
 
-  // Extract unique values from a column into a new reference table
-  const applyExtractNow = (colIndex: number, newTableName: string) => {
+  // Extract unique tuples from selected columns into a new reference table
+  const applyExtractNow = (primaryColIndex: number, selectedColIndices: number[], resultColumnNames: string[], newTableName: string) => {
     if (!tableId) return;
     const table = state.model.getTable(tableId);
     if (!table) return;
-    const colName = columns[colIndex].name.trim();
+    const primaryName = columns[primaryColIndex].name.trim();
+    const sourceColNames = selectedColIndices.map(i => columns[i].name.trim());
 
-    // Collect unique non-empty values
-    const uniqueValues: string[] = [];
+    // Collect unique tuples
     const seen = new Set<string>();
+    const tuples: string[][] = [];
     for (const row of table.rows) {
-      const val = row[colName] ?? '';
-      if (val !== '' && !seen.has(val)) {
-        seen.add(val);
-        uniqueValues.push(val);
+      const values = sourceColNames.map(cn => row[cn] ?? '');
+      if (values.every(v => v === '')) continue;
+      const key = JSON.stringify(values);
+      if (!seen.has(key)) {
+        seen.add(key);
+        tuples.push(values);
       }
     }
 
-    // Create the new table with a "value" column
+    // Create the new table with the user-chosen column names
     const newSchema: TableSchema = {
       name: newTableName,
-      columns: [{ name: 'value', type: 'text' as ColumnType }],
-      uniqueKeys: ['value'],
+      columns: resultColumnNames.map(name => ({ name, type: 'text' as ColumnType })),
+      uniqueKeys: resultColumnNames,
     };
-    const newRows = uniqueValues.map(v => ({ value: v }));
+    const newRows = tuples.map(tuple => {
+      const row: Row = {};
+      resultColumnNames.forEach((name, i) => { row[name] = tuple[i]; });
+      return row;
+    });
     state.createTable(newSchema, newRows);
 
-    // Build a map from value → _rowId in the new table
+    // Build a map from tuple → _rowId in the new table
     const newTable = state.model.getTable(newTableName);
     if (!newTable) return;
-    const valueToRowId = new Map<string, string>();
+    const tupleToRowId = new Map<string, string>();
     for (const row of newTable.rows) {
-      valueToRowId.set(row['value'], row[INTERNAL_ROW_ID]);
+      const values = resultColumnNames.map(cn => row[cn] ?? '');
+      tupleToRowId.set(JSON.stringify(values), row[INTERNAL_ROW_ID]);
     }
 
-    // Migrate source column: replace values with _rowId references
+    // Migrate source rows: primary column gets _rowId, other extracted columns cleared
     for (const row of table.rows) {
-      const val = row[colName] ?? '';
-      if (val !== '') {
-        row[colName] = valueToRowId.get(val) ?? '';
+      const values = sourceColNames.map(cn => row[cn] ?? '');
+      if (values.every(v => v === '')) continue;
+      const key = JSON.stringify(values);
+      row[primaryName] = tupleToRowId.get(key) ?? '';
+      for (const cn of sourceColNames) {
+        if (cn !== primaryName) delete row[cn];
       }
     }
 
-    // Update local column state to reference type
+    // Update local column state: primary → reference, remove others
+    const otherSelectedSet = new Set(selectedColIndices.filter(i => i !== primaryColIndex));
     const refUpdates: Partial<ColumnDef> = {
       type: 'reference' as ColumnType,
       refTable: newTableName,
-      refDisplayColumns: ['value'],
-      refSearchColumns: ['value'],
+      refDisplayColumns: resultColumnNames,
+      refSearchColumns: resultColumnNames,
     };
-    const newColumns = columns.map((c, i) => i === colIndex ? { ...c, ...refUpdates } : c);
+    const newColumns = columns
+      .filter((_, i) => !otherSelectedSet.has(i))
+      .map(c => c.name.trim() === primaryName ? { ...c, ...refUpdates } : c);
+
     setColumns(newColumns);
+
+    // Clean up uniqueKeys and defaultSort for removed columns
+    if (otherSelectedSet.size > 0) {
+      const removedNames = new Set([...otherSelectedSet].map(i => columns[i].name.trim()));
+      setUniqueKeys(prev => prev.filter(k => !removedNames.has(k)));
+      setDefaultSort(prev => prev.filter(s => !removedNames.has(s.column)));
+    }
 
     // Save schema immediately
     state.updateSchema(tableId, buildSchema(newColumns));
@@ -668,9 +673,27 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               suppressRowDrag={true}
             />
           </div>
-          <button className="btn-secondary btn-sm" onClick={addColumn} style={{ marginTop: 8 }}>
-            + Add Column
-          </button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button className="btn-secondary btn-sm" onClick={addColumn}>
+              + Add Column
+            </button>
+            {!isCreate && tableId && (
+              <button
+                className="btn-secondary btn-sm"
+                onClick={() => {
+                  // Find the first extractable column as the primary
+                  const idx = columns.findIndex(c => c.type !== 'reference' && c.name.trim());
+                  if (idx < 0) {
+                    setError('No extractable columns');
+                    return;
+                  }
+                  setExtractPreview(idx);
+                }}
+              >
+                Extract to Reference Table
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Reference config dialog */}
@@ -680,6 +703,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             colIndex={refDialogCol}
             otherTableIds={otherTableIds}
             getRefTableColumns={getRefTableColumns}
+            getRefTableColumnPaths={getRefTableColumnPaths}
             onUpdate={(idx, updates) => updateColumn(idx, updates)}
             onClose={() => setRefDialogCol(null)}
           />
@@ -704,20 +728,17 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         )}
 
         {/* Extract to reference table preview dialog */}
-        {extractPreview && (
+        {extractPreview !== null && (
           <ExtractPreviewDialog
-            preview={extractPreview.preview}
-            onConfirm={() => {
-              const { colIndex, preview } = extractPreview;
-              applyExtractNow(colIndex, preview.newTableName);
+            primaryColIndex={extractPreview}
+            columns={columns}
+            rows={state.getRows(tableId!)}
+            existingTables={state.tableIds}
+            onConfirm={(selectedColIndices, resultColumnNames, newTableName) => {
+              applyExtractNow(extractPreview, selectedColIndices, resultColumnNames, newTableName);
               setExtractPreview(null);
             }}
             onCancel={() => setExtractPreview(null)}
-            existingTables={state.tableIds}
-            onChangeTableName={(name) => setExtractPreview(prev => prev ? {
-              ...prev,
-              preview: { ...prev.preview, newTableName: name },
-            } : null)}
           />
         )}
 
@@ -746,10 +767,18 @@ const RefConfigDialog: React.FC<{
   colIndex: number;
   otherTableIds: string[];
   getRefTableColumns: (tableId: string) => string[];
+  getRefTableColumnPaths: (tableId: string) => { path: string; label: string }[];
   onUpdate: (index: number, updates: Partial<ColumnDef>) => void;
   onClose: () => void;
-}> = ({ col, colIndex, otherTableIds, getRefTableColumns, onUpdate, onClose }) => {
-  const refTableCols = col.refTable ? getRefTableColumns(col.refTable) : [];
+}> = ({ col, colIndex, otherTableIds, getRefTableColumnPaths, onUpdate, onClose }) => {
+  const columnPaths = col.refTable ? getRefTableColumnPaths(col.refTable) : [];
+
+  // Build label lookup for currently selected paths
+  const pathLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const cp of columnPaths) map.set(cp.path, cp.label);
+    return map;
+  }, [columnPaths]);
 
   return (
     <div className="app-dialog-overlay" onClick={onClose}>
@@ -778,9 +807,12 @@ const RefConfigDialog: React.FC<{
                 <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Display Columns</label>
                 <Select
                   isMulti
-                  value={(col.refDisplayColumns ?? []).map(cn => ({ value: cn, label: cn }))}
+                  value={(col.refDisplayColumns ?? []).map(cn => ({
+                    value: cn,
+                    label: pathLabelMap.get(cn) ?? cn,
+                  }))}
                   onChange={opts => onUpdate(colIndex, { refDisplayColumns: opts.map(o => o.value) })}
-                  options={refTableCols.map(cn => ({ value: cn, label: cn }))}
+                  options={columnPaths.map(cp => ({ value: cp.path, label: cp.label }))}
                   styles={refDialogSelectStyles}
                   placeholder="Select columns to display..."
                   menuPlacement="auto"
@@ -790,9 +822,12 @@ const RefConfigDialog: React.FC<{
                 <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Search Columns</label>
                 <Select
                   isMulti
-                  value={(col.refSearchColumns ?? []).map(cn => ({ value: cn, label: cn }))}
+                  value={(col.refSearchColumns ?? []).map(cn => ({
+                    value: cn,
+                    label: pathLabelMap.get(cn) ?? cn,
+                  }))}
                   onChange={opts => onUpdate(colIndex, { refSearchColumns: opts.map(o => o.value) })}
-                  options={refTableCols.map(cn => ({ value: cn, label: cn }))}
+                  options={columnPaths.map(cp => ({ value: cp.path, label: cp.label }))}
                   styles={refDialogSelectStyles}
                   placeholder="Select columns to search..."
                   menuPlacement="auto"
@@ -928,62 +963,168 @@ const MigrationPreviewDialog: React.FC<{
 
 // Extract to reference table preview dialog
 const ExtractPreviewDialog: React.FC<{
-  preview: ExtractPreview;
-  onConfirm: () => void;
-  onCancel: () => void;
+  primaryColIndex: number;
+  columns: ColumnDef[];
+  rows: Row[];
   existingTables: string[];
-  onChangeTableName: (name: string) => void;
-}> = ({ preview, onConfirm, onCancel, existingTables, onChangeTableName }) => {
-  const nameConflict = existingTables.includes(preview.newTableName);
-  const nameEmpty = !preview.newTableName.trim();
+  onConfirm: (selectedColIndices: number[], resultColumnNames: string[], newTableName: string) => void;
+  onCancel: () => void;
+}> = ({ primaryColIndex, columns, rows, existingTables, onConfirm, onCancel }) => {
+  const primaryCol = columns[primaryColIndex];
+
+  // Available columns for extraction: non-reference columns with names
+  const availableCols = useMemo(() =>
+    columns
+      .map((c, i) => ({ col: c, idx: i }))
+      .filter(({ col }) => col.type !== 'reference' && col.name.trim()),
+    [columns]
+  );
+
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set([primaryColIndex]));
+  const [newTableName, setNewTableName] = useState(primaryCol.name.trim());
+  const [resultNames, setResultNames] = useState<Record<number, string>>({});
+
+  const sortedSelectedIndices = useMemo(() =>
+    Array.from(selectedIndices).sort((a, b) => a - b),
+    [selectedIndices]
+  );
+
+  // Compute preview when selection changes
+  const preview = useMemo(() => {
+    const colNames = sortedSelectedIndices.map(i => columns[i].name.trim());
+    if (colNames.length === 0) return null;
+    return previewExtract(rows, colNames);
+  }, [sortedSelectedIndices, columns, rows]);
+
+  const getResultName = (idx: number) => resultNames[idx] ?? columns[idx].name.trim();
+
+  const nameConflict = existingTables.includes(newTableName.trim());
+  const nameEmpty = !newTableName.trim();
+  const noColumns = selectedIndices.size === 0;
+
+  const toggleColumn = (idx: number) => {
+    if (idx === primaryColIndex) return;
+    setSelectedIndices(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  const handleConfirm = () => {
+    const resultColumnNamesList = sortedSelectedIndices.map(i => getResultName(i));
+    onConfirm(sortedSelectedIndices, resultColumnNamesList, newTableName.trim());
+  };
 
   return (
     <div className="app-dialog-overlay" onClick={onCancel}>
-      <div className="app-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+      <div className="app-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <h3 className="app-dialog-title">
-          Extract "{preview.columnName}" to Reference Table
+          Extract to Reference Table
         </h3>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
-          {preview.uniqueValues.length} unique value{preview.uniqueValues.length !== 1 ? 's' : ''} from {preview.nonEmptyCount} non-empty cell{preview.nonEmptyCount !== 1 ? 's' : ''}
-        </div>
 
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>New Table Name</label>
           <input
             type="text"
-            value={preview.newTableName}
-            onChange={e => onChangeTableName(e.target.value)}
+            value={newTableName}
+            onChange={e => setNewTableName(e.target.value)}
             className="edit-table-input"
             style={{ width: '100%' }}
           />
           {nameConflict && (
             <div style={{ color: 'var(--danger, #dc2626)', fontSize: 11, marginTop: 4 }}>
-              A table named "{preview.newTableName}" already exists
+              A table named &quot;{newTableName}&quot; already exists
             </div>
           )}
         </div>
 
-        <div style={{ maxHeight: 200, overflow: 'auto', marginBottom: 12 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: 'var(--surface-2, #f5f6f8)' }}>
-                <th style={{ padding: '4px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Values to extract</th>
-              </tr>
-            </thead>
-            <tbody>
-              {preview.uniqueValues.map((v, i) => (
-                <tr key={i}>
-                  <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--border)', fontFamily: 'monospace' }}>
-                    {v}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* Column selection with result name editing */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>
+            Columns to Extract
+          </label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {availableCols.map(({ col, idx }) => {
+              const checked = selectedIndices.has(idx);
+              const isPrimary = idx === primaryColIndex;
+              return (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleColumn(idx)}
+                    disabled={isPrimary}
+                  />
+                  <span style={{ fontSize: 13, minWidth: 100 }}>
+                    {col.name}{isPrimary ? ' (primary)' : ''}
+                  </span>
+                  {checked && (
+                    <>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>&rarr;</span>
+                      <input
+                        type="text"
+                        value={getResultName(idx)}
+                        onChange={e => setResultNames(prev => ({ ...prev, [idx]: e.target.value }))}
+                        className="edit-table-input"
+                        style={{ flex: 1, fontSize: 12, padding: '2px 6px' }}
+                        placeholder="Column name in new table"
+                      />
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
+        {/* Summary */}
+        {preview && (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
+            {preview.uniqueTuples.length} unique {selectedIndices.size > 1 ? 'tuple' : 'value'}{preview.uniqueTuples.length !== 1 ? 's' : ''} from {preview.nonEmptyCount} non-empty row{preview.nonEmptyCount !== 1 ? 's' : ''}
+          </div>
+        )}
+
+        {/* Preview table */}
+        {preview && preview.uniqueTuples.length > 0 && (
+          <div style={{ maxHeight: 200, overflow: 'auto', marginBottom: 12 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: 'var(--surface-2, #f5f6f8)' }}>
+                  {sortedSelectedIndices.map(idx => (
+                    <th key={idx} style={{ padding: '4px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                      {getResultName(idx)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {preview.uniqueTuples.slice(0, 50).map((tuple, i) => (
+                  <tr key={i}>
+                    {tuple.map((v, j) => (
+                      <td key={j} style={{ padding: '4px 8px', borderBottom: '1px solid var(--border)', fontFamily: 'monospace' }}>
+                        {v || <span style={{ opacity: 0.3 }}>empty</span>}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {preview && preview.uniqueTuples.length > 50 && (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+            Showing 50 of {preview.uniqueTuples.length} rows
+          </div>
+        )}
+
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-          This will create a new table "{preview.newTableName}" with a "value" column, and convert this column to a reference.
+          {selectedIndices.size > 1
+            ? `This will create table "${newTableName}", convert "${primaryCol.name}" to a reference column, and remove ${selectedIndices.size - 1} other column${selectedIndices.size - 1 > 1 ? 's' : ''}.`
+            : `This will create table "${newTableName}" and convert "${primaryCol.name}" to a reference column.`
+          }
         </div>
 
         <div className="app-dialog-actions">
@@ -992,8 +1133,8 @@ const ExtractPreviewDialog: React.FC<{
           </button>
           <button
             className="app-dialog-btn app-dialog-btn-primary"
-            onClick={onConfirm}
-            disabled={nameConflict || nameEmpty}
+            onClick={handleConfirm}
+            disabled={nameConflict || nameEmpty || noColumns}
           >
             Extract
           </button>
