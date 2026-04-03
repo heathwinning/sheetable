@@ -221,6 +221,10 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     return state.getRows(refTableId);
   }, [state]);
 
+  const resolveRefPathValue = useCallback((tableId: string, row: Row, path: string): string => {
+    return state.model.resolveColumnPath(tableId, row, path);
+  }, [state.model]);
+
   const getRefTableColumnPaths = useCallback((refTableId: string): { path: string; label: string }[] => {
     return state.model.getColumnPaths(refTableId);
   }, [state.model]);
@@ -482,7 +486,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         const refMatch = refTable.rows.find(refRow =>
           pairs.every((p, i) => {
             const left = sourceValues[i].toLowerCase();
-            const right = String(refRow[p.refColumn] ?? '').trim().toLowerCase();
+            const right = String(state.model.resolveColumnPath(refTableId, refRow, p.refColumn) ?? '').trim().toLowerCase();
             return left === right;
           })
         );
@@ -861,6 +865,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             otherTableIds={otherTableIds}
             getRefTableColumns={getRefTableColumns}
             getRefTableRows={getRefTableRows}
+            resolveRefPathValue={resolveRefPathValue}
             initialTargetColIdx={migrationTargetColIdx}
             initialResultColName={migrationTargetColIdx !== null ? (columns[migrationTargetColIdx]?.name.trim() ?? '') : ''}
             onRunNormalize={applyTrimNormalizationNow}
@@ -1048,6 +1053,7 @@ const MigrationsToolsDialog: React.FC<{
   otherTableIds: string[];
   getRefTableColumns: (tableId: string) => string[];
   getRefTableRows: (tableId: string) => Row[];
+  resolveRefPathValue: (tableId: string, row: Row, path: string) => string;
   initialTargetColIdx: number | null;
   initialResultColName: string;
   onRunNormalize: (columnNames: string[]) => void;
@@ -1059,6 +1065,7 @@ const MigrationsToolsDialog: React.FC<{
   otherTableIds,
   getRefTableColumns,
   getRefTableRows,
+  resolveRefPathValue,
   initialTargetColIdx,
   initialResultColName,
   onRunNormalize,
@@ -1125,7 +1132,7 @@ const MigrationsToolsDialog: React.FC<{
       const refMatch = refRows.find(refRow =>
         validPairs.every((p, i) => {
           const left = sourceValues[i].toLowerCase();
-          const right = String(refRow[p.refColumn] ?? '').trim().toLowerCase();
+          const right = String(resolveRefPathValue(refTable, refRow, p.refColumn) ?? '').trim().toLowerCase();
           return left === right;
         })
       );
@@ -1135,7 +1142,7 @@ const MigrationsToolsDialog: React.FC<{
     }
 
     return { matched, unmatched, empty, total: rows.length };
-  }, [refTable, validPairs, rows, getRefTableRows]);
+  }, [refTable, validPairs, rows, getRefTableRows, resolveRefPathValue]);
 
   return (
     <div className="app-dialog-overlay" onClick={onClose}>
