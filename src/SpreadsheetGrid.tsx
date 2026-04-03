@@ -216,6 +216,13 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         // Show display columns instead of raw _rowId, resolving nested references
         def.valueFormatter = (params) => resolveRefDisplay(params.value);
 
+        // Sort by resolved display text (what users see), not raw hidden _rowId.
+        def.comparator = (a, b) => {
+          const left = resolveRefDisplay(a ?? '').toLocaleLowerCase();
+          const right = resolveRefDisplay(b ?? '').toLocaleLowerCase();
+          return left.localeCompare(right);
+        };
+
         // Filter on resolved display text, not raw _rowId
         def.filterValueGetter = (params) => resolveRefDisplay(params.data?.[col.name] ?? '');
 

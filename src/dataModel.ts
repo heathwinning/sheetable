@@ -43,11 +43,33 @@ export class DataModel {
   }
 
   createTable(schema: TableSchema, rows: Row[] = []): void {
-    // Assign _rowId to each existing row
-    this.rowIdCounters.set(schema.name, 0);
+    // Preserve existing _rowId values when loading from storage, and assign
+    // only for missing/duplicate IDs to keep references stable across reloads.
+    let maxCounter = 0;
+
     for (const row of rows) {
-      row[INTERNAL_ROW_ID] = this.nextRowId(schema.name);
+      const existingId = row[INTERNAL_ROW_ID]?.trim();
+      if (!existingId) continue;
+      const n = Number(existingId);
+      if (Number.isInteger(n) && n > maxCounter) {
+        maxCounter = n;
+      }
     }
+
+    this.rowIdCounters.set(schema.name, maxCounter);
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const existingId = row[INTERNAL_ROW_ID]?.trim();
+      if (existingId && !seen.has(existingId)) {
+        row[INTERNAL_ROW_ID] = existingId;
+        seen.add(existingId);
+      } else {
+        const nextId = this.nextRowId(schema.name);
+        row[INTERNAL_ROW_ID] = nextId;
+        seen.add(nextId);
+      }
+    }
+
     this.tables.set(schema.name, { schema, rows });
     this.generation.set(schema.name, 1);
     this.lastSavedGeneration.set(schema.name, 0);

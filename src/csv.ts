@@ -1,4 +1,5 @@
 import type { TableSchema, Row } from './types';
+import { INTERNAL_ROW_ID } from './types';
 
 // Parse CSV text into rows
 export function parseCSV(text: string): string[][] {
@@ -69,6 +70,10 @@ export function csvToRows(csvText: string, schema: TableSchema): Row[] {
         row[col.name] = '';
       }
     }
+    // Ensure the internal row ID key exists for downstream logic.
+    if (!(INTERNAL_ROW_ID in row)) {
+      row[INTERNAL_ROW_ID] = '';
+    }
     rows.push(row);
   }
 
@@ -77,7 +82,8 @@ export function csvToRows(csvText: string, schema: TableSchema): Row[] {
 
 // Serialize rows to CSV string
 export function rowsToCSV(schema: TableSchema, rows: Row[]): string {
-  const headers = schema.columns.map(c => c.name);
+  // Persist hidden internal IDs so references remain stable across reloads.
+  const headers = [INTERNAL_ROW_ID, ...schema.columns.map(c => c.name)];
   const lines: string[] = [];
 
   lines.push(headers.map(escapeCSVField).join(','));
