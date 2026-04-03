@@ -318,7 +318,10 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           },
         }));
 
-        return [def, ...derivedDefs];
+        if (derivedDefs.length > 0) {
+          return derivedDefs;
+        }
+        return [def];
       }
 
       // Set filter type based on column type
