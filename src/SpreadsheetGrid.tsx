@@ -393,6 +393,15 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     ];
   }, [schema, trimColumn]);
 
+  // For visible trim whitespace UI
+  const [trimCol, setTrimCol] = useState('');
+  const trimOptions = useMemo(
+    () => schema.columns
+      .filter(c => c.type !== 'image' && c.type !== 'reference')
+      .map(c => ({ value: c.name, label: c.displayName || c.name })),
+    [schema]
+  );
+
   return (
     <div className="spreadsheet-container" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
       {error && (
@@ -400,6 +409,30 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           {error}
         </div>
       )}
+
+      {/* Trim whitespace bar */}
+      <div className="bulk-edit-bar" style={{ marginBottom: 8, gap: 8, alignItems: 'center' }}>
+        <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Normalize:</span>
+        <select
+          className="bulk-edit-select"
+          value={trimCol}
+          onChange={e => setTrimCol(e.target.value)}
+          style={{ minWidth: 120 }}
+        >
+          <option value="">Column...</option>
+          {trimOptions.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        <button
+          className="btn-secondary btn-sm"
+          disabled={!trimCol}
+          onClick={() => trimCol && trimColumn(trimCol)}
+        >
+          Trim Whitespace
+        </button>
+      </div>
+
       {selectedRowIds.size > 0 && (
         <div className="bulk-edit-bar">
           <span className="bulk-edit-count">{selectedRowIds.size} row{selectedRowIds.size > 1 ? 's' : ''} selected</span>
