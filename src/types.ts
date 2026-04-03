@@ -37,6 +37,7 @@ export interface Transaction {
   tableId: string;
   type: 'update' | 'insert' | 'delete';
   rowIndex?: number; // for update/delete
+  rowId?: string; // stable row identifier (preferred for delete/undo)
   columnName?: string; // for update
   oldValue?: string;
   newValue?: string;

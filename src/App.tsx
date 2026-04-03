@@ -16,6 +16,7 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { tableId } = useParams<{ tableId: string }>();
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
+  const showAlert = useAlert();
 
   // Sync URL param to active table
   useEffect(() => {
@@ -36,6 +37,28 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
     }
     setDraggingTableId(null);
   };
+
+  const runUndo = () => {
+    const errors = state.undo();
+    if (errors.length > 0) {
+      showAlert(errors[0].message, 'Undo Failed');
+    }
+  };
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isUndo = (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z';
+      if (!isUndo) return;
+      // Avoid hijacking undo while typing in editable fields.
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return;
+      e.preventDefault();
+      runUndo();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [state]);
 
   return (
     <div className="app-body">
@@ -84,6 +107,14 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
         </div>
         {tableId && activeSchema && (
           <div className="table-tabs-actions">
+            <button
+              className="btn-secondary btn-sm"
+              onClick={runUndo}
+              disabled={!state.canUndo}
+              title="Undo (Ctrl/Cmd+Z)"
+            >
+              Undo
+            </button>
             <Link
               className="btn-secondary btn-sm"
               to={`/table/${encodeURIComponent(tableId)}/import`}

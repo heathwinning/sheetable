@@ -215,9 +215,20 @@ export class DataModel {
       if (errors.length > 0) return errors;
     }
 
-    // Fill in missing columns with empty strings, assign _rowId
+    // Fill in missing columns with empty strings, assign/preserve _rowId
     const completeRow: Row = {};
-    completeRow[INTERNAL_ROW_ID] = this.nextRowId(tx.tableId);
+    let rowId = tx.row[INTERNAL_ROW_ID]?.trim();
+    if (!rowId || table.rows.some(r => r[INTERNAL_ROW_ID] === rowId)) {
+      rowId = this.nextRowId(tx.tableId);
+    } else {
+      // Keep counter monotonic when restoring numeric IDs (e.g. undo delete)
+      const n = Number(rowId);
+      if (Number.isInteger(n)) {
+        const current = this.rowIdCounters.get(tx.tableId) ?? 0;
+        if (n > current) this.rowIdCounters.set(tx.tableId, n);
+      }
+    }
+    completeRow[INTERNAL_ROW_ID] = rowId;
     for (const col of table.schema.columns) {
       completeRow[col.name] = tx.row[col.name] ?? '';
     }
@@ -228,12 +239,16 @@ export class DataModel {
   }
 
   private applyDelete(table: TableData, tx: Transaction): ValidationError[] {
-    if (tx.rowIndex === undefined || tx.rowIndex < 0 || tx.rowIndex >= table.rows.length) {
+    let deleteIndex = tx.rowIndex;
+    if (tx.rowId) {
+      deleteIndex = table.rows.findIndex(r => r[INTERNAL_ROW_ID] === tx.rowId);
+    }
+    if (deleteIndex === undefined || deleteIndex < 0 || deleteIndex >= table.rows.length) {
       return [{ message: 'Invalid delete transaction', rowIndex: tx.rowIndex ?? -1 }];
     }
 
     // Check if any reference columns in other tables point to this row's _rowId
-    const deletedRowId = table.rows[tx.rowIndex][INTERNAL_ROW_ID];
+    const deletedRowId = table.rows[deleteIndex][INTERNAL_ROW_ID];
     for (const [, otherTable] of this.tables) {
       for (const col of otherTable.schema.columns) {
         if (col.type === 'reference' && col.refTable === table.schema.name) {
@@ -241,7 +256,7 @@ export class DataModel {
             if (otherTable.rows[i][col.name] === deletedRowId) {
               return [{
                 message: `Cannot delete this row because it is referenced by the "${otherTable.schema.name}" table`,
-                rowIndex: tx.rowIndex
+                rowIndex: deleteIndex
               }];
             }
           }
@@ -249,7 +264,7 @@ export class DataModel {
       }
     }
 
-    table.rows.splice(tx.rowIndex, 1);
+    table.rows.splice(deleteIndex, 1);
     this.bumpGeneration(tx.tableId);
     return [];
   }

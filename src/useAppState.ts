@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { DataModel } from './dataModel';
 import type { TableSchema, Row, Transaction, ValidationError } from './types';
+import { INTERNAL_ROW_ID } from './types';
 import { csvToRows, rowsToCSV } from './csv';
 import type { ProjectConfig } from './config';
 import { serializeConfig, parseConfig } from './config';
@@ -26,6 +27,8 @@ export interface UseAppStateReturn {
   applyEdit: (tableId: string, rowIndex: number, columnName: string, newValue: string) => ValidationError[];
   insertRow: (tableId: string, row: Row) => ValidationError[];
   deleteRow: (tableId: string, rowIndex: number) => ValidationError[];
+  undo: () => ValidationError[];
+  canUndo: boolean;
 
   // Dirty state
   isDirty: (tableId: string) => boolean;
@@ -67,6 +70,7 @@ export function useAppState(): UseAppStateReturn {
   const configFileIdRef = useRef<string | null>(null);
   const configDirtyRef = useRef(false);
   const revisionRef = useRef(0);
+  const undoStackRef = useRef<Transaction[]>([]);
 
   const bump = useCallback(() => setRevision(r => {
     const next = r + 1;
@@ -80,6 +84,7 @@ export function useAppState(): UseAppStateReturn {
     model.createTable(schema, rows);
     setTableOrder(prev => (prev.includes(schema.name) ? prev : [...prev, schema.name]));
     setActiveTableId(schema.name);
+    undoStackRef.current = [];
     bump();
   }, [model, bump]);
 
@@ -95,6 +100,7 @@ export function useAppState(): UseAppStateReturn {
     setTableOrder(prev => prev.filter(id => id !== tableId));
     configDirtyRef.current = true;
     setActiveTableId(prev => prev === tableId ? null : prev);
+    undoStackRef.current = [];
     bump();
   }, [model, bump]);
 
@@ -102,6 +108,7 @@ export function useAppState(): UseAppStateReturn {
     model.renameTable(oldName, newName);
     setTableOrder(prev => prev.map(id => id === oldName ? newName : id));
     setActiveTableId(prev => prev === oldName ? newName : prev);
+    undoStackRef.current = [];
     bump();
   }, [model, bump]);
 
@@ -122,6 +129,7 @@ export function useAppState(): UseAppStateReturn {
 
   const updateSchema = useCallback((tableId: string, schema: TableSchema) => {
     model.updateSchema(tableId, schema);
+    undoStackRef.current = [];
     bump();
   }, [model, bump]);
 
@@ -134,17 +142,31 @@ export function useAppState(): UseAppStateReturn {
   }, [model]);
 
   const applyEdit = useCallback((tableId: string, rowIndex: number, columnName: string, newValue: string): ValidationError[] => {
+    const table = model.getTable(tableId);
+    const oldValue = table?.rows[rowIndex]?.[columnName] ?? '';
     const tx: Transaction = {
       id: model.nextTransactionId(),
       tableId,
       type: 'update',
       rowIndex,
       columnName,
+      oldValue,
       newValue,
       timestamp: Date.now(),
     };
     const errors = model.applyTransaction(tx);
-    if (errors.length === 0) bump();
+    if (errors.length === 0) {
+      undoStackRef.current.push({
+        id: model.nextTransactionId(),
+        tableId,
+        type: 'update',
+        rowIndex,
+        columnName,
+        newValue: oldValue,
+        timestamp: Date.now(),
+      });
+      bump();
+    }
     return errors;
   }, [model, bump]);
 
@@ -157,11 +179,27 @@ export function useAppState(): UseAppStateReturn {
       timestamp: Date.now(),
     };
     const errors = model.applyTransaction(tx);
-    if (errors.length === 0) bump();
+    if (errors.length === 0) {
+      const table = model.getTable(tableId);
+      const inserted = table?.rows[table.rows.length - 1];
+      const insertedRowId = inserted?.[INTERNAL_ROW_ID];
+      if (insertedRowId) {
+        undoStackRef.current.push({
+          id: model.nextTransactionId(),
+          tableId,
+          type: 'delete',
+          rowId: insertedRowId,
+          timestamp: Date.now(),
+        });
+      }
+      bump();
+    }
     return errors;
   }, [model, bump]);
 
   const deleteRow = useCallback((tableId: string, rowIndex: number): ValidationError[] => {
+    const table = model.getTable(tableId);
+    const deletedRow = table?.rows[rowIndex] ? { ...table.rows[rowIndex] } : undefined;
     const tx: Transaction = {
       id: model.nextTransactionId(),
       tableId,
@@ -170,8 +208,32 @@ export function useAppState(): UseAppStateReturn {
       timestamp: Date.now(),
     };
     const errors = model.applyTransaction(tx);
-    if (errors.length === 0) bump();
+    if (errors.length === 0) {
+      if (deletedRow) {
+        undoStackRef.current.push({
+          id: model.nextTransactionId(),
+          tableId,
+          type: 'insert',
+          row: deletedRow,
+          timestamp: Date.now(),
+        });
+      }
+      bump();
+    }
     return errors;
+  }, [model, bump]);
+
+  const undo = useCallback((): ValidationError[] => {
+    const tx = undoStackRef.current.pop();
+    if (!tx) return [];
+    const errors = model.applyTransaction(tx);
+    if (errors.length > 0) {
+      // Put it back if undo failed so user can retry after fixing dependencies.
+      undoStackRef.current.push(tx);
+      return errors;
+    }
+    bump();
+    return [];
   }, [model, bump]);
 
   const isDirty = useCallback((tableId: string): boolean => {
@@ -210,6 +272,7 @@ export function useAppState(): UseAppStateReturn {
           model.markSaved(schema.name);
         }
         setTableOrder(config.tables.map(t => t.name));
+        undoStackRef.current = [];
         bump();
         if (config.tables.length > 0) {
           setActiveTableId(config.tables[0].name);
@@ -370,6 +433,8 @@ export function useAppState(): UseAppStateReturn {
     applyEdit,
     insertRow,
     deleteRow,
+    undo,
+    canUndo: undoStackRef.current.length > 0,
     isDirty,
     isAnyDirty,
     isSignedIn,
