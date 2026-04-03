@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { DataModel } from './dataModel';
 import type { TableSchema, Row, Transaction, ValidationError } from './types';
 import { csvToRows, rowsToCSV } from './csv';
@@ -17,6 +17,7 @@ export interface UseAppStateReturn {
   createTable: (schema: TableSchema, rows?: Row[]) => void;
   deleteTable: (tableId: string, alsoDeleteFromDrive?: boolean) => void;
   renameTable: (oldName: string, newName: string) => void;
+  reorderTables: (fromIndex: number, toIndex: number) => void;
   updateSchema: (tableId: string, schema: TableSchema) => void;
   getRows: (tableId: string) => Row[];
   getSchema: (tableId: string) => TableSchema | undefined;
@@ -51,6 +52,7 @@ export function useAppState(): UseAppStateReturn {
   const modelRef = useRef(new DataModel());
   const [revision, setRevision] = useState(0);
   const [activeTableId, setActiveTableId] = useState<string | null>(null);
+  const [tableOrder, setTableOrder] = useState<string[]>([]);
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [folderId, setFolderId] = useState<string | null>(null);
   const [folderName, setFolderName] = useState<string | null>(null);
@@ -76,6 +78,7 @@ export function useAppState(): UseAppStateReturn {
 
   const createTable = useCallback((schema: TableSchema, rows?: Row[]) => {
     model.createTable(schema, rows);
+    setTableOrder(prev => (prev.includes(schema.name) ? prev : [...prev, schema.name]));
     setActiveTableId(schema.name);
     bump();
   }, [model, bump]);
@@ -89,6 +92,7 @@ export function useAppState(): UseAppStateReturn {
       }
     }
     model.deleteTable(tableId);
+    setTableOrder(prev => prev.filter(id => id !== tableId));
     configDirtyRef.current = true;
     setActiveTableId(prev => prev === tableId ? null : prev);
     bump();
@@ -96,9 +100,25 @@ export function useAppState(): UseAppStateReturn {
 
   const renameTable = useCallback((oldName: string, newName: string) => {
     model.renameTable(oldName, newName);
+    setTableOrder(prev => prev.map(id => id === oldName ? newName : id));
     setActiveTableId(prev => prev === oldName ? newName : prev);
     bump();
   }, [model, bump]);
+
+  const reorderTables = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    setTableOrder(prev => {
+      if (fromIndex < 0 || toIndex < 0 || fromIndex >= prev.length || toIndex >= prev.length) {
+        return prev;
+      }
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+    configDirtyRef.current = true;
+    bump();
+  }, [bump]);
 
   const updateSchema = useCallback((tableId: string, schema: TableSchema) => {
     model.updateSchema(tableId, schema);
@@ -189,6 +209,7 @@ export function useAppState(): UseAppStateReturn {
           model.createTable(schema, rows);
           model.markSaved(schema.name);
         }
+        setTableOrder(config.tables.map(t => t.name));
         bump();
         if (config.tables.length > 0) {
           setActiveTableId(config.tables[0].name);
@@ -256,7 +277,10 @@ export function useAppState(): UseAppStateReturn {
     const savedRevision = revisionRef.current;
 
     try {
-      const tableIds = model.getTableIds();
+      const existingIds = model.getTableIds();
+      const orderedInConfig = tableOrder.filter(id => existingIds.includes(id));
+      const missingInOrder = existingIds.filter(id => !orderedInConfig.includes(id));
+      const tableIds = [...orderedInConfig, ...missingInOrder];
       const schemas: TableSchema[] = [];
 
       for (const tableId of tableIds) {
@@ -296,7 +320,14 @@ export function useAppState(): UseAppStateReturn {
     } finally {
       setIsSaving(false);
     }
-  }, [folderId, model, bump]);
+  }, [folderId, model, bump, tableOrder]);
+
+  const tableIds = useMemo(() => {
+    const existingIds = model.getTableIds();
+    const ordered = tableOrder.filter(id => existingIds.includes(id));
+    const remainder = existingIds.filter(id => !ordered.includes(id));
+    return [...ordered, ...remainder];
+  }, [model, revision, tableOrder]);
 
   // Auto-save: debounce 2 seconds after any change
   useEffect(() => {
@@ -326,12 +357,13 @@ export function useAppState(): UseAppStateReturn {
 
   return {
     model,
-    tableIds: model.getTableIds(),
+    tableIds,
     activeTableId,
     setActiveTableId,
     createTable,
     deleteTable,
     renameTable,
+    reorderTables,
     updateSchema,
     getRows,
     getSchema,

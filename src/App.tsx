@@ -15,6 +15,7 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 // --- Table View Page ---
 const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { tableId } = useParams<{ tableId: string }>();
+  const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
 
   // Sync URL param to active table
   useEffect(() => {
@@ -26,6 +27,16 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const activeSchema = tableId ? state.getSchema(tableId) : null;
   const activeRows = tableId ? state.getRows(tableId) : [];
 
+  const handleTabDrop = (targetId: string) => {
+    if (!draggingTableId || draggingTableId === targetId) return;
+    const fromIndex = state.tableIds.indexOf(draggingTableId);
+    const toIndex = state.tableIds.indexOf(targetId);
+    if (fromIndex >= 0 && toIndex >= 0) {
+      state.reorderTables(fromIndex, toIndex);
+    }
+    setDraggingTableId(null);
+  };
+
   return (
     <div className="app-body">
       {/* Table tabs */}
@@ -34,8 +45,23 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
           {state.tableIds.map(id => (
             <Link
               key={id}
-              className={`table-tab ${id === tableId ? 'active' : ''}`}
+              className={`table-tab ${id === tableId ? 'active' : ''} ${id === draggingTableId ? 'dragging' : ''}`}
               to={`/table/${encodeURIComponent(id)}`}
+              draggable
+              onDragStart={(e) => {
+                setDraggingTableId(id);
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', id);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                handleTabDrop(id);
+              }}
+              onDragEnd={() => setDraggingTableId(null)}
             >
               {id}
               {state.isDirty(id) && <span className="tab-dirty">●</span>}

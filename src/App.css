@@ -457,11 +457,15 @@ body {
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--text-muted);
-  cursor: pointer;
+  cursor: grab;
   font-size: 13px;
   white-space: nowrap;
   transition: all 0.15s;
   text-decoration: none;
+}
+
+.table-tab.dragging {
+  opacity: 0.45;
 }
 
 .table-tab:hover {
