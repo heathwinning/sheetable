@@ -347,6 +347,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     mode: 'multiRow' as const,
     checkboxes: true,
     headerCheckbox: true,
+    selectAll: 'filtered' as const,
     isRowSelectable,
   }), [isRowSelectable]);
 
