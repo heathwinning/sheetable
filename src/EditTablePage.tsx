@@ -482,15 +482,16 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       tupleToRowId.set(JSON.stringify(values), row[INTERNAL_ROW_ID]);
     }
 
-    // Migrate source rows: add ref column value, remove extracted columns
+    // Migrate source rows: remove extracted columns, then set the new reference value.
+    // The order matters when refColName matches one of the extracted source column names.
     for (const row of table.rows) {
       const values = sourceColNames.map(cn => row[cn] ?? '');
-      if (values.every(v => v === '')) continue;
       const key = JSON.stringify(values);
-      row[refColName] = tupleToRowId.get(key) ?? '';
+      const refValue = values.every(v => v === '') ? '' : (tupleToRowId.get(key) ?? '');
       for (const cn of sourceColNames) {
         delete row[cn];
       }
+      row[refColName] = refValue;
     }
 
     // Update local column state: remove all selected columns, add new reference column
