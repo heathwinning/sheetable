@@ -182,7 +182,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
   // Build AG Grid column definitions with valueSetter for validation
   const columnDefs: ColDef[] = useMemo(() => {
-    const cols: ColDef[] = schema.columns.map((col) => {
+    const cols: ColDef[] = schema.columns.flatMap((col) => {
       const sortEntry = (schema.defaultSort ?? []).find(s => s.column === col.name);
       const sortIdx = (schema.defaultSort ?? []).findIndex(s => s.column === col.name);
       const def: ColDef = {
@@ -284,6 +284,32 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
             },
           };
         };
+
+        const derivedDefs: ColDef[] = displayCols.map((displayPath) => ({
+          colId: `${col.name}::${displayPath}`,
+          headerName: `${col.displayName || col.name} · ${displayPath}`,
+          editable: false,
+          minWidth: 120,
+          resizable: true,
+          filter: 'agTextColumnFilter',
+          headerClass: 'reference-derived-header',
+          cellClass: 'reference-derived-cell',
+          valueGetter: (params) => {
+            const rowId = params.data?.[col.name] ?? '';
+            if (!rowId) return '';
+            const refRow = model.getReferencedRow(refTable, rowId);
+            if (!refRow) return '';
+            return model.resolveColumnPath(refTable, refRow, displayPath);
+          },
+          comparator: (a, b) => String(a ?? '').toLowerCase().localeCompare(String(b ?? '').toLowerCase()),
+          onCellClicked: (params) => {
+            if (params.data?.[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return;
+            if (params.rowIndex == null) return;
+            params.api.startEditingCell({ rowIndex: params.rowIndex, colKey: col.name });
+          },
+        }));
+
+        return [def, ...derivedDefs];
       }
 
       // Set filter type based on column type
@@ -335,7 +361,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         };
       }
 
-      return def;
+      return [def];
     });
 
     return cols;

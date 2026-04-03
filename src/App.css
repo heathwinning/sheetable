@@ -483,6 +483,17 @@ body {
   margin-left: 6px;
 }
 
+.reference-derived-header {
+  background: linear-gradient(to bottom, #eef4ff, #e5efff) !important;
+  color: #1d4ed8 !important;
+}
+
+.reference-derived-cell {
+  background: #f4f8ff !important;
+  color: #1e40af;
+  cursor: pointer;
+}
+
 .add-tab {
   color: var(--primary);
   font-size: 18px;
