@@ -139,6 +139,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     () => schema?.draftRowPosition ?? 'bottom'
   );
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ kind: 'success' | 'info'; message: string } | null>(null);
 
   // Sync local state when schema loads asynchronously (e.g. Drive reload)
   const [schemaLoaded, setSchemaLoaded] = useState(!!schema);
@@ -502,11 +503,13 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     const newColumns = columns.map((c, i) => i === colIndex ? { ...c, ...refUpdates } : c);
     setColumns(newColumns);
     state.updateSchema(tableId, buildSchema(newColumns));
-    setError(
+    setNotice({
+      kind: unmatched > 0 ? 'info' : 'success',
+      message:
       unmatched > 0
         ? `Matched ${matched} value${matched !== 1 ? 's' : ''}; ${unmatched} unmatched value${unmatched !== 1 ? 's were' : ' was'} cleared.`
-        : `Matched ${matched} value${matched !== 1 ? 's' : ''}.`
-    );
+        : `Matched ${matched} value${matched !== 1 ? 's' : ''}.`,
+    });
   };
 
   const applyTrimNormalizationNow = (columnNames: string[]) => {
@@ -526,9 +529,12 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         }
       }
     }
-    setError(trimmed > 0
-      ? `Trimmed whitespace in ${trimmed} cell${trimmed !== 1 ? 's' : ''}.`
-      : 'No whitespace to trim.');
+    setNotice({
+      kind: trimmed > 0 ? 'success' : 'info',
+      message: trimmed > 0
+        ? `Trimmed whitespace in ${trimmed} cell${trimmed !== 1 ? 's' : ''}.`
+        : 'No whitespace to trim.',
+    });
   };
 
   // Extract unique tuples from selected columns into a new reference table
@@ -626,6 +632,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
 
   const handleSave = () => {
     setError(null);
+    setNotice(null);
 
     // Validate table name
     const trimmedName = tableName.trim();
@@ -735,6 +742,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         </div>
 
         {error && <div className="edit-table-error">{error}</div>}
+        {notice && <div className={`edit-table-notice edit-table-notice-${notice.kind}`}>{notice.message}</div>}
 
         <div className="edit-table-field">
           <label>Table Name</label>
