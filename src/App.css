@@ -1487,6 +1487,7 @@ body {
 .import-page {
   display: flex;
   justify-content: center;
+  align-items: flex-start;
   padding: 20px 16px;
   flex: 1;
   overflow-y: auto;

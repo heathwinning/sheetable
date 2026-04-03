@@ -625,6 +625,9 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
 
       setImportResult({ imported, errors });
       setImporting(false);
+      if (imported > 0) {
+        navigate(`/table/${encodeURIComponent(newId)}`);
+      }
       return;
     }
 
@@ -706,7 +709,10 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
 
     setImportResult({ imported, errors });
     setImporting(false);
-  }, [tableId, schema, mappings, sourceRows, sourceHeaders, state, parseDate, resolveReference, isNewTable, newTableName, newTableColumns, showAlert]);
+    if (imported > 0) {
+      navigate(`/table/${encodeURIComponent(tableId)}`);
+    }
+  }, [tableId, schema, mappings, sourceRows, sourceHeaders, state, parseDate, resolveReference, isNewTable, newTableName, newTableColumns, showAlert, navigate]);
 
   // For existing table mode, require valid table  
   if (!isNewTable && !schema) {
