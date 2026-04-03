@@ -394,69 +394,11 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     ];
   }, [schema, trimColumn]);
 
-  // For visible trim whitespace UI
-  const [trimCol, setTrimCol] = useState('');
-  const [showTrimDialog, setShowTrimDialog] = useState(false);
-  const trimOptions = useMemo(
-    () => schema.columns
-      .filter(c => c.type !== 'image' && c.type !== 'reference')
-      .map(c => ({ value: c.name, label: c.displayName || c.name })),
-    [schema]
-  );
-
   return (
     <div className="spreadsheet-container" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 8px 0' }}>
-        <button
-          className="btn-secondary btn-sm"
-          onClick={() => setShowTrimDialog(true)}
-          disabled={trimOptions.length === 0}
-        >
-          Normalize Columns
-        </button>
-      </div>
-
       {error && (
         <div className="error-banner">
           {error}
-        </div>
-      )}
-
-      {showTrimDialog && (
-        <div className="app-dialog-overlay" onClick={() => setShowTrimDialog(false)}>
-          <div className="app-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3 className="app-dialog-title">Trim Whitespace</h3>
-            <p className="app-dialog-message">Select a column to normalize by trimming leading/trailing whitespace.</p>
-            <select
-              className="bulk-edit-select"
-              value={trimCol}
-              onChange={(e) => setTrimCol(e.target.value)}
-              style={{ width: '100%', marginBottom: 12 }}
-            >
-              <option value="">Column...</option>
-              {trimOptions.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <div className="app-dialog-actions">
-              <button
-                className="app-dialog-btn app-dialog-btn-secondary"
-                onClick={() => setShowTrimDialog(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className="app-dialog-btn app-dialog-btn-primary"
-                disabled={!trimCol}
-                onClick={() => {
-                  trimColumn(trimCol);
-                  setShowTrimDialog(false);
-                }}
-              >
-                Trim Whitespace
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
