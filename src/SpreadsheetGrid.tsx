@@ -319,7 +319,13 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         }));
 
         if (derivedDefs.length > 0) {
-          return derivedDefs;
+          const hiddenBackingDef: ColDef = {
+            ...def,
+            hide: true,
+            lockVisible: true,
+            suppressColumnsToolPanel: true,
+          };
+          return [hiddenBackingDef, ...derivedDefs];
         }
         return [def];
       }
