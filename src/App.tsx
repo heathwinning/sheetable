@@ -3,7 +3,6 @@ import { Routes, Route, useNavigate, useParams, Link } from 'react-router-dom';
 import { useAppState } from './useAppState';
 import { SpreadsheetGrid } from './SpreadsheetGrid';
 import { EditTablePage } from './EditTablePage';
-import { DebugLogger } from './DebugLogger';
 import { useAlert } from './DialogProvider';
 import { ImportPage } from './ImportPage';
 import type { UseAppStateReturn } from './useAppState';
@@ -450,8 +449,6 @@ const App: React.FC = () => {
         <Route path="/table/:tableId/import" element={<ImportPage state={state} />} />
         <Route path="/import" element={<ImportPage state={state} />} />
       </Routes>
-
-      <DebugLogger />
     </div>
   );
 };
