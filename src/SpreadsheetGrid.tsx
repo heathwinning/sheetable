@@ -137,6 +137,32 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     gridRef.current?.api.deselectAll();
   }, [bulkEditCol, bulkEditValue, selectedRowIds, rowIdToIndex, onEdit]);
 
+  const deleteSelectedRows = useCallback(() => {
+    if (selectedRowIds.size === 0) return;
+    const indices = Array.from(selectedRowIds)
+      .map(id => rowIdToIndex.get(id))
+      .filter((idx): idx is number => idx !== undefined)
+      .sort((a, b) => b - a);
+
+    let deleted = 0;
+    const errors: string[] = [];
+    for (const idx of indices) {
+      const errs = onDeleteRow(idx);
+      if (errs.length > 0) {
+        errors.push(errs[0].message);
+      } else {
+        deleted++;
+      }
+    }
+
+    if (errors.length > 0) {
+      setError(`Delete: ${deleted} removed, ${errors.length} failed — ${errors[0]}`);
+    } else {
+      setError(null);
+    }
+    gridRef.current?.api.deselectAll();
+  }, [selectedRowIds, rowIdToIndex, onDeleteRow]);
+
   const getRowId = useCallback((params: GetRowIdParams) => {
     return params.data[INTERNAL_ROW_ID] ?? 'fallback';
   }, []);
@@ -299,37 +325,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       return def;
     });
 
-    // Delete button column
-    cols.push({
-      headerName: '',
-      width: 50,
-      maxWidth: 50,
-      editable: false,
-      sortable: false,
-      filter: false,
-      cellRenderer: (params: { data: Row }) => {
-        if (params.data[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return '';
-        return '×';
-      },
-      cellStyle: (params): Record<string, string> => {
-        if (params.data[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return { cursor: 'default' };
-        return { cursor: 'pointer', textAlign: 'center', color: '#888' };
-      },
-      onCellClicked: (params) => {
-        if (params.data[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return;
-        const idx = rowIdToIndex.get(params.data[INTERNAL_ROW_ID]);
-        if (idx !== undefined) {
-          const errors = onDeleteRow(idx);
-          if (errors.length > 0) {
-            setError(errors[0].message);
-          }
-        }
-      },
-    });
-
     return cols;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schema, model, revision, rowIdToIndex, onDeleteRow, onEdit, onInsert, folderId]);
+  }, [schema, model, revision, rowIdToIndex, onEdit, onInsert, folderId]);
 
   // Style draft row with dimmer text
   const getRowClass = useCallback((params: RowClassParams) => {
@@ -447,6 +445,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           />
           <button className="btn-primary btn-sm" onClick={applyBulkEdit} disabled={!bulkEditCol}>
             Apply
+          </button>
+          <button className="btn-danger btn-sm" onClick={deleteSelectedRows}>
+            Delete Selected
           </button>
           <button className="btn-secondary btn-sm" onClick={() => gridRef.current?.api.deselectAll()}>
             Clear
