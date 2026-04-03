@@ -5,7 +5,7 @@ import { DataModel } from './dataModel';
 import { log } from './DebugLogger';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, GetMainMenuItemsParams, ColumnMovedEvent } from 'ag-grid-community';
+import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, GetMainMenuItemsParams, ColumnMovedEvent, FirstDataRenderedEvent } from 'ag-grid-community';
 import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
@@ -102,6 +102,15 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     const model = event.api.getFilterModel();
     setFilterActive(Object.keys(model).length > 0);
   }, []);
+
+  const onFirstDataRendered = useCallback((event: FirstDataRenderedEvent) => {
+    // If draft row is configured at bottom, open the table with viewport at the bottom.
+    if (draftPosition !== 'bottom') return;
+    const displayedCount = event.api.getDisplayedRowCount();
+    if (displayedCount > 0) {
+      event.api.ensureIndexVisible(displayedCount - 1, 'bottom');
+    }
+  }, [draftPosition]);
 
   const clearAllFilters = useCallback(() => {
     gridRef.current?.api.setFilterModel(null);
@@ -513,6 +522,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           rowSelection={rowSelectionConfig}
           onSelectionChanged={onSelectionChanged}
           onFilterChanged={onFilterChanged}
+          onFirstDataRendered={onFirstDataRendered}
           onColumnMoved={onColumnMoved}
           getMainMenuItems={getMainMenuItems}
         />
