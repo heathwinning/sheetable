@@ -17,6 +17,8 @@ export interface ColumnDef {
 export interface TableSchema {
   name: string;
   columns: ColumnDef[];
+  // Backing CSV filename for this table (default: <table name>.csv)
+  csvFileName?: string;
   // Column names that together form the unique key (can be one or more)
   uniqueKeys: string[];
   // Default sort when opening the table

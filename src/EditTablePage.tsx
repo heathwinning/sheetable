@@ -126,6 +126,8 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   const toBookPath = (suffix: string) => `${bookBase}${suffix}`;
 
   const [tableName, setTableName] = useState(schema?.name ?? '');
+  const [csvFileName, setCsvFileName] = useState(schema?.csvFileName ?? (schema?.name ? `${schema.name}.csv` : ''));
+  const [availableCsvFiles, setAvailableCsvFiles] = useState<string[]>([]);
   const [columns, setColumns] = useState<ColumnDef[]>(
     () => schema?.columns.map(c => ({ ...c })) ?? [
       { name: '', type: 'text' as ColumnType },
@@ -148,6 +150,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   useEffect(() => {
     if (schema && !schemaLoaded) {
       setTableName(schema.name ?? '');
+      setCsvFileName(schema.csvFileName ?? `${schema.name}.csv`);
       setColumns(schema.columns.map(c => ({ ...c })));
       setUniqueKeys(schema.uniqueKeys ?? []);
       setDefaultSort(schema.defaultSort ?? []);
@@ -155,6 +158,20 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       setSchemaLoaded(true);
     }
   }, [schema, schemaLoaded]);
+
+  useEffect(() => {
+    let cancelled = false;
+    state.listWorkbookCsvFiles()
+      .then(files => {
+        if (!cancelled) setAvailableCsvFiles(files);
+      })
+      .catch(() => {
+        if (!cancelled) setAvailableCsvFiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [state.folderId, state.listWorkbookCsvFiles]);
 
   // Type migration preview (for existing tables only)
   const [migrationPreview, setMigrationPreview] = useState<{
@@ -432,13 +449,16 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   const buildSchema = (columnOverrides?: ColumnDef[]): TableSchema => {
     const cols = columnOverrides ?? columns;
     const colNames = cols.map(c => c.name.trim());
+    const trimmedTableName = tableName.trim();
+    const trimmedCsvFileName = csvFileName.trim();
     return {
-      name: tableName.trim(),
+      name: trimmedTableName,
       columns: cols.map(c => ({
         ...c,
         name: c.name.trim(),
         displayName: c.displayName?.trim() || undefined,
       })),
+      csvFileName: trimmedCsvFileName || `${trimmedTableName}.csv`,
       uniqueKeys: uniqueKeys.filter(uk => colNames.includes(uk)),
       defaultSort: defaultSort.filter(s => colNames.includes(s.column)),
       draftRowPosition,
@@ -687,6 +707,16 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       }
     }
 
+    const trimmedCsvFileName = csvFileName.trim();
+    if (!trimmedCsvFileName) {
+      setError('CSV file name is required');
+      return;
+    }
+    if (!trimmedCsvFileName.toLowerCase().endsWith('.csv')) {
+      setError('CSV file name must end with .csv');
+      return;
+    }
+
     // Validate unique keys reference valid columns
     const colNames = columns.map(c => c.name.trim());
     for (const uk of uniqueKeys) {
@@ -718,6 +748,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     // Build schema
     const newSchema: TableSchema = {
       name: trimmedName,
+      csvFileName: trimmedCsvFileName,
       columns: columns.map(c => ({
         ...c,
         name: c.name.trim(),
@@ -786,6 +817,23 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             onChange={e => setTableName(e.target.value)}
             className="edit-table-input"
           />
+        </div>
+
+        <div className="edit-table-field">
+          <label>CSV File</label>
+          <input
+            type="text"
+            value={csvFileName}
+            onChange={e => setCsvFileName(e.target.value)}
+            className="edit-table-input"
+            placeholder="table.csv"
+            list="csv-file-options"
+          />
+          <datalist id="csv-file-options">
+            {availableCsvFiles.map(name => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
         </div>
 
         {/* New Row Position */}

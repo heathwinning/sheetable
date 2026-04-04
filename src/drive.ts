@@ -315,6 +315,12 @@ export interface DriveFolderEntry {
   name: string;
 }
 
+export interface DriveFileMeta {
+  id: string;
+  name: string;
+  mimeType: string;
+}
+
 // List immediate subfolders in a folder
 export async function listSubfolders(parentId: string): Promise<DriveFolderEntry[]> {
   const response = await gapi.client.drive.files.list({
@@ -356,6 +362,37 @@ export async function createShortcut(targetId: string, parentFolderId: string, n
     fields: 'id',
   });
   return response.result.id as string;
+}
+
+export async function getFileMeta(fileId: string): Promise<DriveFileMeta> {
+  const response = await gapi.client.request({
+    path: `/drive/v3/files/${encodeURIComponent(fileId)}`,
+    method: 'GET',
+    params: { fields: 'id,name,mimeType' },
+  });
+
+  return {
+    id: response.result.id as string,
+    name: response.result.name as string,
+    mimeType: response.result.mimeType as string,
+  };
+}
+
+export async function findShortcutInFolder(parentFolderId: string, targetId: string): Promise<string | null> {
+  const response = await gapi.client.drive.files.list({
+    q: `'${parentFolderId}' in parents and mimeType='application/vnd.google-apps.shortcut' and shortcutDetails.targetId='${targetId}' and trashed=false`,
+    fields: 'files(id)',
+    pageSize: 1,
+  });
+
+  const existing = response.result.files?.[0];
+  return existing?.id ?? null;
+}
+
+export async function ensureShortcutInFolder(parentFolderId: string, targetId: string, name?: string): Promise<string> {
+  const existing = await findShortcutInFolder(parentFolderId, targetId);
+  if (existing) return existing;
+  return createShortcut(targetId, parentFolderId, name);
 }
 
 // Upload a binary file (e.g. image) to Drive

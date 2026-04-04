@@ -12,6 +12,13 @@ export interface WorkbookInfo {
   name: string;
 }
 
+export interface WorkbookInvitePayload {
+  workbookId: string;
+  workbookName: string;
+  emailAddress: string;
+  role: 'reader' | 'writer';
+}
+
 interface LocalWorkbookSnapshot {
   name: string;
   tables: Array<{ schema: TableSchema; rows: Row[] }>;
@@ -31,6 +38,37 @@ const LOCAL_DEFAULT_WORKBOOK: WorkbookInfo = {
 
 const LOCAL_BOOKS_STORAGE_KEY = 'sheetable_local_books_v1';
 const DRIVE_BOOKS_CONFIG_FILENAME = 'sheetable.books.json';
+
+function encodeInvitePayload(payload: WorkbookInvitePayload): string {
+  const json = JSON.stringify(payload);
+  const bytes = new TextEncoder().encode(json);
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function decodeInvitePayload(token: string): WorkbookInvitePayload {
+  const normalized = token.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  const json = new TextDecoder().decode(bytes);
+  const parsed = JSON.parse(json) as Partial<WorkbookInvitePayload>;
+
+  if (!parsed.workbookId || !parsed.workbookName || !parsed.emailAddress || !parsed.role) {
+    throw new Error('Invalid invite token.');
+  }
+  if (parsed.role !== 'reader' && parsed.role !== 'writer') {
+    throw new Error('Invalid invite role.');
+  }
+
+  return {
+    workbookId: parsed.workbookId,
+    workbookName: parsed.workbookName,
+    emailAddress: parsed.emailAddress,
+    role: parsed.role,
+  };
+}
 
 function loadLocalBooksStorage(): LocalBooksStorage | null {
   try {
@@ -61,6 +99,7 @@ export interface UseAppStateReturn {
   updateSchema: (tableId: string, schema: TableSchema) => void;
   getRows: (tableId: string) => Row[];
   getSchema: (tableId: string) => TableSchema | undefined;
+  listWorkbookCsvFiles: () => Promise<string[]>;
 
   // Transaction
   applyEdit: (tableId: string, rowIndex: number, columnName: string, newValue: string) => ValidationError[];
@@ -83,6 +122,8 @@ export interface UseAppStateReturn {
   deleteWorkbook: (workbookId: string) => Promise<string | null>;
   switchWorkbook: (workbookId: string) => Promise<void>;
   shareWorkbook: (workbookId: string, emailAddress: string, role?: 'reader' | 'writer') => Promise<void>;
+  createWorkbookInviteLink: (workbookId: string, emailAddress: string, role?: 'reader' | 'writer') => Promise<string>;
+  acceptWorkbookInvite: (token: string) => Promise<WorkbookInfo>;
   signIn: () => void;
   signOut: () => void;
   isSaving: boolean;
@@ -244,7 +285,8 @@ export function useAppState(): UseAppStateReturn {
     const config = parseConfig(configText);
 
     for (const schema of config.tables) {
-      const csvFile = files.find(f => f.name === `${schema.name}.csv`);
+      const csvFileName = (schema.csvFileName?.trim() || `${schema.name}.csv`);
+      const csvFile = files.find(f => f.name === csvFileName);
       let rows: Row[] = [];
       if (csvFile) {
         fileIdsRef.current.set(schema.name, csvFile.id);
@@ -303,6 +345,7 @@ export function useAppState(): UseAppStateReturn {
     model.createTable(schema, rows);
     setTableOrder(prev => (prev.includes(schema.name) ? prev : [...prev, schema.name]));
     setActiveTableId(schema.name);
+    configDirtyRef.current = true;
     undoStackRef.current = [];
     bump();
   }, [model, bump]);
@@ -327,6 +370,7 @@ export function useAppState(): UseAppStateReturn {
     model.renameTable(oldName, newName);
     setTableOrder(prev => prev.map(id => id === oldName ? newName : id));
     setActiveTableId(prev => prev === oldName ? newName : prev);
+    configDirtyRef.current = true;
     undoStackRef.current = [];
     bump();
   }, [model, bump]);
@@ -348,6 +392,7 @@ export function useAppState(): UseAppStateReturn {
 
   const updateSchema = useCallback((tableId: string, schema: TableSchema) => {
     model.updateSchema(tableId, schema);
+    configDirtyRef.current = true;
     undoStackRef.current = [];
     bump();
   }, [model, bump]);
@@ -359,6 +404,22 @@ export function useAppState(): UseAppStateReturn {
   const getSchema = useCallback((tableId: string): TableSchema | undefined => {
     return model.getTable(tableId)?.schema;
   }, [model]);
+
+  const listWorkbookCsvFiles = useCallback(async (): Promise<string[]> => {
+    if (!isSignedIn || !folderId) {
+      const names = model.getTableIds().map(id => {
+        const schema = model.getTable(id)?.schema;
+        return schema?.csvFileName?.trim() || `${id}.csv`;
+      });
+      return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+    }
+
+    const files = await drive.listFilesInFolder(folderId);
+    return files
+      .map(f => f.name)
+      .filter(name => name.toLowerCase().endsWith('.csv'))
+      .sort((a, b) => a.localeCompare(b));
+  }, [folderId, isSignedIn, model]);
 
   const applyEdit = useCallback((tableId: string, rowIndex: number, columnName: string, newValue: string): ValidationError[] => {
     const table = model.getTable(tableId);
@@ -667,6 +728,72 @@ export function useAppState(): UseAppStateReturn {
     await drive.shareFolderWithEmail(workbookId, emailAddress, role);
   }, [isSignedIn]);
 
+  const createWorkbookInviteLink = useCallback(async (workbookId: string, emailAddress: string, role: 'reader' | 'writer' = 'writer') => {
+    if (!isSignedIn || !workbookId) {
+      throw new Error('Sign in is required to create a share invite.');
+    }
+
+    const trimmedEmail = emailAddress.trim().toLowerCase();
+    if (!trimmedEmail) {
+      throw new Error('Invite email is required.');
+    }
+
+    const workbook = workbooks.find(w => w.id === workbookId);
+    if (!workbook) {
+      throw new Error('Workbook not found.');
+    }
+
+    await shareWorkbook(workbookId, trimmedEmail, role);
+
+    const token = encodeInvitePayload({
+      workbookId,
+      workbookName: workbook.name,
+      emailAddress: trimmedEmail,
+      role,
+    });
+
+    const url = new URL(window.location.href);
+    url.hash = `/accept?invite=${encodeURIComponent(token)}`;
+    return url.toString();
+  }, [isSignedIn, shareWorkbook, workbooks]);
+
+  const acceptWorkbookInvite = useCallback(async (token: string): Promise<WorkbookInfo> => {
+    if (!isSignedIn) {
+      throw new Error('Sign in is required to accept invites.');
+    }
+
+    const invite = decodeInvitePayload(token);
+    const signedInEmail = userInfo?.email?.trim().toLowerCase();
+    if (!signedInEmail) {
+      throw new Error('Unable to verify signed-in email.');
+    }
+    if (signedInEmail !== invite.emailAddress.trim().toLowerCase()) {
+      throw new Error(`This invite is for ${invite.emailAddress}. Signed in as ${signedInEmail}.`);
+    }
+
+    let rootId = rootFolderIdRef.current;
+    if (!rootId) {
+      const rootFolder = await drive.findOrCreateFolder();
+      rootId = rootFolder.id;
+      rootFolderIdRef.current = rootId;
+    }
+
+    const sharedMeta = await drive.getFileMeta(invite.workbookId);
+    const workbookName = invite.workbookName || sharedMeta.name;
+
+    await drive.ensureShortcutInFolder(rootId, invite.workbookId, workbookName);
+
+    const existing = workbooks.find(w => w.id === invite.workbookId);
+    const nextWorkbook: WorkbookInfo = existing ?? { id: invite.workbookId, name: workbookName };
+    const nextBooks = existing ? workbooks : [...workbooks, nextWorkbook];
+
+    setWorkbooks(nextBooks);
+    await persistDriveBooksConfig(nextBooks);
+    await loadWorkbook(nextWorkbook.id, nextWorkbook.name);
+
+    return nextWorkbook;
+  }, [isSignedIn, loadWorkbook, persistDriveBooksConfig, userInfo?.email, workbooks]);
+
 
 
   const saveAll = useCallback(async () => {
@@ -683,19 +810,29 @@ export function useAppState(): UseAppStateReturn {
       const tableIds = [...orderedInConfig, ...missingInOrder];
       const schemas: TableSchema[] = [];
 
+      const filesInFolder = await drive.listFilesInFolder(folderId);
+      const fileByName = new Map(filesInFolder.map(f => [f.name, f.id]));
+
       for (const tableId of tableIds) {
         const table = model.getTable(tableId);
         if (!table) continue;
         schemas.push(table.schema);
 
         const csv = rowsToCSV(table.schema, table.rows);
-        const existingFileId = fileIdsRef.current.get(tableId);
+        const csvFileName = table.schema.csvFileName?.trim() || `${tableId}.csv`;
+        const mappedFileId = fileIdsRef.current.get(tableId);
+        const namedFileId = fileByName.get(csvFileName);
+        const existingFileId = mappedFileId && filesInFolder.some(f => f.id === mappedFileId)
+          ? mappedFileId
+          : namedFileId;
 
         if (existingFileId) {
           await drive.updateFile(existingFileId, csv);
+          fileIdsRef.current.set(tableId, existingFileId);
         } else {
-          const newFileId = await drive.createFile(`${tableId}.csv`, csv, folderId);
+          const newFileId = await drive.createFile(csvFileName, csv, folderId);
           fileIdsRef.current.set(tableId, newFileId);
+          fileByName.set(csvFileName, newFileId);
         }
 
         model.markSaved(tableId);
@@ -799,6 +936,7 @@ export function useAppState(): UseAppStateReturn {
     updateSchema,
     getRows,
     getSchema,
+    listWorkbookCsvFiles,
     applyEdit,
     insertRow,
     deleteRow,
@@ -815,6 +953,8 @@ export function useAppState(): UseAppStateReturn {
     deleteWorkbook,
     switchWorkbook,
     shareWorkbook,
+    createWorkbookInviteLink,
+    acceptWorkbookInvite,
     signIn,
     signOut: signOutHandler,
     isSaving,

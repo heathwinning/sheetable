@@ -417,6 +417,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
   const [name, setName] = useState(currentBook?.name ?? '');
   const [shareEmail, setShareEmail] = useState('');
   const [shareRole, setShareRole] = useState<'reader' | 'writer'>('writer');
+  const [shareLink, setShareLink] = useState('');
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -485,9 +486,20 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
       setStatus('Enter an email address to share.');
       return;
     }
-    await state.shareWorkbook(currentBook.id, shareEmail.trim(), shareRole);
-    setStatus(`Shared with ${shareEmail.trim()} as ${shareRole}.`);
-    setShareEmail('');
+    try {
+      const link = await state.createWorkbookInviteLink(currentBook.id, shareEmail.trim(), shareRole);
+      setShareLink(link);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+        setStatus(`Invite link copied for ${shareEmail.trim()} (${shareRole}).`);
+      } else {
+        setStatus(`Invite link generated for ${shareEmail.trim()} (${shareRole}). Copy it below.`);
+      }
+      setShareEmail('');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate invite link.';
+      setStatus(message);
+    }
   };
 
   const doDelete = async () => {
@@ -549,9 +561,30 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
               <option value="reader">Viewer</option>
             </select>
             <button className="btn-secondary" onClick={() => { void doShare(); }} disabled={!state.isSignedIn || createMode}>
-              Share
+              Generate Invite Link
             </button>
           </div>
+          {shareLink && (
+            <div className="book-settings-row" style={{ marginTop: 8 }}>
+              <input
+                className="edit-table-input"
+                type="text"
+                value={shareLink}
+                readOnly
+              />
+              <button
+                className="btn-secondary"
+                onClick={() => {
+                  if (navigator.clipboard?.writeText) {
+                    void navigator.clipboard.writeText(shareLink);
+                    setStatus('Invite link copied.');
+                  }
+                }}
+              >
+                Copy
+              </button>
+            </div>
+          )}
           {createMode && <div className="book-settings-note">Create this book first, then share it from this page.</div>}
           {!createMode && !state.isSignedIn && <div className="book-settings-note">Sign in with Google Drive to enable sharing.</div>}
         </div>
@@ -568,6 +601,70 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
         )}
 
         {status && <div className="edit-table-notice edit-table-notice-info">{status}</div>}
+      </div>
+    </div>
+  );
+};
+
+const AcceptInvitePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [status, setStatus] = useState<'idle' | 'needs-signin' | 'working' | 'done' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+  const { isSignedIn, signIn, acceptWorkbookInvite } = state;
+
+  const inviteToken = new URLSearchParams(location.search).get('invite') ?? '';
+
+  useEffect(() => {
+    if (!inviteToken) {
+      setStatus('error');
+      setMessage('Invite link is invalid or missing token.');
+      return;
+    }
+
+    if (!isSignedIn) {
+      setStatus('needs-signin');
+      setMessage('Sign in with the invited email to accept this shared book.');
+      return;
+    }
+
+    let cancelled = false;
+    setStatus('working');
+    setMessage('Accepting invite and configuring your Sheetable books...');
+
+    acceptWorkbookInvite(inviteToken)
+      .then(book => {
+        if (cancelled) return;
+        setStatus('done');
+        setMessage(`Book "${book.name}" added.`);
+        navigate(`/book/${encodeURIComponent(book.name)}`, { replace: true });
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setStatus('error');
+        setMessage(err instanceof Error ? err.message : 'Failed to accept invite.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [acceptWorkbookInvite, inviteToken, isSignedIn, navigate]);
+
+  return (
+    <div className="book-settings-page">
+      <div className="book-settings-card">
+        <h2>Accept Shared Book</h2>
+        <p>{message}</p>
+        {status === 'needs-signin' && (
+          <div className="book-settings-row">
+            <button className="btn-primary" onClick={signIn}>Sign in</button>
+          </div>
+        )}
+        {(status === 'error' || status === 'done') && (
+          <div className="book-settings-row">
+            <button className="btn-secondary" onClick={() => navigate('/', { replace: true })}>Go Home</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -713,6 +810,7 @@ const App: React.FC = () => {
             <Route path="/book/:bookId/table/:tableId/edit" element={<EditTablePage state={state} />} />
             <Route path="/book/:bookId/table/:tableId/import" element={<ImportPage state={state} />} />
             <Route path="/book/:bookId/import" element={<ImportPage state={state} />} />
+            <Route path="/accept" element={<AcceptInvitePage state={state} />} />
             <Route path="/table/new" element={<EditTablePage state={state} />} />
             <Route path="/table/:tableId" element={<TableViewPage state={state} />} />
             <Route path="/table/:tableId/edit" element={<EditTablePage state={state} />} />
