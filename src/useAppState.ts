@@ -151,6 +151,7 @@ export interface UseAppStateReturn {
   renameChartSheet: (oldName: string, newName: string) => void;
   updateChartSheet: (name: string, charts: unknown[]) => void;
   setChartSheetTable: (name: string, tableName: string) => void;
+  setChartSheetMode: (name: string, mode: 'edit' | 'display') => void;
 
   // Revision counter to trigger re-renders
   revision: number;
@@ -549,7 +550,7 @@ export function useAppState(): UseAppStateReturn {
   const createChartSheet = useCallback((name: string) => {
     if (chartSheetsRef.current.has(name)) return;
     const defaultTableName = activeTableId ?? model.getTableIds()[0] ?? undefined;
-    const cs: ChartSheet = { name, tableName: defaultTableName, charts: [] };
+    const cs: ChartSheet = { name, tableName: defaultTableName, mode: 'edit', charts: [] };
     chartSheetsRef.current.set(name, cs);
     setChartSheetOrder(prev => [...prev, name]);
     configDirtyRef.current = true;
@@ -591,6 +592,15 @@ export function useAppState(): UseAppStateReturn {
     cs.tableName = tableName;
     // Reset chart specs when source table changes to avoid stale field bindings.
     cs.charts = [];
+    configDirtyRef.current = true;
+    bump();
+  }, [bump]);
+
+  const setChartSheetMode = useCallback((name: string, mode: 'edit' | 'display') => {
+    const cs = chartSheetsRef.current.get(name);
+    if (!cs) return;
+    if (cs.mode === mode) return;
+    cs.mode = mode;
     configDirtyRef.current = true;
     bump();
   }, [bump]);
@@ -1191,6 +1201,7 @@ export function useAppState(): UseAppStateReturn {
     renameChartSheet,
     updateChartSheet,
     setChartSheetTable,
+    setChartSheetMode,
     revision,
   };
 }

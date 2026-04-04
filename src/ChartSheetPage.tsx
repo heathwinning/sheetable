@@ -1,6 +1,6 @@
-import React, { useMemo, useRef, useCallback } from 'react';
+import React, { useMemo, useRef, useCallback, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { GraphicWalker } from '@kanaries/graphic-walker';
+import { GraphicWalker, GraphicRenderer } from '@kanaries/graphic-walker';
 import '@kanaries/graphic-walker/dist/style.css';
 import type { VizSpecStore, IMutField, IChart } from '@kanaries/graphic-walker';
 import type { UseAppStateReturn } from './useAppState';
@@ -43,7 +43,14 @@ function normalizeValueForWalker(type: ColumnType, raw: unknown): unknown {
 
   if (type === 'date' || type === 'datetime') {
     const parsed = parseTemporalUnknown(raw);
-    return parsed ?? null;
+    if (!parsed) return null;
+    if (type === 'date') {
+      const y = parsed.getFullYear();
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const d = String(parsed.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return parsed.toISOString();
   }
 
   return raw;
@@ -77,12 +84,46 @@ function getColumnTypeFromPath(
   return null;
 }
 
+function collectLeafColumnPaths(
+  state: UseAppStateReturn,
+  tableName: string,
+  maxDepth = 3,
+  stack: string[] = [],
+): string[] {
+  if (maxDepth <= 0) return [];
+  const schema = state.getSchema(tableName);
+  if (!schema) return [];
+
+  const out: string[] = [];
+  for (const col of schema.columns) {
+    if (col.type === 'reference' && col.refTable) {
+      // Avoid infinite loops on cyclic references.
+      if (stack.includes(col.refTable)) continue;
+      const children = collectLeafColumnPaths(
+        state,
+        col.refTable,
+        maxDepth - 1,
+        [...stack, tableName],
+      );
+      for (const child of children) {
+        out.push(`${col.name}.${child}`);
+      }
+    } else {
+      out.push(col.name);
+    }
+  }
+
+  return out;
+}
+
 export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { bookId, chartId } = useParams<{ bookId?: string; chartId: string }>();
   const navigate = useNavigate();
   const storeRef = useRef<VizSpecStore | null>(null);
+  const lastSavedChartsRef = useRef<string>('');
 
   const chartSheet = chartId ? state.getChartSheet(chartId) : undefined;
+  const mode: 'edit' | 'display' = chartSheet?.mode ?? 'edit';
   const selectedTableName = chartSheet?.tableName && state.tableIds.includes(chartSheet.tableName)
     ? chartSheet.tableName
     : state.tableIds[0];
@@ -101,32 +142,27 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
       const displayName = col.displayName || col.name;
 
       if (col.type === 'reference' && col.refTable) {
-        // Expose the reference column itself as the resolved display value.
-        tableFields.push({
-          fid: col.name,
-          key: col.name,
-          basename: col.name,
-          name: displayName,
-          semanticType: 'nominal',
-          analyticType: 'dimension',
-        });
-
-        // Expose configured linked paths as first-class chart fields.
+        // Expose configured and discovered leaf linked paths as first-class chart fields.
         const linkedPaths = Array.from(new Set([
           ...(col.refDisplayColumns ?? []),
           ...(col.refSearchColumns ?? []),
-        ])).filter(Boolean);
+          ...collectLeafColumnPaths(state, col.refTable, 4),
+        ]))
+          .filter(Boolean)
+          .filter((path) => getColumnTypeFromPath(state, col.refTable!, path) !== 'reference');
 
         for (const path of linkedPaths) {
-          const fid = `${col.name}__ref__${path}`;
+          const fid = `${col.name}__ref__${path.replace(/\./g, '__')}`;
           const pathType = getColumnTypeFromPath(state, col.refTable, path) ?? 'text';
           const mapped = mapColumnType(pathType);
+          const prettyPath = state.model.resolveColumnPathLabel(col.refTable, path);
+          const label = `${displayName} → ${prettyPath || path.replace(/\./g, ' → ')}`;
 
           tableFields.push({
             fid,
             key: fid,
-            basename: path,
-            name: `${displayName} · ${path}`,
+            basename: label,
+            name: label,
             semanticType: mapped.semanticType,
             analyticType: mapped.analyticType,
           });
@@ -151,9 +187,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
     const tableData = rows.map((row) => {
       const mappedRow: Record<string, unknown> = {};
       for (const col of schema.columns) {
-        if (col.type === 'reference' && col.refTable) {
-          mappedRow[col.name] = state.model.resolveColumnPath(selectedTableName, row, col.name) || null;
-        } else {
+        if (col.type !== 'reference') {
           mappedRow[col.name] = normalizeValueForWalker(col.type, row[col.name]);
         }
       }
@@ -176,12 +210,72 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
     if (!chartId || !storeRef.current) return;
     const charts = storeRef.current.exportCode();
     state.updateChartSheet(chartId, charts as unknown[]);
+    lastSavedChartsRef.current = JSON.stringify(charts ?? []);
   }, [chartId, state]);
+
+  const handleToggleMode = useCallback(() => {
+    if (!chartId) return;
+
+    // Persist the latest chart layout/spec before entering display mode.
+    if (mode === 'edit' && storeRef.current) {
+      const charts = storeRef.current.exportCode();
+      state.updateChartSheet(chartId, charts as unknown[]);
+      lastSavedChartsRef.current = JSON.stringify(charts ?? []);
+      state.setChartSheetMode(chartId, 'display');
+      return;
+    }
+
+    state.setChartSheetMode(chartId, 'edit');
+  }, [chartId, mode, state]);
 
   const handleTableChange = useCallback((tableName: string) => {
     if (!chartId) return;
     state.setChartSheetTable(chartId, tableName);
   }, [chartId, state]);
+
+  const hasUnsavedChartChanges = useCallback((): boolean => {
+    const store = storeRef.current;
+    if (!store) return false;
+    const current = JSON.stringify(store.exportCode() ?? []);
+    return current !== lastSavedChartsRef.current;
+  }, []);
+
+  // Keep an in-memory snapshot to detect config changes for auto-save.
+  useEffect(() => {
+    if (!chartSheet) return;
+    lastSavedChartsRef.current = JSON.stringify(chartSheet.charts ?? []);
+  }, [chartId, chartSheet?.charts]);
+
+  // Auto-save edited charts frequently so users don't have to press Save.
+  useEffect(() => {
+    if (!chartId || mode !== 'edit') return;
+
+    const timer = window.setInterval(() => {
+      const store = storeRef.current;
+      if (!store) return;
+      const charts = store.exportCode();
+      const next = JSON.stringify(charts ?? []);
+      if (next === lastSavedChartsRef.current) return;
+      state.updateChartSheet(chartId, charts as unknown[]);
+      lastSavedChartsRef.current = next;
+    }, 1500);
+
+    return () => window.clearInterval(timer);
+  }, [chartId, mode, state]);
+
+  // Warn before browser/tab navigation when chart edits haven't been persisted yet.
+  useEffect(() => {
+    if (mode !== 'edit') return;
+
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!hasUnsavedChartChanges()) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasUnsavedChartChanges, mode]);
 
   if (!chartId || !chartSheet) {
     return (
@@ -217,6 +311,29 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
 
   return (
     <div className="app-body chart-sheet-body">
+      <div className="table-tabs-bar">
+        <div className="table-tabs">
+          {state.tableIds.map((id) => (
+            <Link
+              key={id}
+              className="table-tab"
+              to={bookPrefix(bookId) + `/table/${encodeURIComponent(id)}`}
+            >
+              {id}
+              {state.isDirty(id) && <span className="tab-dirty">●</span>}
+            </Link>
+          ))}
+          {state.chartSheetIds.map((id) => (
+            <Link
+              key={`chart-${id}`}
+              className={`table-tab chart-tab ${id === chartId ? 'active' : ''}`}
+              to={bookPrefix(bookId) + `/chart/${encodeURIComponent(id)}`}
+            >
+              📈 {id}
+            </Link>
+          ))}
+        </div>
+      </div>
       <div className="chart-sheet-toolbar">
         <label className="chart-table-select-wrap">
           <span>Table</span>
@@ -230,21 +347,37 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
             ))}
           </select>
         </label>
-        <button className="btn-primary btn-sm" onClick={handleSave}>
-          Save Charts
+        <button
+          className="btn-secondary btn-sm"
+          onClick={handleToggleMode}
+        >
+          {mode === 'edit' ? 'Display Mode' : 'Edit Mode'}
         </button>
-        <button className="btn-secondary btn-sm" onClick={() => navigate(bookPrefix(bookId))}>
-          Back
-        </button>
+        {mode === 'edit' && (
+          <button className="btn-primary btn-sm" onClick={handleSave}>
+            Save Charts
+          </button>
+        )}
       </div>
       <div className="chart-sheet-container">
-        <GraphicWalker
-          storeRef={storeRef}
-          fields={fields}
-          data={data}
-          chart={chartSheet.charts.length > 0 ? chartSheet.charts as IChart[] : undefined}
-          appearance="light"
-        />
+        {mode === 'edit' ? (
+          <GraphicWalker
+            storeRef={storeRef}
+            fields={fields}
+            rawFields={fields}
+            data={data}
+            chart={chartSheet.charts.length > 0 ? chartSheet.charts as IChart[] : undefined}
+            appearance="light"
+          />
+        ) : (
+          <GraphicRenderer
+            fields={fields}
+            rawFields={fields}
+            data={data}
+            chart={chartSheet.charts.length > 0 ? chartSheet.charts as IChart[] : undefined}
+            appearance="light"
+          />
+        )}
       </div>
     </div>
   );

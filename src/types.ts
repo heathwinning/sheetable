@@ -67,6 +67,8 @@ export interface ChartSheet {
   name: string;
   /** Selected source table for this chart sheet */
   tableName?: string;
+  /** Chart sheet mode persisted in config */
+  mode?: 'edit' | 'display';
   /** Persisted chart configurations (from VizSpecStore.exportCode()) */
   charts: unknown[];
 }

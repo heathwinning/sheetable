@@ -353,7 +353,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
         const derivedDefs: ColDef[] = displayCols.map((displayPath) => ({
           colId: `${col.name}::${displayPath}`,
-          headerName: `${col.displayName || col.name} · ${displayPath}`,
+          headerName: `${col.displayName || col.name} → ${model.resolveColumnPathLabel(refTable, displayPath)}`,
           editable: true,
           minWidth: 120,
           resizable: true,

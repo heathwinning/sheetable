@@ -406,7 +406,7 @@ const DriveStatusButton: React.FC<{ state: UseAppStateReturn }> = ({ state }) =>
   );
 };
 
-const BookSidebar: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
+const BookSidebar: React.FC<{ state: UseAppStateReturn; onMinimize: () => void }> = ({ state, onMinimize }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const routeBookMatch = location.pathname.match(/^\/book\/([^/]+)/);
@@ -437,12 +437,20 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   return (
     <aside className="book-sidebar">
       <div className="book-sidebar-header">
-        <span className="book-sidebar-title">Books</span>
-        <button className="btn-secondary btn-sm" onClick={() => { void onCreate(); }} disabled={state.isConnecting}>
-          New
+        <button
+          className="book-sidebar-toggle"
+          onClick={onMinimize}
+          title="Minimize books"
+          aria-label="Minimize books"
+        >
+          ⟨
         </button>
+        <span className="book-sidebar-title">Books</span>
       </div>
       <div className="book-sidebar-list">
+        <button className="book-sidebar-nav-new" onClick={() => { void onCreate(); }} disabled={state.isConnecting}>
+          + New Book
+        </button>
         {state.workbooks.map(book => {
           const isActive = book.name === routeBookName;
           return (
@@ -734,6 +742,7 @@ const AcceptInvitePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => 
 // --- Main App Shell ---
 const App: React.FC = () => {
   const state = useAppState();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const showAlert = useAlert();
   const location = useLocation();
   const navigate = useNavigate();
@@ -859,7 +868,19 @@ const App: React.FC = () => {
       </header>
 
       <div className="app-shell">
-        <BookSidebar state={state} />
+        {sidebarCollapsed && (
+          <aside className="book-sidebar-rail">
+            <button
+              className="book-sidebar-toggle"
+              onClick={() => setSidebarCollapsed(false)}
+              title="Show books"
+              aria-label="Show books"
+            >
+              ☰
+            </button>
+          </aside>
+        )}
+        {!sidebarCollapsed && <BookSidebar state={state} onMinimize={() => setSidebarCollapsed(true)} />}
         <div className="app-main">
           <Routes>
             <Route path="/" element={<HomePage state={state} />} />

@@ -447,6 +447,41 @@ export class DataModel {
   }
 
   /**
+   * Resolve a dot-notation column path into a human-readable label chain.
+   * Uses column displayName when available, falling back to column name.
+   */
+  resolveColumnPathLabel(tableName: string, path: string, separator = ' → '): string {
+    const parts = path.split('.').filter(Boolean);
+    if (parts.length === 0) return '';
+
+    const labels: string[] = [];
+    let currentTable = tableName;
+
+    for (const part of parts) {
+      const tableData = this.tables.get(currentTable);
+      if (!tableData) {
+        labels.push(part);
+        break;
+      }
+
+      const col = tableData.schema.columns.find(c => c.name === part);
+      if (!col) {
+        labels.push(part);
+        break;
+      }
+
+      labels.push(col.displayName || col.name);
+
+      if (col.type !== 'reference' || !col.refTable) {
+        break;
+      }
+      currentTable = col.refTable;
+    }
+
+    return labels.join(separator);
+  }
+
+  /**
    * Get available column paths for a table, expanding reference columns one level deep.
    * Returns paths like ["name", "city.name", "city.population"] for use in ref config.
    */
