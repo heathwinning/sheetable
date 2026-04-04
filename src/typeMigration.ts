@@ -1,4 +1,5 @@
 import type { ColumnType, Row } from './types';
+import { DATE_FORMATS } from './dateFormatsList';
 
 export interface ConversionResult {
   value: string;
@@ -30,7 +31,7 @@ export interface PendingMigration {
  * Convert a single value from one type to another.
  * Empty strings always convert to empty strings.
  */
-export function convertValue(value: string, fromType: ColumnType, toType: ColumnType): ConversionResult {
+export function convertValue(value: string, fromType: ColumnType, toType: ColumnType, dateFormat?: string): ConversionResult {
   if (value === '') return { value: '' };
   if (fromType === toType) return { value };
 
@@ -76,9 +77,8 @@ export function convertValue(value: string, fromType: ColumnType, toType: Column
   if (toType === 'date') {
     if (fromType === 'datetime') {
       // Strip time: take YYYY-MM-DD portion
-      const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+      const match = value.match(/^\d{4}-\d{2}-\d{2}/);
       if (match) return { value: match[1] };
-      // Try parsing
       const d = new Date(value);
       if (!isNaN(d.getTime())) {
         return { value: d.toISOString().slice(0, 10) };
@@ -86,13 +86,13 @@ export function convertValue(value: string, fromType: ColumnType, toType: Column
       return { value: '', error: `"${value}" is not a valid date` };
     }
     // text or other → date
-    // Try YYYY-MM-DD first
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value) && !isNaN(Date.parse(value))) {
-      return { value };
-    }
-    const d = new Date(value);
-    if (!isNaN(d.getTime())) {
-      return { value: d.toISOString().slice(0, 10) };
+    if (dateFormat) {
+      const fmt = DATE_FORMATS.find(f => f.value === dateFormat);
+      if (fmt) {
+        const parsed = fmt.parse(value);
+        if (parsed) return { value: parsed };
+      }
+      return { value: '', error: `"${value}" does not match selected format` };
     }
     return { value: '', error: `"${value}" cannot be parsed as a date` };
   }
@@ -100,15 +100,17 @@ export function convertValue(value: string, fromType: ColumnType, toType: Column
   // → datetime
   if (toType === 'datetime') {
     if (fromType === 'date') {
-      // Append midnight time
       if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
         return { value: value + 'T00:00' };
       }
     }
-    // text or other → datetime
-    const d = new Date(value);
-    if (!isNaN(d.getTime())) {
-      return { value: d.toISOString().slice(0, 16) }; // YYYY-MM-DDTHH:mm
+    if (dateFormat) {
+      const fmt = DATE_FORMATS.find(f => f.value === dateFormat);
+      if (fmt) {
+        const parsed = fmt.parse(value);
+        if (parsed) return { value: parsed + 'T00:00' };
+      }
+      return { value: '', error: `"${value}" does not match selected format` };
     }
     return { value: '', error: `"${value}" cannot be parsed as a datetime` };
   }
@@ -151,6 +153,7 @@ export function previewMigration(
   columnName: string,
   fromType: ColumnType,
   toType: ColumnType,
+  dateFormat?: string,
 ): MigrationPreview {
   let nonEmptyCount = 0;
   let successCount = 0;
@@ -162,7 +165,7 @@ export function previewMigration(
     if (original === '') continue;
     nonEmptyCount++;
 
-    const result = convertValue(original, fromType, toType);
+    const result = convertValue(original, fromType, toType, dateFormat);
     if (result.error) {
       errorCount++;
     } else {
@@ -207,12 +210,13 @@ export function applyMigration(
   columnName: string,
   fromType: ColumnType,
   toType: ColumnType,
+  dateFormat?: string,
 ): number {
   let errorCount = 0;
   for (const row of rows) {
     const original = row[columnName] ?? '';
     if (original === '') continue;
-    const result = convertValue(original, fromType, toType);
+    const result = convertValue(original, fromType, toType, dateFormat);
     row[columnName] = result.value;
     if (result.error) errorCount++;
   }

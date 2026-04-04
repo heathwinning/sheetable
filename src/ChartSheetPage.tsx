@@ -311,29 +311,6 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
 
   return (
     <div className="app-body chart-sheet-body">
-      <div className="table-tabs-bar">
-        <div className="table-tabs">
-          {state.tableIds.map((id) => (
-            <Link
-              key={id}
-              className="table-tab"
-              to={bookPrefix(bookId) + `/table/${encodeURIComponent(id)}`}
-            >
-              {id}
-              {state.isDirty(id) && <span className="tab-dirty">●</span>}
-            </Link>
-          ))}
-          {state.chartSheetIds.map((id) => (
-            <Link
-              key={`chart-${id}`}
-              className={`table-tab chart-tab ${id === chartId ? 'active' : ''}`}
-              to={bookPrefix(bookId) + `/chart/${encodeURIComponent(id)}`}
-            >
-              📈 {id}
-            </Link>
-          ))}
-        </div>
-      </div>
       <div className="chart-sheet-toolbar">
         <label className="chart-table-select-wrap">
           <span>Table</span>

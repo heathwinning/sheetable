@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Select from 'react-select';
+import { DATE_FORMATS } from './dateFormatsList';
 import type { ColumnDef, ColumnType, Row, TableSchema } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import type { UseAppStateReturn } from './useAppState';
@@ -108,6 +109,7 @@ const selectStyles = {
     cursor: 'pointer',
   }),
   singleValue: (base: Record<string, unknown>) => ({ ...base, color: 'var(--text)' }),
+  multiValue: (base: Record<string, unknown>) => ({ ...base, background: 'var(--cell-selected, #e0e7ff)' }),
   input: (base: Record<string, unknown>) => ({ ...base, color: 'var(--text)' }),
   placeholder: (base: Record<string, unknown>) => ({ ...base, color: 'var(--text-muted)' }),
   indicatorSeparator: () => ({ display: 'none' }),
@@ -190,6 +192,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     colIndex: number;
     newType: ColumnType;
     refUpdates?: Partial<ColumnDef>;
+    dateFormat?: string;
   } | null>(null);
 
   // Unified migrations/normalization dialog state
@@ -476,14 +479,14 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   };
 
   // Immediately apply a type migration and save the schema
-  const applyMigrationNow = (colIndex: number, newType: ColumnType, refUpdates: Partial<ColumnDef>) => {
+  const applyMigrationNow = (colIndex: number, newType: ColumnType, refUpdates: Partial<ColumnDef>, dateFormat?: string) => {
     if (!tableId) return;
     const table = state.model.getTable(tableId);
     if (!table) return;
     const colName = columns[colIndex].name.trim();
     const oldType = columns[colIndex].type;
     // Migrate data in-place
-    applyMigration(table.rows, colName, oldType, newType);
+    applyMigration(table.rows, colName, oldType, newType, dateFormat);
     // Update local column state
     const newColumns = columns.map((c, i) => i === colIndex ? { ...c, ...refUpdates } : c);
     setColumns(newColumns);
@@ -1032,12 +1035,24 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         {migrationPreview && (
           <MigrationPreviewDialog
             preview={migrationPreview.preview}
+            dateFormat={migrationPreview.dateFormat}
+            onDateFormatChange={(fmt: string) => {
+              setMigrationPreview(prev => {
+                if (!prev) return prev;
+                // Recompute preview with new dateFormat
+                const table = tableId ? state.model.getTable(tableId) : undefined;
+                const rows = table ? table.rows : [];
+                const colName = columns[prev.colIndex].name.trim();
+                const oldType = columns[prev.colIndex].type;
+                const preview = previewMigration(rows, colName, oldType, prev.newType, fmt);
+                return { ...prev, dateFormat: fmt, preview };
+              });
+            }}
             onConfirm={() => {
               const { colIndex, newType, refUpdates } = migrationPreview;
-              // Apply migration and save immediately
-              applyMigrationNow(colIndex, newType, refUpdates!);
+              const dateFormat = migrationPreview.dateFormat;
+              applyMigrationNow(colIndex, newType, refUpdates!, dateFormat);
               setMigrationPreview(null);
-              // Open ref dialog if switching to reference
               if (newType === 'reference') {
                 requestAnimationFrame(() => setRefDialogCol(colIndex));
               }
@@ -1430,11 +1445,20 @@ const MigrationsToolsDialog: React.FC<{
 // Migration preview dialog component
 const MigrationPreviewDialog: React.FC<{
   preview: MigrationPreview;
+  dateFormat?: string;
+  onDateFormatChange?: (fmt: string) => void;
   onConfirm: () => void;
   onCancel: () => void;
-}> = ({ preview, onConfirm, onCancel }) => {
+}> = ({ preview, dateFormat, onDateFormatChange, onConfirm, onCancel }) => {
   const fromLabel = typeOptions.find(o => o.value === preview.fromType)?.label ?? preview.fromType;
   const toLabel = typeOptions.find(o => o.value === preview.toType)?.label ?? preview.toType;
+
+  const needsDateFormat = preview.fromType === 'text' && (preview.toType === 'date' || preview.toType === 'datetime');
+
+  type OptionType = { value: string; label: string };
+
+  const dateFormatOptions: OptionType[] = DATE_FORMATS.filter((f: any) => f.value !== 'auto').map((f: any) => ({ value: f.value, label: f.label }));
+  const selectedDateFormat = dateFormatOptions.find((o: OptionType) => o.value === dateFormat) ?? null;
 
   return (
     <div className="app-dialog-overlay" onClick={onCancel}>
@@ -1455,6 +1479,24 @@ const MigrationPreviewDialog: React.FC<{
             </span>
           )}
         </div>
+
+        {/* Date format selection dropdown */}
+        {needsDateFormat && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>
+              Select date format for conversion
+            </label>
+            <Select<OptionType>
+              options={dateFormatOptions}
+              value={selectedDateFormat}
+              onChange={opt => onDateFormatChange?.(opt?.value ?? '')}
+              styles={selectStyles}
+              placeholder="Choose date format..."
+              menuPlacement="auto"
+              isClearable={false}
+            />
+          </div>
+        )}
 
         {preview.samples.length > 0 && (
           <div style={{ maxHeight: 240, overflow: 'auto', marginBottom: 12 }}>
@@ -1499,7 +1541,11 @@ const MigrationPreviewDialog: React.FC<{
           <button className="app-dialog-btn app-dialog-btn-secondary" onClick={onCancel}>
             Cancel
           </button>
-          <button className="app-dialog-btn app-dialog-btn-primary" onClick={onConfirm}>
+          <button
+            className="app-dialog-btn app-dialog-btn-primary"
+            onClick={onConfirm}
+            disabled={needsDateFormat && !dateFormat}
+          >
             {preview.errorCount > 0 ? `Convert (${preview.errorCount} will be cleared)` : 'Convert'}
           </button>
         </div>

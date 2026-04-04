@@ -97,17 +97,18 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 10px;
+  padding: 2px 8px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  min-height: 36px;
-  gap: 8px;
+  min-height: 30px;
+  gap: 6px;
 }
 
 .app-title {
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   color: var(--primary);
   white-space: nowrap;
+  line-height: 1;
 }
 
 .header-left {
@@ -125,10 +126,128 @@ body {
   justify-content: center;
 }
 
+.header-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  padding: 0 4px;
+}
+
+.header-tabs::-webkit-scrollbar {
+  height: 3px;
+}
+
+.header-tabs::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
 .header-right {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Header action buttons */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-right: 1px solid var(--border);
+  padding-right: 8px;
+  margin-right: 0;
+}
+
+.header-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  height: 28px;
+  min-width: 28px;
+  line-height: 1;
+  box-sizing: border-box;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.header-action-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.header-action-btn:disabled {
+  opacity: 0.5;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: not-allowed;
+}
+
+.header-action-btn:disabled:hover {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.header-action-btn svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.header-action-dropdown-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.header-action-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 100;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  min-width: 180px;
+  padding: 4px;
+}
+
+.header-action-dropdown-item {
+  display: block;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  text-decoration: none;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.header-action-dropdown-item:hover {
+  background: var(--cell-selected);
+}
+
+@media (max-width: 640px) {
+  .header-action-label {
+    display: none;
+  }
+  .header-action-btn {
+    padding: 4px 6px;
+  }
 }
 
 .app-shell {
@@ -138,14 +257,19 @@ body {
 }
 
 .book-sidebar-rail {
-  width: 40px;
-  flex: 0 0 40px;
+  width: 30px;
+  flex: 0 0 30px;
   border-right: 1px solid var(--border);
   background: var(--surface);
-  padding: 6px 6px;
+  padding: 4px 3px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
+}
+
+/* Sidebar overlay — mobile only */
+.sidebar-overlay {
+  display: none;
 }
 
 .app-main {
@@ -177,16 +301,17 @@ body {
 
 .book-sidebar-toggle {
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--surface);
   color: var(--text-muted);
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
+  font-size: 12px;
 }
 
 .book-sidebar-toggle:hover {
@@ -196,7 +321,7 @@ body {
 .book-sidebar-nav-new {
   width: 100%;
   border: 1px dashed var(--border);
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
   border-radius: 8px;
   padding: 8px 10px;
@@ -259,7 +384,7 @@ body {
 
 .book-sidebar-edit {
   border: 1px solid var(--border);
-  background: white;
+  background: var(--surface);
   color: var(--text-muted);
   padding: 4px 8px;
   border-radius: 6px;
@@ -273,15 +398,73 @@ body {
 
 @media (max-width: 768px) {
   .book-sidebar {
-    width: 168px;
-    flex: 0 0 168px;
-    padding: 6px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 220px;
+    z-index: 500;
+    box-shadow: 4px 0 16px rgba(0,0,0,0.15);
   }
 
   .book-sidebar-rail {
-    width: 36px;
-    flex: 0 0 36px;
-    padding: 6px 4px;
+    width: 28px;
+    flex: 0 0 28px;
+    padding: 4px 3px;
+  }
+
+  .app-header {
+    padding: 2px 6px;
+    gap: 4px;
+  }
+
+  .app-title {
+    font-size: 0.8rem;
+  }
+
+  .table-tab {
+    padding: 5px 10px;
+    font-size: 11px;
+  }
+
+  .app-dialog {
+    min-width: 0;
+    width: 95%;
+    max-width: 95%;
+    padding: 18px;
+  }
+
+  .dialog {
+    width: 95%;
+    padding: 18px;
+  }
+
+  .book-settings-card {
+    padding: 12px;
+  }
+
+  .edit-table-card {
+    padding: 14px;
+  }
+
+  .import-card {
+    padding: 14px;
+  }
+
+  .book-settings-row {
+    flex-wrap: wrap;
+  }
+
+  .chart-sheet-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 499;
   }
 }
 
@@ -334,7 +517,7 @@ body {
 .book-settings-row .workbook-toolbar-select {
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: white;
+  background: var(--surface);
   color: var(--text);
   height: 34px;
   min-width: 140px;
@@ -366,12 +549,19 @@ body {
 }
 
 .drive-btn-signin {
-  padding: 6px 14px;
-  gap: 6px;
+  padding: 3px 10px;
+  gap: 4px;
   border-radius: 6px;
   font-weight: 500;
+  font-size: 12px;
+  line-height: 1;
   color: var(--primary);
   border-color: var(--primary);
+}
+
+.drive-btn-signin svg {
+  width: 13px;
+  height: 13px;
 }
 
 .drive-btn-signin:hover {
@@ -443,7 +633,7 @@ body {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  background: white;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.12);
@@ -810,7 +1000,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 13px;
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
   min-width: 120px;
 }
@@ -822,7 +1012,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 13px;
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
 }
 
@@ -839,7 +1029,7 @@ body {
 
 /* Reference cell editor */
 .ref-editor {
-  background: #ffffff;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   width: 260px;
@@ -1058,18 +1248,18 @@ body {
   color: white;
 }
 
-/* Dialogs */
+/* Dialogs — unified theming */
 .dialog-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 2000;
 }
 
 .dialog {
@@ -1081,6 +1271,7 @@ body {
   width: 90%;
   max-height: 80vh;
   overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }
 
 .dialog h2 {
@@ -1596,21 +1787,22 @@ body {
   border-top: 1px solid var(--border);
 }
 
-/* Image preview dialog */
+/* Image preview dialog — unified with app-dialog theming */
 .image-dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 2000;
 }
 
 .image-dialog {
-  background: #ffffff;
-  border-radius: 10px;
-  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
   max-width: 90vw;
   max-height: 90vh;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
@@ -1697,7 +1889,7 @@ body {
 
 /* Date picker cell editor */
 .date-cell-editor {
-  background: #fff;
+  background: var(--surface);
   border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   padding: 4px;
@@ -1715,7 +1907,8 @@ body {
 }
 
 .app-dialog {
-  background: #ffffff;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 24px;
   min-width: 320px;
@@ -1742,7 +1935,7 @@ body {
   padding: 8px 10px;
   margin-bottom: 16px;
   font-size: 14px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 6px;
   outline: none;
   box-sizing: border-box;
@@ -1769,7 +1962,7 @@ body {
 }
 
 .app-dialog-btn-secondary {
-  background: var(--bg-muted);
+  background: var(--surface-2);
   color: var(--text);
 }
 
@@ -1814,7 +2007,7 @@ body {
 }
 
 .import-card {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 20px 24px;
@@ -1877,7 +2070,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: var(--bg-muted);
+  background: var(--surface-2);
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
@@ -2002,7 +2195,7 @@ body {
 }
 
 .import-preview th {
-  background: var(--bg-muted);
+  background: var(--surface-2);
   padding: 6px 10px;
   text-align: left;
   font-weight: 600;
@@ -2151,7 +2344,7 @@ body {
 .add-sheet-dropdown {
   position: fixed;
   z-index: 100;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.12);
@@ -2204,9 +2397,9 @@ body {
 .chart-table-select {
   min-width: 160px;
   height: 26px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
   padding: 0 8px;
 }

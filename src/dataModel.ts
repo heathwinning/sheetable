@@ -360,8 +360,8 @@ export class DataModel {
         }
         break;
       case 'date':
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || isNaN(Date.parse(value))) {
-          return [{ message: `"${value}" is not a valid date (YYYY-MM-DD)`, rowIndex, columnName }];
+          if (!/^\d{4}[-\/]\d{2}[-\/]\d{2}$/.test(value) || isNaN(Date.parse(value.replace(/\//g, '-')))) {
+            return [{ message: `"${value}" is not a valid date (YYYY/MM/DD)`, rowIndex, columnName }];
         }
         break;
       case 'datetime':

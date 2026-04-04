@@ -4,7 +4,7 @@ import { useAppState } from './useAppState';
 import { SpreadsheetGrid } from './SpreadsheetGrid';
 import { EditTablePage } from './EditTablePage';
 import { ChartSheetPage } from './ChartSheetPage';
-import { useAlert, usePromptInput } from './DialogProvider';
+import { useAlert, usePromptInput, useConfirm } from './DialogProvider';
 import { ImportPage } from './ImportPage';
 import type { UseAppStateReturn } from './useAppState';
 import './App.css';
@@ -75,10 +75,47 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({
   );
 };
 
+// --- Import Menu (dropdown combining import options) ---
+const ImportMenu: React.FC<{ bookId?: string; tableId: string }> = ({ bookId, tableId }) => {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node) &&
+          btnRef.current && !btnRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div className="header-action-dropdown-wrap">
+      <button ref={btnRef} className="header-action-btn" onClick={() => setOpen(o => !o)} title="Import data">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span className="header-action-label">Import</span>
+      </button>
+      {open && (
+        <div className="header-action-dropdown" ref={menuRef} onClick={() => setOpen(false)}>
+          <Link className="header-action-dropdown-item" to={withBook(bookId, `/table/${encodeURIComponent(tableId)}/import`)}>
+            Import into "{tableId}"
+          </Link>
+          <Link className="header-action-dropdown-item" to={withBook(bookId, '/import')}>
+            Import as new table
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // --- Table View Page ---
 const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { tableId, bookId } = useParams<{ tableId: string; bookId?: string }>();
-  const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
   const showAlert = useAlert();
 
   // Sync URL param to active table
@@ -90,16 +127,6 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
   const activeSchema = tableId ? state.getSchema(tableId) : null;
   const activeRows = tableId ? state.getRows(tableId) : [];
-
-  const handleTabDrop = (targetId: string) => {
-    if (!draggingTableId || draggingTableId === targetId) return;
-    const fromIndex = state.tableIds.indexOf(draggingTableId);
-    const toIndex = state.tableIds.indexOf(targetId);
-    if (fromIndex >= 0 && toIndex >= 0) {
-      state.reorderTables(fromIndex, toIndex);
-    }
-    setDraggingTableId(null);
-  };
 
   const runUndo = () => {
     const errors = state.undo();
@@ -125,85 +152,6 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
   return (
     <div className="app-body">
-      {/* Table tabs */}
-      <div className="table-tabs-bar">
-        <div className="table-tabs">
-          {state.tableIds.map(id => (
-            <Link
-              key={id}
-              className={`table-tab ${id === tableId ? 'active' : ''} ${id === draggingTableId ? 'dragging' : ''}`}
-              to={withBook(bookId, `/table/${encodeURIComponent(id)}`)}
-              draggable
-              onDragStart={(e) => {
-                setDraggingTableId(id);
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('text/plain', id);
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                handleTabDrop(id);
-              }}
-              onDragEnd={() => setDraggingTableId(null)}
-            >
-              {id}
-              {state.isDirty(id) && <span className="tab-dirty">●</span>}
-            </Link>
-          ))}
-          {/* Chart sheet tabs */}
-          {state.chartSheetIds.map(id => (
-            <Link
-              key={`chart-${id}`}
-              className={`table-tab chart-tab`}
-              to={withBook(bookId, `/chart/${encodeURIComponent(id)}`)}
-            >
-              📈 {id}
-            </Link>
-          ))}
-          {state.isConnecting ? (
-            <span className="table-tab add-tab disabled" title="Loading tables from Drive…" style={{ opacity: 0.5, cursor: 'default', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="drive-status-dot connecting" style={{ position: 'static', border: 'none' }} />
-              Loading…
-            </span>
-          ) : (
-            <AddSheetMenu state={state} bookId={bookId} />
-          )}
-        </div>
-        {tableId && activeSchema && (
-          <div className="table-tabs-actions">
-            <button
-              className="btn-secondary btn-sm"
-              onClick={runUndo}
-              disabled={!state.canUndo}
-              title="Undo (Ctrl/Cmd+Z)"
-            >
-              Undo
-            </button>
-            <Link
-              className="btn-secondary btn-sm"
-              to={withBook(bookId, `/table/${encodeURIComponent(tableId)}/import`)}
-            >
-              Import
-            </Link>
-            <Link
-              className="btn-secondary btn-sm"
-              to={withBook(bookId, '/import')}
-            >
-              Import New
-            </Link>
-            <Link
-              className="btn-secondary btn-sm table-tabs-edit"
-              to={withBook(bookId, `/table/${encodeURIComponent(tableId)}/edit`)}
-            >
-              Edit Table
-            </Link>
-          </div>
-        )}
-      </div>
-
       {/* Main content */}
       <div className="main-content">
         {tableId && activeSchema ? (
@@ -273,9 +221,6 @@ const HomePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
   return (
     <div className="app-body">
-      <div className="table-tabs">
-        <AddSheetMenu state={state} bookId={bookId} />
-      </div>
       <div className="main-content">
         <div className="empty-state-main">
           <h2>No tables yet</h2>
@@ -480,6 +425,7 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn; onMinimize: () => void }
 const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolean }> = ({ state, createMode = false }) => {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const effectiveBookName = createMode ? '' : (bookId ?? state.folderName ?? '');
   const currentBook = state.workbooks.find(b => b.name === effectiveBookName);
 
@@ -573,7 +519,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
 
   const doDelete = async () => {
     if (createMode || !currentBook) return;
-    const confirmed = window.confirm(`Delete book "${currentBook.name}"? This cannot be undone.`);
+    const confirmed = await confirm(`Delete book "${currentBook.name}"? This cannot be undone.`, 'Delete Book');
     if (!confirmed) return;
     const nextName = await state.deleteWorkbook(currentBook.id);
     if (nextName) {
@@ -853,34 +799,111 @@ const App: React.FC = () => {
     );
   }
 
+  // Derive current book route for header tabs
+  const headerBookMatch = location.pathname.match(/^\/book\/([^/]+)/);
+  const headerBookId = headerBookMatch ? decodeURIComponent(headerBookMatch[1]) : undefined;
+  const isOnSheetRoute = /\/(table|chart)\//.test(location.pathname) || location.pathname.match(/^\/book\/[^/]+$/);
+
+  // Derive active table ID for header actions
+  const tableMatch = location.pathname.match(/\/table\/([^/]+)$/);
+  const headerTableId = tableMatch ? decodeURIComponent(tableMatch[1]) : null;
+  const isTableView = !!headerTableId && !location.pathname.includes('/edit') && !location.pathname.includes('/import');
+
+  const runUndo = () => {
+    const errors = state.undo();
+    if (errors.length > 0) {
+      void showAlert(errors[0].message, 'Undo Failed');
+    }
+  };
   return (
     <div className="app">
       {/* Top bar */}
       <header className="app-header">
         <div className="header-left">
+          <button
+            className="book-sidebar-toggle"
+            onClick={() => setSidebarCollapsed(c => !c)}
+            title={sidebarCollapsed ? 'Show books' : 'Hide books'}
+            aria-label={sidebarCollapsed ? 'Show books' : 'Hide books'}
+          >
+            ☰
+          </button>
           <Link to="/" className="app-title-link">
             <h1 className="app-title">Sheetable</h1>
           </Link>
         </div>
+        {isOnSheetRoute && (state.tableIds.length > 0 || state.chartSheetIds.length > 0) && (
+          <div className="header-tabs">
+            {state.tableIds.map(id => {
+              const isActive = location.pathname.includes(`/table/${encodeURIComponent(id)}`);
+              return (
+                <Link
+                  key={id}
+                  className={`table-tab ${isActive ? 'active' : ''}`}
+                  to={withBook(headerBookId, `/table/${encodeURIComponent(id)}`)}
+                >
+                  {id}
+                  {state.isDirty(id) && <span className="tab-dirty">●</span>}
+                </Link>
+              );
+            })}
+            {state.chartSheetIds.map(id => {
+              const isActive = location.pathname.includes(`/chart/${encodeURIComponent(id)}`);
+              return (
+                <Link
+                  key={`chart-${id}`}
+                  className={`table-tab chart-tab ${isActive ? 'active' : ''}`}
+                  to={withBook(headerBookId, `/chart/${encodeURIComponent(id)}`)}
+                >
+                  📈 {id}
+                </Link>
+              );
+            })}
+            {state.isConnecting ? (
+              <span className="table-tab add-tab disabled" title="Loading…" style={{ opacity: 0.5, cursor: 'default' }}>
+                <span className="drive-status-dot connecting" style={{ position: 'static', border: 'none' }} />
+              </span>
+            ) : (
+              <AddSheetMenu state={state} bookId={headerBookId} />
+            )}
+          </div>
+        )}
         <div className="header-right">
+          {isTableView && headerTableId && (
+            <div className="header-actions">
+              <button
+                className="header-action-btn"
+                onClick={runUndo}
+                disabled={!state.canUndo}
+                title="Undo (Ctrl/Cmd+Z)"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'block',margin:'0 auto'}}>
+                  <path d="M3 12h13a5 5 0 1 1 0 10h-1" />
+                  <polyline points="8 17 3 12 8 7" />
+                </svg>
+              </button>
+              <ImportMenu bookId={headerBookId} tableId={headerTableId} />
+              <Link
+                className="header-action-btn"
+                to={withBook(headerBookId, `/table/${encodeURIComponent(headerTableId)}/edit`)}
+                title="Edit table schema"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                <span className="header-action-label">Edit</span>
+              </Link>
+            </div>
+          )}
           <DriveStatusButton state={state} />
         </div>
       </header>
 
       <div className="app-shell">
-        {sidebarCollapsed && (
-          <aside className="book-sidebar-rail">
-            <button
-              className="book-sidebar-toggle"
-              onClick={() => setSidebarCollapsed(false)}
-              title="Show books"
-              aria-label="Show books"
-            >
-              ☰
-            </button>
-          </aside>
+        {!sidebarCollapsed && (
+          <>
+            <div className="sidebar-overlay" onClick={() => setSidebarCollapsed(true)} />
+            <BookSidebar state={state} onMinimize={() => setSidebarCollapsed(true)} />
+          </>
         )}
-        {!sidebarCollapsed && <BookSidebar state={state} onMinimize={() => setSidebarCollapsed(true)} />}
         <div className="app-main">
           <Routes>
             <Route path="/" element={<HomePage state={state} />} />
