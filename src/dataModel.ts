@@ -108,6 +108,54 @@ export class DataModel {
     }
   }
 
+  renameColumn(tableId: string, oldName: string, newName: string): void {
+    const table = this.tables.get(tableId);
+    if (!table) return;
+    if (!oldName || !newName || oldName === newName) return;
+
+    // Rewrite dependent reference paths before mutating schemas so path traversal
+    // can still resolve old segment names.
+    for (const [, otherTable] of this.tables) {
+      for (const col of otherTable.schema.columns) {
+        if (col.type !== 'reference' || !col.refTable) continue;
+        const startTable = col.refTable;
+        if (col.refDisplayColumns) {
+          col.refDisplayColumns = col.refDisplayColumns.map(path =>
+            this.rewritePathForColumnRename(startTable, path, tableId, oldName, newName)
+          );
+        }
+        if (col.refSearchColumns) {
+          col.refSearchColumns = col.refSearchColumns.map(path =>
+            this.rewritePathForColumnRename(startTable, path, tableId, oldName, newName)
+          );
+        }
+      }
+    }
+
+    // Rename row keys.
+    for (const row of table.rows) {
+      if (oldName in row) {
+        row[newName] = row[oldName] ?? '';
+        delete row[oldName];
+      }
+    }
+
+    // Rename schema column and schema-level references.
+    for (const col of table.schema.columns) {
+      if (col.name === oldName) {
+        col.name = newName;
+      }
+    }
+    table.schema.uniqueKeys = (table.schema.uniqueKeys ?? []).map(k => (k === oldName ? newName : k));
+    if (table.schema.defaultSort) {
+      table.schema.defaultSort = table.schema.defaultSort.map(s =>
+        s.column === oldName ? { ...s, column: newName } : s
+      );
+    }
+
+    this.bumpGeneration(tableId);
+  }
+
   updateSchema(tableId: string, newSchema: TableSchema): void {
     const table = this.tables.get(tableId);
     if (!table) return;
@@ -434,5 +482,30 @@ export class DataModel {
 
   nextTransactionId(): number {
     return ++this.transactionId;
+  }
+
+  private rewritePathForColumnRename(
+    startTable: string,
+    path: string,
+    targetTable: string,
+    oldName: string,
+    newName: string,
+  ): string {
+    const parts = path.split('.');
+    let currentTable = startTable;
+
+    for (let i = 0; i < parts.length; i++) {
+      const rawSegment = parts[i];
+      const segment = currentTable === targetTable && rawSegment === oldName ? newName : rawSegment;
+      parts[i] = segment;
+
+      const tableData = this.tables.get(currentTable);
+      if (!tableData) break;
+      const nextCol = tableData.schema.columns.find(c => c.name === rawSegment);
+      if (!nextCol || nextCol.type !== 'reference' || !nextCol.refTable) break;
+      currentTable = nextCol.refTable;
+    }
+
+    return parts.join('.');
   }
 }

@@ -1600,6 +1600,39 @@ body {
   background: var(--danger);
 }
 
+.image-cell-indicator {
+  display: inline-block;
+  width: 16px;
+  height: 12px;
+  border: 1px solid #6b7280;
+  border-radius: 2px;
+  position: relative;
+  vertical-align: middle;
+  background: linear-gradient(135deg, #d1d5db 0%, #e5e7eb 100%);
+}
+
+.image-cell-indicator::before {
+  content: '';
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  top: 2px;
+  right: 2px;
+  background: #6b7280;
+}
+
+.image-cell-indicator::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  width: 9px;
+  height: 5px;
+  background: #9ca3af;
+  clip-path: polygon(0 100%, 30% 45%, 50% 70%, 75% 30%, 100% 100%);
+}
+
 /* Date picker cell editor */
 .date-cell-editor {
   background: #fff;
@@ -1640,6 +1673,22 @@ body {
   font-size: 14px;
   color: var(--text-muted);
   line-height: 1.5;
+}
+
+.app-dialog-input {
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.app-dialog-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(66, 99, 235, 0.15);
 }
 
 .app-dialog-actions {
@@ -2031,4 +2080,79 @@ body {
 .import-col-name-input:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+/* --- Add Sheet Menu --- */
+.add-sheet-menu-wrapper {
+  position: relative;
+}
+.add-sheet-dropdown {
+  position: fixed;
+  z-index: 100;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  min-width: 160px;
+  padding: 4px 0;
+}
+.add-sheet-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  text-decoration: none;
+  text-align: left;
+}
+.add-sheet-option:hover {
+  background: var(--cell-selected, #e0e7ff);
+}
+.add-sheet-icon {
+  font-size: 15px;
+}
+
+/* --- Chart Sheet --- */
+.chart-sheet-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.chart-sheet-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg, #fff);
+}
+.chart-table-select-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+.chart-table-select {
+  min-width: 180px;
+  height: 30px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  padding: 0 8px;
+}
+.chart-sheet-container {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+.chart-tab {
+  font-style: italic;
 }

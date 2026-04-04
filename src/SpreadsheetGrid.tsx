@@ -9,8 +9,16 @@ import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, Selecti
 import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
+import { normalizeTemporalString, parseTemporalUnknown } from './dateFormat';
 
 const DRAFT_ROW_ID = '_draft';
+
+function toSortableDateEpoch(value: unknown): number {
+  const parsed = parseTemporalUnknown(value);
+  if (!parsed) return Number.POSITIVE_INFINITY;
+  const ts = parsed.getTime();
+  return Number.isNaN(ts) ? Number.POSITIVE_INFINITY : ts;
+}
 
 interface SpreadsheetGridProps {
   schema: TableSchema;
@@ -138,12 +146,16 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
   const applyBulkEdit = useCallback(() => {
     if (!bulkEditCol || selectedRowIds.size === 0) return;
+    const bulkColType = schema.columns.find(c => c.name === bulkEditCol)?.type;
+    const normalizedBulkValue = bulkColType
+      ? normalizeTemporalString(bulkEditValue, bulkColType)
+      : bulkEditValue;
     let successCount = 0;
     const errors: string[] = [];
     for (const rowId of selectedRowIds) {
       const idx = rowIdToIndex.get(rowId);
       if (idx === undefined) continue;
-      const errs = onEdit(idx, bulkEditCol, bulkEditValue);
+      const errs = onEdit(idx, bulkEditCol, normalizedBulkValue);
       if (errs.length > 0) {
         errors.push(errs[0].message);
       } else {
@@ -157,7 +169,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     }
     setBulkEditValue('');
     gridRef.current?.api.deselectAll();
-  }, [bulkEditCol, bulkEditValue, selectedRowIds, rowIdToIndex, onEdit]);
+  }, [bulkEditCol, bulkEditValue, schema.columns, selectedRowIds, rowIdToIndex, onEdit]);
 
   const deleteSelectedRows = useCallback(() => {
     if (selectedRowIds.size === 0) return;
@@ -202,7 +214,8 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         resizable: true,
         ...(sortEntry ? { sort: sortEntry.direction, sortIndex: sortIdx } : {}),
         valueSetter: (params: ValueSetterParams) => {
-            const newValue = params.newValue ?? '';
+          const rawValue = String(params.newValue ?? '');
+          const newValue = normalizeTemporalString(rawValue, col.type);
             const oldValue = params.oldValue ?? '';
             log('valueSetter', col.name, 'old:', oldValue, 'new:', newValue);
             if (newValue === oldValue) return false;
@@ -374,8 +387,14 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       // Set filter type based on column type
       if (col.type === 'integer' || col.type === 'decimal') {
         def.filter = 'agNumberColumnFilter';
+        def.comparator = (a, b) => {
+          const na = a == null || a === '' ? -Infinity : Number(a);
+          const nb = b == null || b === '' ? -Infinity : Number(b);
+          return na - nb;
+        };
       } else if (col.type === 'date' || col.type === 'datetime') {
         def.filter = 'agDateColumnFilter';
+        def.comparator = (a, b) => toSortableDateEpoch(a) - toSortableDateEpoch(b);
       } else if (col.type !== 'image') {
         def.filter = 'agTextColumnFilter';
       }
@@ -395,7 +414,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         def.cellEditorPopupPosition = 'under';
       }
 
-      // Image columns: thumbnail renderer, click to open dialog
+      // Image columns: icon indicator in-cell, click to open upload/preview dialog
       if (col.type === 'image') {
         def.cellRenderer = ImageCellRenderer;
         def.editable = false;

@@ -3,7 +3,8 @@ import { Routes, Route, useNavigate, useParams, Link, useLocation, Navigate } fr
 import { useAppState } from './useAppState';
 import { SpreadsheetGrid } from './SpreadsheetGrid';
 import { EditTablePage } from './EditTablePage';
-import { useAlert } from './DialogProvider';
+import { ChartSheetPage } from './ChartSheetPage';
+import { useAlert, usePromptInput } from './DialogProvider';
 import { ImportPage } from './ImportPage';
 import type { UseAppStateReturn } from './useAppState';
 import './App.css';
@@ -13,6 +14,66 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 const bookPrefix = (bookName?: string) => (bookName ? `/book/${encodeURIComponent(bookName)}` : '');
 const withBook = (bookName: string | undefined, suffix: string) => `${bookPrefix(bookName)}${suffix}`;
+
+// --- Add Sheet Menu (dropdown for "+ Spreadsheet" / "+ Chart") ---
+const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({ state, bookId }) => {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const navigate = useNavigate();
+  const promptInput = usePromptInput();
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node) &&
+          btnRef.current && !btnRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const toggle = () => {
+    if (!open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 2, left: rect.left });
+    }
+    setOpen(o => !o);
+  };
+
+  const addChart = async () => {
+    setOpen(false);
+    const name = await promptInput('Enter a name for the chart sheet:', 'New Chart Sheet', 'Chart name');
+    if (!name?.trim()) return;
+    state.createChartSheet(name.trim());
+    navigate(withBook(bookId, `/chart/${encodeURIComponent(name.trim())}`));
+  };
+
+  return (
+    <>
+      <button ref={btnRef} className="table-tab add-tab" onClick={toggle} title="Add sheet">
+        +
+      </button>
+      {open && (
+        <div className="add-sheet-dropdown" ref={menuRef} style={{ top: pos.top, left: pos.left }}>
+          <Link
+            className="add-sheet-option"
+            to={withBook(bookId, '/table/new')}
+            onClick={() => setOpen(false)}
+          >
+            <span className="add-sheet-icon">📊</span> Spreadsheet
+          </Link>
+          <button className="add-sheet-option" onClick={addChart}>
+            <span className="add-sheet-icon">📈</span> Chart
+          </button>
+        </div>
+      )}
+    </>
+  );
+};
 
 // --- Table View Page ---
 const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
@@ -92,19 +153,23 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               {state.isDirty(id) && <span className="tab-dirty">●</span>}
             </Link>
           ))}
+          {/* Chart sheet tabs */}
+          {state.chartSheetIds.map(id => (
+            <Link
+              key={`chart-${id}`}
+              className={`table-tab chart-tab`}
+              to={withBook(bookId, `/chart/${encodeURIComponent(id)}`)}
+            >
+              📈 {id}
+            </Link>
+          ))}
           {state.isConnecting ? (
             <span className="table-tab add-tab disabled" title="Loading tables from Drive…" style={{ opacity: 0.5, cursor: 'default', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span className="drive-status-dot connecting" style={{ position: 'static', border: 'none' }} />
               Loading…
             </span>
           ) : (
-            <Link
-              className="table-tab add-tab"
-              to={withBook(bookId, '/table/new')}
-              title="Create new table"
-            >
-              +
-            </Link>
+            <AddSheetMenu state={state} bookId={bookId} />
           )}
         </div>
         {tableId && activeSchema && (
@@ -195,25 +260,21 @@ const HomePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { bookId } = useParams<{ bookId?: string }>();
   const navigate = useNavigate();
 
-  // Auto-redirect to first table
+  // Auto-redirect to first table or chart sheet
   useEffect(() => {
     if (state.tableIds.length > 0) {
       navigate(withBook(bookId, `/table/${encodeURIComponent(state.tableIds[0])}`), { replace: true });
+    } else if (state.chartSheetIds.length > 0) {
+      navigate(withBook(bookId, `/chart/${encodeURIComponent(state.chartSheetIds[0])}`), { replace: true });
     }
-  }, [state.tableIds, navigate, bookId]);
+  }, [state.tableIds, state.chartSheetIds, navigate, bookId]);
 
-  if (state.tableIds.length > 0) return null;
+  if (state.tableIds.length > 0 || state.chartSheetIds.length > 0) return null;
 
   return (
     <div className="app-body">
       <div className="table-tabs">
-        <Link
-          className="table-tab add-tab"
-          to={withBook(bookId, '/table/new')}
-          title="Create new table"
-        >
-          +
-        </Link>
+        <AddSheetMenu state={state} bookId={bookId} />
       </div>
       <div className="main-content">
         <div className="empty-state-main">
@@ -806,6 +867,7 @@ const App: React.FC = () => {
             <Route path="/book/:bookId" element={<HomePage state={state} />} />
             <Route path="/book/:bookId/table/new" element={<EditTablePage state={state} />} />
             <Route path="/book/:bookId/table/:tableId" element={<TableViewPage state={state} />} />
+            <Route path="/book/:bookId/chart/:chartId" element={<ChartSheetPage state={state} />} />
             <Route path="/book/:bookId/settings" element={<BookSettingsPage state={state} />} />
             <Route path="/book/:bookId/table/:tableId/edit" element={<EditTablePage state={state} />} />
             <Route path="/book/:bookId/table/:tableId/import" element={<ImportPage state={state} />} />
@@ -816,6 +878,7 @@ const App: React.FC = () => {
             <Route path="/table/:tableId/edit" element={<EditTablePage state={state} />} />
             <Route path="/table/:tableId/import" element={<ImportPage state={state} />} />
             <Route path="/import" element={<ImportPage state={state} />} />
+            <Route path="/chart/:chartId" element={<ChartSheetPage state={state} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

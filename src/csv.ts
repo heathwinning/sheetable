@@ -1,5 +1,6 @@
 import type { TableSchema, Row } from './types';
 import { INTERNAL_ROW_ID } from './types';
+import { normalizeTemporalString } from './dateFormat';
 
 // Parse CSV text into rows
 export function parseCSV(text: string): string[][] {
@@ -57,12 +58,16 @@ export function csvToRows(csvText: string, schema: TableSchema): Row[] {
   if (parsed.length === 0) return [];
 
   const headers = parsed[0];
+  const columnTypeByName = new Map(schema.columns.map(col => [col.name, col.type]));
   const rows: Row[] = [];
 
   for (let i = 1; i < parsed.length; i++) {
     const row: Row = {};
     for (let j = 0; j < headers.length; j++) {
-      row[headers[j]] = parsed[i][j] ?? '';
+      const header = headers[j];
+      const raw = parsed[i][j] ?? '';
+      const colType = columnTypeByName.get(header);
+      row[header] = colType ? normalizeTemporalString(raw, colType) : raw;
     }
     // Fill in any schema columns not in CSV
     for (const col of schema.columns) {
@@ -84,12 +89,18 @@ export function csvToRows(csvText: string, schema: TableSchema): Row[] {
 export function rowsToCSV(schema: TableSchema, rows: Row[]): string {
   // Persist hidden internal IDs so references remain stable across reloads.
   const headers = [INTERNAL_ROW_ID, ...schema.columns.map(c => c.name)];
+  const columnTypeByName = new Map(schema.columns.map(col => [col.name, col.type]));
   const lines: string[] = [];
 
   lines.push(headers.map(escapeCSVField).join(','));
 
   for (const row of rows) {
-    const fields = headers.map(h => escapeCSVField(row[h] ?? ''));
+    const fields = headers.map(h => {
+      const raw = row[h] ?? '';
+      const colType = columnTypeByName.get(h);
+      const normalized = colType ? normalizeTemporalString(raw, colType) : raw;
+      return escapeCSVField(normalized);
+    });
     lines.push(fields.join(','));
   }
 

@@ -1,9 +1,10 @@
 // Google Drive API integration
 // Uses Google Identity Services (GIS) for OAuth2
 
-const SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/spreadsheets.readonly';
+const SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email openid';
 const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
 const SHEETS_DISCOVERY_DOC = 'https://sheets.googleapis.com/$discovery/rest?version=v4';
+const SHEETS_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY || '';
 
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
 let accessToken: string | null = null;
@@ -386,18 +387,24 @@ export async function getFileMeta(fileId: string): Promise<DriveFileMeta> {
 
 export async function findShortcutInFolder(parentFolderId: string, targetId: string): Promise<string | null> {
   const response = await gapi.client.drive.files.list({
-    q: `'${parentFolderId}' in parents and mimeType='application/vnd.google-apps.shortcut' and shortcutDetails.targetId='${targetId}' and trashed=false`,
-    fields: 'files(id)',
-    pageSize: 1,
+    q: `'${parentFolderId}' in parents and mimeType='application/vnd.google-apps.shortcut' and trashed=false`,
+    fields: 'files(id, shortcutDetails/targetId)',
+    pageSize: 100,
   });
 
-  const existing = response.result.files?.[0];
+  const existing = (response.result.files ?? []).find(f =>
+    (f as { shortcutDetails?: { targetId?: string } }).shortcutDetails?.targetId === targetId
+  );
   return existing?.id ?? null;
 }
 
 export async function ensureShortcutInFolder(parentFolderId: string, targetId: string, name?: string): Promise<string> {
-  const existing = await findShortcutInFolder(parentFolderId, targetId);
-  if (existing) return existing;
+  try {
+    const existing = await findShortcutInFolder(parentFolderId, targetId);
+    if (existing) return existing;
+  } catch {
+    // Ignore lookup errors and try creating the shortcut directly.
+  }
   return createShortcut(targetId, parentFolderId, name);
 }
 
@@ -517,11 +524,11 @@ export interface SheetTab {
 }
 
 export async function getSpreadsheetSheets(spreadsheetId: string): Promise<SheetTab[]> {
-  const token = getAccessToken();
-  if (!token) throw new Error('Not authenticated');
+  if (!SHEETS_API_KEY) {
+    throw new Error('Missing VITE_GOOGLE_API_KEY for Google Sheets tab lookup.');
+  }
   const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=${encodeURIComponent('sheets.properties(sheetId,title)')}`,
-    { headers: { Authorization: `Bearer ${token}` } },
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=${encodeURIComponent('sheets.properties(sheetId,title)')}&key=${encodeURIComponent(SHEETS_API_KEY)}`,
   );
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -535,13 +542,11 @@ export async function getSpreadsheetSheets(spreadsheetId: string): Promise<Sheet
 }
 
 export async function exportSheetAsCSV(spreadsheetId: string, gid?: number): Promise<string> {
-  const token = getAccessToken();
-  if (!token) throw new Error('Not authenticated');
   let url = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(spreadsheetId)}/export?format=csv`;
   if (gid !== undefined) {
     url += `&gid=${gid}`;
   }
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(`Failed to export sheet: ${res.status}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to export sheet: ${res.status}. Ensure the sheet is shared publicly (Anyone with the link can view).`);
   return res.text();
 }

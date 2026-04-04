@@ -17,7 +17,9 @@ export interface ColumnDef {
 export interface TableSchema {
   name: string;
   columns: ColumnDef[];
-  // Backing CSV filename for this table (default: <table name>.csv)
+  // Backing CSV file ID in Drive
+  csvFileId?: string;
+  // Legacy field kept only for backwards compatibility with older configs.
   csvFileName?: string;
   // Column names that together form the unique key (can be one or more)
   uniqueKeys: string[];
@@ -58,6 +60,15 @@ export interface AppState {
   schemas: Record<string, TableSchema>;
   generation: Record<string, number>; // dirty tracking per table
   lastSavedGeneration: Record<string, number>;
+}
+
+// Chart sheet — stores Graphic Walker chart configurations
+export interface ChartSheet {
+  name: string;
+  /** Selected source table for this chart sheet */
+  tableName?: string;
+  /** Persisted chart configurations (from VizSpecStore.exportCode()) */
+  charts: unknown[];
 }
 
 // Google Drive types

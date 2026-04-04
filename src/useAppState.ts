@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { DataModel } from './dataModel';
-import type { TableSchema, Row, Transaction, ValidationError } from './types';
+import type { TableSchema, Row, Transaction, ValidationError, ChartSheet } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { csvToRows, rowsToCSV } from './csv';
 import type { ProjectConfig } from './config';
@@ -24,6 +24,7 @@ interface LocalWorkbookSnapshot {
   tables: Array<{ schema: TableSchema; rows: Row[] }>;
   tableOrder: string[];
   activeTableId: string | null;
+  chartSheets?: ChartSheet[];
 }
 
 interface LocalBooksStorage {
@@ -84,6 +85,12 @@ function saveLocalBooksStorage(storage: LocalBooksStorage): void {
   localStorage.setItem(LOCAL_BOOKS_STORAGE_KEY, JSON.stringify(storage));
 }
 
+function toErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  const maybe = err as { result?: { error?: { message?: string } }; body?: string; message?: string };
+  return maybe?.result?.error?.message || maybe?.message || maybe?.body || 'Unknown error';
+}
+
 export interface UseAppStateReturn {
   // Data
   model: DataModel;
@@ -95,11 +102,14 @@ export interface UseAppStateReturn {
   createTable: (schema: TableSchema, rows?: Row[]) => void;
   deleteTable: (tableId: string, alsoDeleteFromDrive?: boolean) => void;
   renameTable: (oldName: string, newName: string) => void;
+  renameColumn: (tableId: string, oldName: string, newName: string) => void;
   reorderTables: (fromIndex: number, toIndex: number) => void;
   updateSchema: (tableId: string, schema: TableSchema) => void;
   getRows: (tableId: string) => Row[];
   getSchema: (tableId: string) => TableSchema | undefined;
-  listWorkbookCsvFiles: () => Promise<string[]>;
+  listWorkbookCsvFiles: () => Promise<Array<{ id: string; name: string }>>;
+  loadTableFromCsvFile: (tableId: string, fileId: string) => Promise<void>;
+  renameTableCsvFile: (tableId: string, nextFileName: string) => Promise<void>;
 
   // Transaction
   applyEdit: (tableId: string, rowIndex: number, columnName: string, newValue: string) => ValidationError[];
@@ -133,6 +143,15 @@ export interface UseAppStateReturn {
   isConnecting: boolean;
   userInfo: drive.UserInfo | null;
 
+  // Chart sheets
+  chartSheetIds: string[];
+  getChartSheet: (id: string) => ChartSheet | undefined;
+  createChartSheet: (name: string) => void;
+  deleteChartSheet: (name: string) => void;
+  renameChartSheet: (oldName: string, newName: string) => void;
+  updateChartSheet: (name: string, charts: unknown[]) => void;
+  setChartSheetTable: (name: string, tableName: string) => void;
+
   // Revision counter to trigger re-renders
   revision: number;
 }
@@ -159,6 +178,8 @@ export function useAppState(): UseAppStateReturn {
   const configDirtyRef = useRef(false);
   const revisionRef = useRef(0);
   const undoStackRef = useRef<Transaction[]>([]);
+  const chartSheetsRef = useRef<Map<string, ChartSheet>>(new Map());
+  const [chartSheetOrder, setChartSheetOrder] = useState<string[]>([]);
   const rootFolderIdRef = useRef<string | null>(null);
   const localWorkbooksRef = useRef<Map<string, LocalWorkbookSnapshot>>(
     new Map([[LOCAL_DEFAULT_WORKBOOK.id, { name: LOCAL_DEFAULT_WORKBOOK.name, tables: [], tableOrder: [], activeTableId: null }]])
@@ -183,6 +204,8 @@ export function useAppState(): UseAppStateReturn {
     configFileIdRef.current = null;
     configDirtyRef.current = false;
     undoStackRef.current = [];
+    chartSheetsRef.current.clear();
+    setChartSheetOrder([]);
     setTableOrder([]);
     setActiveTableId(null);
   }, [model]);
@@ -202,6 +225,7 @@ export function useAppState(): UseAppStateReturn {
       tables,
       tableOrder: [...tableOrder],
       activeTableId,
+      chartSheets: [...chartSheetsRef.current.values()].map(cs => ({ ...cs, charts: [...cs.charts] })),
     });
   }, [activeTableId, model, tableOrder]);
 
@@ -233,6 +257,12 @@ export function useAppState(): UseAppStateReturn {
 
     setTableOrder([...snapshot.tableOrder]);
     setActiveTableId(snapshot.activeTableId);
+    if (snapshot.chartSheets) {
+      for (const cs of snapshot.chartSheets) {
+        chartSheetsRef.current.set(cs.name, { ...cs, charts: [...cs.charts] });
+      }
+      setChartSheetOrder(snapshot.chartSheets.map(cs => cs.name));
+    }
     bump();
   }, [bump, clearModel, model]);
 
@@ -284,20 +314,46 @@ export function useAppState(): UseAppStateReturn {
     const configText = await drive.downloadFile(configFile.id);
     const config = parseConfig(configText);
 
-    for (const schema of config.tables) {
-      const csvFileName = (schema.csvFileName?.trim() || `${schema.name}.csv`);
-      const csvFile = files.find(f => f.name === csvFileName);
+    const loadedTables = await Promise.all(config.tables.map(async (rawSchema) => {
+      const schema: TableSchema = { ...rawSchema };
+      const csvFileId = schema.csvFileId?.trim();
+      const legacyCsvFileName = schema.csvFileName?.trim();
+      const fallbackCsvFileName = legacyCsvFileName || `${schema.name}.csv`;
+      const csvFile = (csvFileId ? files.find(f => f.id === csvFileId) : undefined)
+        ?? files.find(f => f.name === fallbackCsvFileName);
       let rows: Row[] = [];
       if (csvFile) {
+        schema.csvFileId = csvFile.id;
         fileIdsRef.current.set(schema.name, csvFile.id);
         const csvText = await drive.downloadFile(csvFile.id);
         rows = csvToRows(csvText, schema);
       }
-      model.createTable(schema, rows);
-      model.markSaved(schema.name);
+
+      return {
+        schema,
+        rows,
+        needsConfigMigration: (!csvFileId && !!csvFile) || !!legacyCsvFileName,
+      };
+    }));
+
+    for (const loadedTable of loadedTables) {
+      model.createTable(loadedTable.schema, loadedTable.rows);
+      model.markSaved(loadedTable.schema.name);
+      if (loadedTable.needsConfigMigration) {
+        configDirtyRef.current = true;
+      }
     }
 
     setTableOrder(config.tables.map(t => t.name));
+
+    // Load chart sheets
+    if (config.chartSheets) {
+      for (const cs of config.chartSheets) {
+        chartSheetsRef.current.set(cs.name, { ...cs });
+      }
+      setChartSheetOrder(config.chartSheets.map(cs => cs.name));
+    }
+
     if (config.tables.length > 0) {
       setActiveTableId(config.tables[0].name);
     }
@@ -375,6 +431,13 @@ export function useAppState(): UseAppStateReturn {
     bump();
   }, [model, bump]);
 
+  const renameColumn = useCallback((tableId: string, oldName: string, newName: string) => {
+    model.renameColumn(tableId, oldName, newName);
+    configDirtyRef.current = true;
+    undoStackRef.current = [];
+    bump();
+  }, [model, bump]);
+
   const reorderTables = useCallback((fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
     setTableOrder(prev => {
@@ -405,21 +468,132 @@ export function useAppState(): UseAppStateReturn {
     return model.getTable(tableId)?.schema;
   }, [model]);
 
-  const listWorkbookCsvFiles = useCallback(async (): Promise<string[]> => {
+  const listWorkbookCsvFiles = useCallback(async (): Promise<Array<{ id: string; name: string }>> => {
     if (!isSignedIn || !folderId) {
-      const names = model.getTableIds().map(id => {
+      const rows = model.getTableIds().map(id => {
         const schema = model.getTable(id)?.schema;
-        return schema?.csvFileName?.trim() || `${id}.csv`;
+        return {
+          id: schema?.csvFileId?.trim() || '',
+          name: schema?.csvFileName?.trim() || `${id}.csv`,
+        };
       });
-      return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+      const deduped = new Map<string, { id: string; name: string }>();
+      for (const row of rows) {
+        if (!deduped.has(row.name)) deduped.set(row.name, row);
+      }
+      return Array.from(deduped.values()).sort((a, b) => a.name.localeCompare(b.name));
     }
 
     const files = await drive.listFilesInFolder(folderId);
     return files
-      .map(f => f.name)
-      .filter(name => name.toLowerCase().endsWith('.csv'))
-      .sort((a, b) => a.localeCompare(b));
+      .filter(f => f.name.toLowerCase().endsWith('.csv'))
+      .map(f => ({ id: f.id, name: f.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [folderId, isSignedIn, model]);
+
+  const loadTableFromCsvFile = useCallback(async (tableId: string, fileId: string): Promise<void> => {
+    const table = model.getTable(tableId);
+    if (!table) {
+      throw new Error(`Table "${tableId}" not found.`);
+    }
+
+    const csvText = await drive.downloadFile(fileId);
+    const rows = csvToRows(csvText, table.schema);
+    const nextSchema: TableSchema = {
+      ...table.schema,
+      csvFileId: fileId,
+    };
+
+    model.deleteTable(tableId);
+    model.createTable(nextSchema, rows);
+    model.markSaved(tableId);
+
+    fileIdsRef.current.set(tableId, fileId);
+    configDirtyRef.current = true;
+    undoStackRef.current = [];
+    bump();
+  }, [bump, model]);
+
+  const renameTableCsvFile = useCallback(async (tableId: string, nextFileName: string): Promise<void> => {
+    const table = model.getTable(tableId);
+    if (!table) {
+      throw new Error(`Table "${tableId}" not found.`);
+    }
+
+    const fileId = table.schema.csvFileId?.trim() || fileIdsRef.current.get(tableId);
+    if (!fileId) {
+      throw new Error('This table is not bound to a Drive CSV file yet.');
+    }
+
+    const trimmed = nextFileName.trim();
+    if (!trimmed) {
+      throw new Error('CSV file name cannot be empty.');
+    }
+    if (!trimmed.toLowerCase().endsWith('.csv')) {
+      throw new Error('CSV file name must end with .csv.');
+    }
+
+    await drive.renameFile(fileId, trimmed);
+  }, [model]);
+
+  // --- Chart sheet CRUD ---
+  const chartSheetIds = useMemo(() => {
+    void revision; // depend on revision for re-render
+    return [...chartSheetOrder];
+  }, [chartSheetOrder, revision]);
+
+  const getChartSheet = useCallback((name: string): ChartSheet | undefined => {
+    return chartSheetsRef.current.get(name);
+  }, []);
+
+  const createChartSheet = useCallback((name: string) => {
+    if (chartSheetsRef.current.has(name)) return;
+    const defaultTableName = activeTableId ?? model.getTableIds()[0] ?? undefined;
+    const cs: ChartSheet = { name, tableName: defaultTableName, charts: [] };
+    chartSheetsRef.current.set(name, cs);
+    setChartSheetOrder(prev => [...prev, name]);
+    configDirtyRef.current = true;
+    bump();
+  }, [activeTableId, bump, model]);
+
+  const deleteChartSheet = useCallback((name: string) => {
+    chartSheetsRef.current.delete(name);
+    setChartSheetOrder(prev => prev.filter(n => n !== name));
+    configDirtyRef.current = true;
+    bump();
+  }, [bump]);
+
+  const renameChartSheet = useCallback((oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || oldName === trimmed) return;
+    const cs = chartSheetsRef.current.get(oldName);
+    if (!cs) return;
+    chartSheetsRef.current.delete(oldName);
+    cs.name = trimmed;
+    chartSheetsRef.current.set(trimmed, cs);
+    setChartSheetOrder(prev => prev.map(n => n === oldName ? trimmed : n));
+    configDirtyRef.current = true;
+    bump();
+  }, [bump]);
+
+  const updateChartSheet = useCallback((name: string, charts: unknown[]) => {
+    const cs = chartSheetsRef.current.get(name);
+    if (!cs) return;
+    cs.charts = charts;
+    configDirtyRef.current = true;
+    bump();
+  }, [bump]);
+
+  const setChartSheetTable = useCallback((name: string, tableName: string) => {
+    const cs = chartSheetsRef.current.get(name);
+    if (!cs) return;
+    if (cs.tableName === tableName) return;
+    cs.tableName = tableName;
+    // Reset chart specs when source table changes to avoid stale field bindings.
+    cs.charts = [];
+    configDirtyRef.current = true;
+    bump();
+  }, [bump]);
 
   const applyEdit = useCallback((tableId: string, rowIndex: number, columnName: string, newValue: string): ValidationError[] => {
     const table = model.getTable(tableId);
@@ -763,9 +937,16 @@ export function useAppState(): UseAppStateReturn {
     }
 
     const invite = decodeInvitePayload(token);
-    const signedInEmail = userInfo?.email?.trim().toLowerCase();
+    let signedInEmail = userInfo?.email?.trim().toLowerCase();
     if (!signedInEmail) {
-      throw new Error('Unable to verify signed-in email.');
+      const freshInfo = await drive.getUserInfo();
+      if (freshInfo) {
+        setUserInfo(freshInfo);
+        signedInEmail = freshInfo.email?.trim().toLowerCase();
+      }
+    }
+    if (!signedInEmail) {
+      throw new Error('Unable to verify signed-in email. Please sign out and sign in again to grant email access.');
     }
     if (signedInEmail !== invite.emailAddress.trim().toLowerCase()) {
       throw new Error(`This invite is for ${invite.emailAddress}. Signed in as ${signedInEmail}.`);
@@ -778,10 +959,22 @@ export function useAppState(): UseAppStateReturn {
       rootFolderIdRef.current = rootId;
     }
 
-    const sharedMeta = await drive.getFileMeta(invite.workbookId);
-    const workbookName = invite.workbookName || sharedMeta.name;
+    let workbookName = invite.workbookName?.trim() || 'Shared Book';
+    try {
+      const sharedMeta = await drive.getFileMeta(invite.workbookId);
+      if (sharedMeta.name?.trim()) {
+        workbookName = sharedMeta.name.trim();
+      }
+    } catch {
+      // Some shared items may not expose metadata with current token scope.
+      // Continue using invite payload name.
+    }
 
-    await drive.ensureShortcutInFolder(rootId, invite.workbookId, workbookName);
+    try {
+      await drive.ensureShortcutInFolder(rootId, invite.workbookId, workbookName);
+    } catch (err) {
+      throw new Error(`Could not add shared book shortcut. ${toErrorMessage(err)}`);
+    }
 
     const existing = workbooks.find(w => w.id === invite.workbookId);
     const nextWorkbook: WorkbookInfo = existing ?? { id: invite.workbookId, name: workbookName };
@@ -789,7 +982,11 @@ export function useAppState(): UseAppStateReturn {
 
     setWorkbooks(nextBooks);
     await persistDriveBooksConfig(nextBooks);
-    await loadWorkbook(nextWorkbook.id, nextWorkbook.name);
+    try {
+      await loadWorkbook(nextWorkbook.id, nextWorkbook.name);
+    } catch (err) {
+      throw new Error(`Shared book was added, but opening it failed. ${toErrorMessage(err)}`);
+    }
 
     return nextWorkbook;
   }, [isSignedIn, loadWorkbook, persistDriveBooksConfig, userInfo?.email, workbooks]);
@@ -812,34 +1009,55 @@ export function useAppState(): UseAppStateReturn {
 
       const filesInFolder = await drive.listFilesInFolder(folderId);
       const fileByName = new Map(filesInFolder.map(f => [f.name, f.id]));
+      const fileById = new Set(filesInFolder.map(f => f.id));
 
-      for (const tableId of tableIds) {
+      const persistedTables = await Promise.all(tableIds.map(async (tableId) => {
         const table = model.getTable(tableId);
-        if (!table) continue;
-        schemas.push(table.schema);
+        if (!table) return null;
 
         const csv = rowsToCSV(table.schema, table.rows);
         const csvFileName = table.schema.csvFileName?.trim() || `${tableId}.csv`;
+        const schemaFileId = table.schema.csvFileId?.trim();
         const mappedFileId = fileIdsRef.current.get(tableId);
         const namedFileId = fileByName.get(csvFileName);
-        const existingFileId = mappedFileId && filesInFolder.some(f => f.id === mappedFileId)
-          ? mappedFileId
-          : namedFileId;
+        const existingFileId = schemaFileId && fileById.has(schemaFileId)
+          ? schemaFileId
+          : (mappedFileId && fileById.has(mappedFileId) ? mappedFileId : namedFileId);
 
+        let persistedFileId = existingFileId;
         if (existingFileId) {
           await drive.updateFile(existingFileId, csv);
-          fileIdsRef.current.set(tableId, existingFileId);
         } else {
-          const newFileId = await drive.createFile(csvFileName, csv, folderId);
-          fileIdsRef.current.set(tableId, newFileId);
-          fileByName.set(csvFileName, newFileId);
+          persistedFileId = await drive.createFile(csvFileName, csv, folderId);
         }
 
-        model.markSaved(tableId);
+        if (!persistedFileId) {
+          throw new Error(`Failed to persist CSV file for table ${tableId}`);
+        }
+
+        fileIdsRef.current.set(tableId, persistedFileId);
+
+        const { csvFileName: _legacyCsvFileName, ...restSchema } = table.schema;
+        return {
+          tableId,
+          schema: {
+            ...restSchema,
+            csvFileId: persistedFileId,
+          } as TableSchema,
+        };
+      }));
+
+      for (const persistedTable of persistedTables) {
+        if (!persistedTable) continue;
+        schemas.push(persistedTable.schema);
+        model.markSaved(persistedTable.tableId);
       }
 
-      // Save config
-      const config: ProjectConfig = { tables: schemas };
+      // Save config (including chart sheets)
+      const chartSheets = chartSheetOrder
+        .map(name => chartSheetsRef.current.get(name))
+        .filter((cs): cs is ChartSheet => !!cs);
+      const config: ProjectConfig = { tables: schemas, chartSheets: chartSheets.length > 0 ? chartSheets : undefined };
       const configText = serializeConfig(config);
 
       if (configFileIdRef.current) {
@@ -932,11 +1150,14 @@ export function useAppState(): UseAppStateReturn {
     createTable,
     deleteTable,
     renameTable,
+    renameColumn,
     reorderTables,
     updateSchema,
     getRows,
     getSchema,
     listWorkbookCsvFiles,
+    loadTableFromCsvFile,
+    renameTableCsvFile,
     applyEdit,
     insertRow,
     deleteRow,
@@ -963,6 +1184,13 @@ export function useAppState(): UseAppStateReturn {
     driveReady,
     isConnecting,
     userInfo,
+    chartSheetIds,
+    getChartSheet,
+    createChartSheet,
+    deleteChartSheet,
+    renameChartSheet,
+    updateChartSheet,
+    setChartSheetTable,
     revision,
   };
 }

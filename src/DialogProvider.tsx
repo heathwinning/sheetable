@@ -10,6 +10,7 @@ interface DialogConfig {
   title: string;
   message: string;
   buttons: DialogButton[];
+  inputPlaceholder?: string;
 }
 
 interface DialogContextType {
@@ -54,20 +55,40 @@ export function useAlert() {
   );
 }
 
+export function usePromptInput() {
+  const { showDialog } = useDialog();
+  return useCallback(
+    (message: string, title = 'Input', placeholder = '') =>
+      showDialog({
+        title,
+        message,
+        inputPlaceholder: placeholder,
+        buttons: [
+          { label: 'Cancel', value: 'cancel', variant: 'secondary' },
+          { label: 'OK', value: 'ok', variant: 'primary' },
+        ],
+      }),
+    [showDialog],
+  );
+}
+
 export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [dialog, setDialog] = useState<DialogConfig | null>(null);
+  const [inputValue, setInputValue] = useState('');
   const resolveRef = useRef<((value: string | null) => void) | null>(null);
 
   const showDialog = useCallback((config: DialogConfig): Promise<string | null> => {
     return new Promise((resolve) => {
       resolveRef.current = resolve;
+      setInputValue('');
       setDialog(config);
     });
   }, []);
 
   const handleClick = (value: string | null) => {
+    const result = value === 'ok' && dialog?.inputPlaceholder !== undefined ? inputValue : value;
     setDialog(null);
-    resolveRef.current?.(value);
+    resolveRef.current?.(result);
     resolveRef.current = null;
   };
 
@@ -79,6 +100,17 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           <div className="app-dialog" onClick={(e) => e.stopPropagation()}>
             <h3 className="app-dialog-title">{dialog.title}</h3>
             <p className="app-dialog-message">{dialog.message}</p>
+            {dialog.inputPlaceholder !== undefined && (
+              <input
+                className="app-dialog-input"
+                type="text"
+                placeholder={dialog.inputPlaceholder}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleClick('ok'); }}
+                autoFocus
+              />
+            )}
             <div className="app-dialog-actions">
               {dialog.buttons.map((btn) => (
                 <button

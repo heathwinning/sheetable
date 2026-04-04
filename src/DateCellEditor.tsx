@@ -3,19 +3,15 @@ import type { CustomCellEditorProps } from 'ag-grid-react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { log } from './DebugLogger';
+import { parseTemporalUnknown, formatDateCanonical } from './dateFormat';
 
 function parseDate(value: string): Date | null {
-  if (!value) return null;
-  const d = new Date(value + 'T00:00:00');
-  return isNaN(d.getTime()) ? null : d;
+  return parseTemporalUnknown(value);
 }
 
 function formatDate(date: Date | null): string {
   if (!date) return '';
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return formatDateCanonical(date);
 }
 
 export default function DateCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorProps) {
@@ -32,7 +28,7 @@ export default function DateCellEditor({ value, onValueChange, stopEditing }: Cu
           onValueChange(formatted);
           stopEditing();
         }}
-        dateFormat="yyyy-MM-dd"
+        dateFormat="yyyy/MM/dd"
         inline
         showMonthDropdown
         showYearDropdown

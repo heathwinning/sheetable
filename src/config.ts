@@ -1,8 +1,9 @@
-import type { TableSchema } from './types';
+import type { TableSchema, ChartSheet } from './types';
 
 // Schema is stored as a JSON file in the Drive folder
 export interface ProjectConfig {
   tables: TableSchema[];
+  chartSheets?: ChartSheet[];
 }
 
 export interface BooksConfig {

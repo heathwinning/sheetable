@@ -3,26 +3,12 @@ import type { ICellRendererParams } from 'ag-grid-community';
 import * as drive from './drive';
 import { useAlert } from './DialogProvider';
 
-// --- Renderer: show thumbnail in cell ---
+// --- Renderer: show icon in cell; full preview opens on click ---
 export const ImageCellRenderer: React.FC<ICellRendererParams> = (props) => {
   const fileId = props.value;
   if (!fileId) return null;
 
-  const thumbUrl = drive.getThumbnailUrl(fileId, 100);
-
-  return (
-    <img
-      src={thumbUrl}
-      alt=""
-      style={{
-        maxHeight: 24,
-        maxWidth: 80,
-        objectFit: 'contain',
-        verticalAlign: 'middle',
-      }}
-      referrerPolicy="no-referrer"
-    />
-  );
+  return <span className="image-cell-indicator" title="Image attached" aria-label="Image attached" />;
 };
 
 // --- Upload helper: programmatic file upload ---

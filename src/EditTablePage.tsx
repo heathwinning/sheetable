@@ -127,8 +127,9 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   const toBookPath = (suffix: string) => `${bookBase}${suffix}`;
 
   const [tableName, setTableName] = useState(schema?.name ?? '');
-  const [csvFileName, setCsvFileName] = useState(schema?.csvFileName ?? (schema?.name ? `${schema.name}.csv` : ''));
-  const [availableCsvFiles, setAvailableCsvFiles] = useState<string[]>([]);
+  const [csvFileName, setCsvFileName] = useState('');
+  const [csvFileId, setCsvFileId] = useState(schema?.csvFileId ?? '');
+  const [availableCsvFiles, setAvailableCsvFiles] = useState<Array<{ id: string; name: string }>>([]);
   const [pickingCsv, setPickingCsv] = useState(false);
   const [columns, setColumns] = useState<ColumnDef[]>(
     () => schema?.columns.map(c => ({ ...c })) ?? [
@@ -152,7 +153,8 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   useEffect(() => {
     if (schema && !schemaLoaded) {
       setTableName(schema.name ?? '');
-      setCsvFileName(schema.csvFileName ?? `${schema.name}.csv`);
+      setCsvFileId(schema.csvFileId ?? '');
+      setCsvFileName(schema.csvFileName ?? '');
       setColumns(schema.columns.map(c => ({ ...c })));
       setUniqueKeys(schema.uniqueKeys ?? []);
       setDefaultSort(schema.defaultSort ?? []);
@@ -165,7 +167,14 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     let cancelled = false;
     state.listWorkbookCsvFiles()
       .then(files => {
-        if (!cancelled) setAvailableCsvFiles(files);
+        if (cancelled) return;
+        setAvailableCsvFiles(files);
+        if (csvFileId) {
+          const matched = files.find(f => f.id === csvFileId);
+          if (matched) {
+            setCsvFileName(matched.name);
+          }
+        }
       })
       .catch(() => {
         if (!cancelled) setAvailableCsvFiles([]);
@@ -173,7 +182,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     return () => {
       cancelled = true;
     };
-  }, [state.folderId, state.listWorkbookCsvFiles]);
+  }, [csvFileId, state.folderId, state.listWorkbookCsvFiles]);
 
   // Type migration preview (for existing tables only)
   const [migrationPreview, setMigrationPreview] = useState<{
@@ -452,7 +461,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     const cols = columnOverrides ?? columns;
     const colNames = cols.map(c => c.name.trim());
     const trimmedTableName = tableName.trim();
-    const trimmedCsvFileName = csvFileName.trim();
     return {
       name: trimmedTableName,
       columns: cols.map(c => ({
@@ -460,7 +468,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         name: c.name.trim(),
         displayName: c.displayName?.trim() || undefined,
       })),
-      csvFileName: trimmedCsvFileName || `${trimmedTableName}.csv`,
+      csvFileId: csvFileId.trim() || undefined,
       uniqueKeys: uniqueKeys.filter(uk => colNames.includes(uk)),
       defaultSort: defaultSort.filter(s => colNames.includes(s.column)),
       draftRowPosition,
@@ -686,7 +694,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     setUniqueKeys(prev => prev.filter(k => k !== removedName));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setError(null);
     setNotice(null);
 
@@ -707,16 +715,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         setError(`Reference column "${col.name}" must specify a table`);
         return;
       }
-    }
-
-    const trimmedCsvFileName = csvFileName.trim();
-    if (!trimmedCsvFileName) {
-      setError('CSV file name is required');
-      return;
-    }
-    if (!trimmedCsvFileName.toLowerCase().endsWith('.csv')) {
-      setError('CSV file name must end with .csv');
-      return;
     }
 
     // Validate unique keys reference valid columns
@@ -750,7 +748,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     // Build schema
     const newSchema: TableSchema = {
       name: trimmedName,
-      csvFileName: trimmedCsvFileName,
+      csvFileId: csvFileId.trim() || undefined,
       columns: columns.map(c => ({
         ...c,
         name: c.name.trim(),
@@ -765,8 +763,55 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       state.createTable(newSchema);
       navigate(toBookPath(`/table/${encodeURIComponent(trimmedName)}`), { replace: true });
     } else {
+      // Propagate simple index-based column renames before applying the schema.
+      if (schema && tableId) {
+        const oldColumns = schema.columns;
+        const nextColumns = newSchema.columns;
+        const max = Math.min(oldColumns.length, nextColumns.length);
+        for (let i = 0; i < max; i++) {
+          const oldName = oldColumns[i].name?.trim();
+          const newName = nextColumns[i].name?.trim();
+          if (!oldName || !newName || oldName === newName) continue;
+          state.renameColumn(tableId, oldName, newName);
+        }
+      }
+
       // Apply schema update
       state.updateSchema(tableId!, newSchema);
+
+      if (
+        trimmedName !== tableId &&
+        state.isSignedIn &&
+        state.folderId &&
+        !state.folderId.startsWith('local-') &&
+        !!(schema?.csvFileId || csvFileId)
+      ) {
+        const suggestedFileName = `${trimmedName}.csv`;
+        const currentFileName = csvFileName || '(selected CSV)';
+        const shouldRenameCsv = await showDialog({
+          title: 'Rename Drive CSV?',
+          message: `Rename the bound Drive CSV from "${currentFileName}" to "${suggestedFileName}"?`,
+          buttons: [
+            { label: 'Keep Current CSV Name', value: 'keep', variant: 'secondary' },
+            { label: 'Rename CSV', value: 'rename', variant: 'primary' },
+          ],
+        });
+
+        if (shouldRenameCsv === 'rename') {
+          try {
+            await state.renameTableCsvFile(tableId!, suggestedFileName);
+            setCsvFileName(suggestedFileName);
+            setNotice({ kind: 'success', message: `Renamed CSV to ${suggestedFileName}.` });
+          } catch (err) {
+            setNotice({
+              kind: 'info',
+              message: err instanceof Error
+                ? `Table renamed, but CSV rename failed: ${err.message}`
+                : 'Table renamed, but CSV rename failed.',
+            });
+          }
+        }
+      }
 
       // Rename table if name changed
       if (trimmedName !== tableId) {
@@ -813,8 +858,17 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         setError('Please choose a .csv file.');
         return;
       }
+      setCsvFileId(picked.id);
       setCsvFileName(picked.name);
-      setAvailableCsvFiles(prev => prev.includes(picked.name) ? prev : [...prev, picked.name].sort((a, b) => a.localeCompare(b)));
+      setAvailableCsvFiles(prev => prev.some(f => f.id === picked.id)
+        ? prev
+        : [...prev, { id: picked.id, name: picked.name }].sort((a, b) => a.name.localeCompare(b.name)));
+
+      if (!isCreate && tableId) {
+        await state.loadTableFromCsvFile(tableId, picked.id);
+        const rowCount = state.getRows(tableId).length;
+        setNotice({ kind: 'info', message: `Loaded ${rowCount} row${rowCount === 1 ? '' : 's'} from ${picked.name}.` });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to open Drive Picker.');
     } finally {
@@ -851,11 +905,11 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             <input
               type="text"
               value={csvFileName}
-              onChange={e => setCsvFileName(e.target.value)}
               className="edit-table-input"
-              placeholder="table.csv"
+              placeholder="Pick a CSV file"
               list="csv-file-options"
               style={{ flex: 1 }}
+              readOnly
             />
             <button
               className="btn-secondary"
@@ -867,10 +921,15 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             </button>
           </div>
           <datalist id="csv-file-options">
-            {availableCsvFiles.map(name => (
-              <option key={name} value={name} />
+            {availableCsvFiles.map(file => (
+              <option key={file.id || file.name} value={file.name} />
             ))}
           </datalist>
+          {csvFileId && (
+            <div className="book-settings-note" style={{ marginTop: 6 }}>
+              File ID: {csvFileId}
+            </div>
+          )}
           {state.isSignedIn && state.folderId && !state.folderId.startsWith('local-') && (
             <div className="book-settings-note" style={{ marginTop: 6 }}>
               Picker opens directly in this book folder.
@@ -1011,7 +1070,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             </button>
           )}
           <div style={{ flex: 1 }} />
-          <button className="btn-primary" onClick={handleSave}>
+          <button className="btn-primary" onClick={() => { void handleSave(); }}>
             {isCreate ? 'Create Table' : 'Save Changes'}
           </button>
         </div>
