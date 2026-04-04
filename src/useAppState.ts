@@ -19,10 +19,31 @@ interface LocalWorkbookSnapshot {
   activeTableId: string | null;
 }
 
+interface LocalBooksStorage {
+  activeWorkbookId: string;
+  workbooks: Record<string, LocalWorkbookSnapshot>;
+}
+
 const LOCAL_DEFAULT_WORKBOOK: WorkbookInfo = {
   id: 'local-default',
-  name: 'Personal',
+  name: 'Untitled',
 };
+
+const LOCAL_BOOKS_STORAGE_KEY = 'sheetable_local_books_v1';
+
+function loadLocalBooksStorage(): LocalBooksStorage | null {
+  try {
+    const raw = localStorage.getItem(LOCAL_BOOKS_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as LocalBooksStorage;
+  } catch {
+    return null;
+  }
+}
+
+function saveLocalBooksStorage(storage: LocalBooksStorage): void {
+  localStorage.setItem(LOCAL_BOOKS_STORAGE_KEY, JSON.stringify(storage));
+}
 
 export interface UseAppStateReturn {
   // Data
@@ -58,6 +79,7 @@ export interface UseAppStateReturn {
   workbooks: WorkbookInfo[];
   createWorkbook: (name: string) => Promise<string | null>;
   renameWorkbook: (workbookId: string, name: string) => Promise<void>;
+  deleteWorkbook: (workbookId: string) => Promise<string | null>;
   switchWorkbook: (workbookId: string) => Promise<void>;
   shareWorkbook: (workbookId: string, emailAddress: string, role?: 'reader' | 'writer') => Promise<void>;
   signIn: () => void;
@@ -99,6 +121,7 @@ export function useAppState(): UseAppStateReturn {
     new Map([[LOCAL_DEFAULT_WORKBOOK.id, { name: LOCAL_DEFAULT_WORKBOOK.name, tables: [], tableOrder: [], activeTableId: null }]])
   );
   const localActiveWorkbookIdRef = useRef<string>(LOCAL_DEFAULT_WORKBOOK.id);
+  const initializedLocalRef = useRef(false);
 
   const model = modelRef.current;
 
@@ -170,6 +193,17 @@ export function useAppState(): UseAppStateReturn {
     bump();
   }, [bump, clearModel, model]);
 
+  const persistLocalBooks = useCallback(() => {
+    const obj: Record<string, LocalWorkbookSnapshot> = {};
+    for (const [id, snap] of localWorkbooksRef.current.entries()) {
+      obj[id] = snap;
+    }
+    saveLocalBooksStorage({
+      activeWorkbookId: localActiveWorkbookIdRef.current,
+      workbooks: obj,
+    });
+  }, []);
+
   const loadWorkbook = useCallback(async (workbookId: string, workbookName: string) => {
     clearModel();
     setFolderId(workbookId);
@@ -210,8 +244,8 @@ export function useAppState(): UseAppStateReturn {
     const folders = await drive.listSubfolders(rootFolderIdRef.current);
     let next = folders;
     if (next.length === 0) {
-      const defaultId = await drive.findOrCreateSubfolder('Personal', rootFolderIdRef.current);
-      next = [{ id: defaultId, name: 'Personal' }];
+      const defaultId = await drive.findOrCreateSubfolder('Untitled', rootFolderIdRef.current);
+      next = [{ id: defaultId, name: 'Untitled' }];
     }
     setWorkbooks(next);
     return next;
@@ -434,7 +468,7 @@ export function useAppState(): UseAppStateReturn {
 
   const signIn = useCallback(() => {
     if (!isSignedIn && folderId && folderId.startsWith('local-')) {
-      snapshotLocalWorkbook(folderId, folderName ?? 'Personal');
+      snapshotLocalWorkbook(folderId, folderName ?? 'Untitled');
     }
     drive.requestAccessToken();
   }, [folderId, folderName, isSignedIn, snapshotLocalWorkbook]);
@@ -451,7 +485,7 @@ export function useAppState(): UseAppStateReturn {
 
     const targetId = localActiveWorkbookIdRef.current;
     const target = localWorkbooksRef.current.get(targetId);
-    loadLocalWorkbook(targetId, target?.name ?? 'Personal');
+    loadLocalWorkbook(targetId, target?.name ?? 'Untitled');
   }, [loadLocalWorkbook]);
 
   const createWorkbook = useCallback(async (name: string): Promise<string | null> => {
@@ -459,7 +493,7 @@ export function useAppState(): UseAppStateReturn {
       const trimmed = name.trim();
       if (!trimmed) return null;
       const currentLocalId = localActiveWorkbookIdRef.current;
-      const currentLocalName = localWorkbooksRef.current.get(currentLocalId)?.name ?? 'Personal';
+      const currentLocalName = localWorkbooksRef.current.get(currentLocalId)?.name ?? 'Untitled';
       snapshotLocalWorkbook(currentLocalId, currentLocalName);
       const workbookId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       localWorkbooksRef.current.set(workbookId, {
@@ -511,10 +545,50 @@ export function useAppState(): UseAppStateReturn {
     }
   }, [bump, folderId, isSignedIn, refreshWorkbooks]);
 
+  const deleteWorkbook = useCallback(async (workbookId: string): Promise<string | null> => {
+    if (!isSignedIn) {
+      const currentLocalId = localActiveWorkbookIdRef.current;
+      const currentLocalName = localWorkbooksRef.current.get(currentLocalId)?.name ?? folderName ?? 'Untitled';
+      snapshotLocalWorkbook(currentLocalId, currentLocalName);
+
+      localWorkbooksRef.current.delete(workbookId);
+
+      if (localWorkbooksRef.current.size === 0) {
+        localWorkbooksRef.current.set(LOCAL_DEFAULT_WORKBOOK.id, {
+          name: LOCAL_DEFAULT_WORKBOOK.name,
+          tables: [],
+          tableOrder: [],
+          activeTableId: null,
+        });
+      }
+
+      const next = Array.from(localWorkbooksRef.current.entries()).map(([id, snap]) => ({ id, name: snap.name }));
+      setWorkbooks(next);
+
+      const nextId = workbookId === currentLocalId ? next[0].id : currentLocalId;
+      const nextBook = localWorkbooksRef.current.get(nextId);
+      loadLocalWorkbook(nextId, nextBook?.name ?? 'Untitled');
+      persistLocalBooks();
+      return nextBook?.name ?? 'Untitled';
+    }
+
+    await drive.deleteFile(workbookId);
+    const next = await refreshWorkbooks();
+    if (next.length === 0) return null;
+
+    const activeStillExists = next.some(w => w.id === folderId);
+    let target = next.find(w => w.id === folderId) ?? next[0];
+    if (!activeStillExists || folderId === workbookId) {
+      target = next[0];
+      await loadWorkbook(target.id, target.name);
+    }
+    return target.name;
+  }, [folderId, folderName, isSignedIn, loadLocalWorkbook, loadWorkbook, persistLocalBooks, refreshWorkbooks, snapshotLocalWorkbook]);
+
   const switchWorkbook = useCallback(async (workbookId: string) => {
     if (!isSignedIn) {
       const currentLocalId = localActiveWorkbookIdRef.current;
-      const currentLocalName = localWorkbooksRef.current.get(currentLocalId)?.name ?? 'Personal';
+      const currentLocalName = localWorkbooksRef.current.get(currentLocalId)?.name ?? 'Untitled';
       snapshotLocalWorkbook(currentLocalId, currentLocalName);
 
       const target = workbooks.find(w => w.id === workbookId);
@@ -609,6 +683,38 @@ export function useAppState(): UseAppStateReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revision, folderId, isSignedIn]);
 
+  // Restore local books on first mount (signed-out mode default)
+  useEffect(() => {
+    if (initializedLocalRef.current) return;
+    initializedLocalRef.current = true;
+
+    const stored = loadLocalBooksStorage();
+    if (!stored) return;
+
+    const entries = Object.entries(stored.workbooks ?? {});
+    if (entries.length === 0) return;
+
+    localWorkbooksRef.current = new Map(entries);
+    const list = entries.map(([id, snap]) => ({ id, name: snap.name }));
+    setWorkbooks(list);
+
+    const targetId = stored.activeWorkbookId && localWorkbooksRef.current.has(stored.activeWorkbookId)
+      ? stored.activeWorkbookId
+      : list[0].id;
+    localActiveWorkbookIdRef.current = targetId;
+    const target = localWorkbooksRef.current.get(targetId);
+    loadLocalWorkbook(targetId, target?.name ?? 'Untitled');
+  }, [loadLocalWorkbook]);
+
+  // Persist local books whenever local state changes
+  useEffect(() => {
+    if (isSignedIn) return;
+    const currentLocalId = localActiveWorkbookIdRef.current;
+    const currentLocalName = localWorkbooksRef.current.get(currentLocalId)?.name ?? folderName ?? 'Untitled';
+    snapshotLocalWorkbook(currentLocalId, currentLocalName);
+    persistLocalBooks();
+  }, [folderName, isSignedIn, persistLocalBooks, revision, snapshotLocalWorkbook]);
+
   // Warn before unload if there are unsaved changes
   useEffect(() => {
     const dirty = model.getTableIds().some(id => model.isDirty(id)) || configDirtyRef.current;
@@ -646,6 +752,7 @@ export function useAppState(): UseAppStateReturn {
     workbooks,
     createWorkbook,
     renameWorkbook,
+    deleteWorkbook,
     switchWorkbook,
     shareWorkbook,
     signIn,

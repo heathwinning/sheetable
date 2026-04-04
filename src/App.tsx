@@ -11,8 +11,8 @@ import './App.css';
 // Client ID should be configured per deployment
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
-const bookPrefix = (bookId?: string) => (bookId ? `/book/${encodeURIComponent(bookId)}` : '');
-const withBook = (bookId: string | undefined, suffix: string) => `${bookPrefix(bookId)}${suffix}`;
+const bookPrefix = (bookName?: string) => (bookName ? `/book/${encodeURIComponent(bookName)}` : '');
+const withBook = (bookName: string | undefined, suffix: string) => `${bookPrefix(bookName)}${suffix}`;
 
 // --- Table View Page ---
 const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
@@ -349,7 +349,7 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const routeBookMatch = location.pathname.match(/^\/book\/([^/]+)/);
-  const routeBookId = routeBookMatch ? decodeURIComponent(routeBookMatch[1]) : state.folderId;
+  const routeBookName = routeBookMatch ? decodeURIComponent(routeBookMatch[1]) : state.folderName;
 
   const currentTail = (() => {
     const m = location.pathname.match(/^\/book\/[^/]+(\/.*)?$/);
@@ -362,17 +362,15 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   })();
 
   const onCreate = async () => {
-    const name = window.prompt('New workbook name:');
-    if (!name || !name.trim()) return;
-    const createdId = await state.createWorkbook(name.trim());
-    if (createdId) {
-      navigate(`/book/${encodeURIComponent(createdId)}${currentTail}` || `/book/${encodeURIComponent(createdId)}`);
-    }
+    navigate('/book/new/settings');
   };
 
   const openBook = async (bookId: string) => {
     await state.switchWorkbook(bookId);
-    navigate(`/book/${encodeURIComponent(bookId)}${currentTail}` || `/book/${encodeURIComponent(bookId)}`);
+    const book = state.workbooks.find(b => b.id === bookId);
+    const bookName = book?.name ?? state.folderName ?? '';
+    if (!bookName) return;
+    navigate(`/book/${encodeURIComponent(bookName)}${currentTail}` || `/book/${encodeURIComponent(bookName)}`);
   };
 
   return (
@@ -385,7 +383,7 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
       </div>
       <div className="book-sidebar-list">
         {state.workbooks.map(book => {
-          const isActive = book.id === routeBookId;
+          const isActive = book.name === routeBookName;
           return (
             <div key={book.id} className={`book-sidebar-item ${isActive ? 'active' : ''}`}>
               <button
@@ -397,7 +395,7 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               </button>
               <button
                 className="book-sidebar-edit"
-                onClick={() => navigate(`/book/${encodeURIComponent(book.id)}/settings`)}
+                onClick={() => navigate(`/book/${encodeURIComponent(book.name)}/settings`)}
                 title="Edit book"
               >
                 Edit
@@ -410,11 +408,11 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   );
 };
 
-const BookSettingsPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
+const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolean }> = ({ state, createMode = false }) => {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
-  const effectiveBookId = bookId ?? state.folderId ?? '';
-  const currentBook = state.workbooks.find(b => b.id === effectiveBookId);
+  const effectiveBookName = createMode ? '' : (bookId ?? state.folderName ?? '');
+  const currentBook = state.workbooks.find(b => b.name === effectiveBookName);
 
   const [name, setName] = useState(currentBook?.name ?? '');
   const [shareEmail, setShareEmail] = useState('');
@@ -422,17 +420,23 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => 
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
+    if (createMode) {
+      setName('');
+      return;
+    }
     if (!currentBook) return;
     setName(currentBook.name);
-  }, [currentBook]);
+  }, [createMode, currentBook]);
 
   useEffect(() => {
-    if (!effectiveBookId || effectiveBookId === state.folderId) return;
-    if (!state.workbooks.some(w => w.id === effectiveBookId)) return;
-    void state.switchWorkbook(effectiveBookId);
-  }, [effectiveBookId, state]);
+    if (createMode) return;
+    if (!effectiveBookName || effectiveBookName === state.folderName) return;
+    const target = state.workbooks.find(w => w.name === effectiveBookName);
+    if (!target) return;
+    void state.switchWorkbook(target.id);
+  }, [createMode, effectiveBookName, state]);
 
-  if (!currentBook) {
+  if (!createMode && !currentBook) {
     return (
       <div className="book-settings-page">
         <div className="book-settings-card">
@@ -449,11 +453,30 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => 
       setStatus('Book name cannot be empty.');
       return;
     }
+    if (createMode) {
+      const createdId = await state.createWorkbook(trimmed);
+      if (!createdId) {
+        setStatus('Failed to create book.');
+        return;
+      }
+      navigate(`/book/${encodeURIComponent(trimmed)}/settings`, { replace: true });
+      return;
+    }
+
+    if (!currentBook) {
+      setStatus('Book not found.');
+      return;
+    }
+
     await state.renameWorkbook(currentBook.id, trimmed);
     setStatus('Book name updated.');
   };
 
   const doShare = async () => {
+    if (createMode || !currentBook) {
+      setStatus('Create the book first to enable sharing.');
+      return;
+    }
     if (!state.isSignedIn) {
       setStatus('Sign in to share this book.');
       return;
@@ -467,12 +490,24 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => 
     setShareEmail('');
   };
 
+  const doDelete = async () => {
+    if (createMode || !currentBook) return;
+    const confirmed = window.confirm(`Delete book "${currentBook.name}"? This cannot be undone.`);
+    if (!confirmed) return;
+    const nextName = await state.deleteWorkbook(currentBook.id);
+    if (nextName) {
+      navigate(`/book/${encodeURIComponent(nextName)}`, { replace: true });
+    } else {
+      navigate('/', { replace: true });
+    }
+  };
+
   return (
     <div className="book-settings-page">
       <div className="book-settings-card">
         <div className="book-settings-header">
-          <h2>Book Settings</h2>
-          <button className="btn-secondary btn-sm" onClick={() => navigate(`/book/${encodeURIComponent(currentBook.id)}`)}>
+          <h2>{createMode ? 'New Book' : 'Book Settings'}</h2>
+          <button className="btn-secondary btn-sm" onClick={() => navigate(createMode ? (state.folderName ? `/book/${encodeURIComponent(state.folderName)}` : '/') : (currentBook ? `/book/${encodeURIComponent(currentBook.name)}` : '/'))}>
             Back to Book
           </button>
         </div>
@@ -488,7 +523,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => 
               placeholder="Book name"
             />
             <button className="btn-primary" onClick={() => { void saveName(); }}>
-              Save Name
+              {createMode ? 'Create Book' : 'Save Name'}
             </button>
           </div>
         </div>
@@ -502,23 +537,35 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => 
               value={shareEmail}
               onChange={(e) => setShareEmail(e.target.value)}
               placeholder="user@example.com"
-              disabled={!state.isSignedIn}
+              disabled={!state.isSignedIn || createMode}
             />
             <select
               className="workbook-toolbar-select"
               value={shareRole}
               onChange={(e) => setShareRole(e.target.value as 'reader' | 'writer')}
-              disabled={!state.isSignedIn}
+              disabled={!state.isSignedIn || createMode}
             >
               <option value="writer">Editor</option>
               <option value="reader">Viewer</option>
             </select>
-            <button className="btn-secondary" onClick={() => { void doShare(); }} disabled={!state.isSignedIn}>
+            <button className="btn-secondary" onClick={() => { void doShare(); }} disabled={!state.isSignedIn || createMode}>
               Share
             </button>
           </div>
-          {!state.isSignedIn && <div className="book-settings-note">Sign in with Google Drive to enable sharing.</div>}
+          {createMode && <div className="book-settings-note">Create this book first, then share it from this page.</div>}
+          {!createMode && !state.isSignedIn && <div className="book-settings-note">Sign in with Google Drive to enable sharing.</div>}
         </div>
+
+        {!createMode && currentBook && (
+          <div className="book-settings-section">
+            <label className="book-settings-label">Danger Zone</label>
+            <div className="book-settings-row">
+              <button className="btn-danger" onClick={() => { void doDelete(); }}>
+                Delete Book
+              </button>
+            </div>
+          </div>
+        )}
 
         {status && <div className="edit-table-notice edit-table-notice-info">{status}</div>}
       </div>
@@ -574,24 +621,25 @@ const App: React.FC = () => {
     if (state.workbooks.length === 0) return;
     const m = location.pathname.match(/^\/book\/([^/]+)/);
     if (!m) return;
-    const routeBookId = decodeURIComponent(m[1]);
-    if (routeBookId === state.folderId) return;
-    if (!state.workbooks.some(w => w.id === routeBookId)) return;
-    void state.switchWorkbook(routeBookId);
+    const routeBookName = decodeURIComponent(m[1]);
+    if (routeBookName === state.folderName) return;
+    const target = state.workbooks.find(w => w.name === routeBookName);
+    if (!target) return;
+    void state.switchWorkbook(target.id);
   }, [location.pathname, state]);
 
   // Preserve backward compatibility: old table/import routes get upgraded to /book/:bookId/... when possible.
   useEffect(() => {
-    if (!state.folderId) return;
+    if (!state.folderName) return;
     if (location.pathname === '/') {
-      navigate(`/book/${encodeURIComponent(state.folderId)}`, { replace: true });
+      navigate(`/book/${encodeURIComponent(state.folderName)}`, { replace: true });
       return;
     }
     if (location.pathname.startsWith('/book/')) return;
     if (location.pathname === '/table/new' || location.pathname.startsWith('/table/') || location.pathname === '/import') {
-      navigate(`/book/${encodeURIComponent(state.folderId)}${location.pathname}`, { replace: true });
+      navigate(`/book/${encodeURIComponent(state.folderName)}${location.pathname}`, { replace: true });
     }
-  }, [location.pathname, navigate, state.folderId]);
+  }, [location.pathname, navigate, state.folderName]);
 
 
   // Setup screen
@@ -657,6 +705,7 @@ const App: React.FC = () => {
         <div className="app-main">
           <Routes>
             <Route path="/" element={<HomePage state={state} />} />
+            <Route path="/book/new/settings" element={<BookSettingsPage state={state} createMode={true} />} />
             <Route path="/book/:bookId" element={<HomePage state={state} />} />
             <Route path="/book/:bookId/table/new" element={<EditTablePage state={state} />} />
             <Route path="/book/:bookId/table/:tableId" element={<TableViewPage state={state} />} />
