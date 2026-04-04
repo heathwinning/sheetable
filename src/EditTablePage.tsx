@@ -11,6 +11,7 @@ import type { ColDef, ValueSetterParams, CellClickedEvent } from 'ag-grid-commun
 import type { CustomCellEditorProps } from 'ag-grid-react';
 import { previewMigration, applyMigration, previewExtract } from './typeMigration';
 import type { MigrationPreview } from './typeMigration';
+import * as drive from './drive';
 
 const typeOptions: { value: ColumnType; label: string }[] = [
   { value: 'text', label: 'Text' },
@@ -128,6 +129,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   const [tableName, setTableName] = useState(schema?.name ?? '');
   const [csvFileName, setCsvFileName] = useState(schema?.csvFileName ?? (schema?.name ? `${schema.name}.csv` : ''));
   const [availableCsvFiles, setAvailableCsvFiles] = useState<string[]>([]);
+  const [pickingCsv, setPickingCsv] = useState(false);
   const [columns, setColumns] = useState<ColumnDef[]>(
     () => schema?.columns.map(c => ({ ...c })) ?? [
       { name: '', type: 'text' as ColumnType },
@@ -796,6 +798,30 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     }
   };
 
+  const handlePickCsvFromDrive = async () => {
+    if (!state.isSignedIn || !state.folderId || state.folderId.startsWith('local-')) {
+      setError('Sign in and open a Drive-backed book to use Drive Picker.');
+      return;
+    }
+
+    setError(null);
+    setPickingCsv(true);
+    try {
+      const picked = await drive.pickCsvFileInFolder(state.folderId);
+      if (!picked) return;
+      if (!picked.name.toLowerCase().endsWith('.csv')) {
+        setError('Please choose a .csv file.');
+        return;
+      }
+      setCsvFileName(picked.name);
+      setAvailableCsvFiles(prev => prev.includes(picked.name) ? prev : [...prev, picked.name].sort((a, b) => a.localeCompare(b)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to open Drive Picker.');
+    } finally {
+      setPickingCsv(false);
+    }
+  };
+
   return (
     <div className="edit-table-page">
       <div className="edit-table-card">
@@ -821,19 +847,35 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
 
         <div className="edit-table-field">
           <label>CSV File</label>
-          <input
-            type="text"
-            value={csvFileName}
-            onChange={e => setCsvFileName(e.target.value)}
-            className="edit-table-input"
-            placeholder="table.csv"
-            list="csv-file-options"
-          />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="text"
+              value={csvFileName}
+              onChange={e => setCsvFileName(e.target.value)}
+              className="edit-table-input"
+              placeholder="table.csv"
+              list="csv-file-options"
+              style={{ flex: 1 }}
+            />
+            <button
+              className="btn-secondary"
+              onClick={() => { void handlePickCsvFromDrive(); }}
+              disabled={pickingCsv || !state.isSignedIn || !state.folderId || state.folderId.startsWith('local-')}
+              title="Pick a CSV file from the current book folder"
+            >
+              {pickingCsv ? 'Opening...' : 'Pick from Drive'}
+            </button>
+          </div>
           <datalist id="csv-file-options">
             {availableCsvFiles.map(name => (
               <option key={name} value={name} />
             ))}
           </datalist>
+          {state.isSignedIn && state.folderId && !state.folderId.startsWith('local-') && (
+            <div className="book-settings-note" style={{ marginTop: 6 }}>
+              Picker opens directly in this book folder.
+            </div>
+          )}
         </div>
 
         {/* New Row Position */}

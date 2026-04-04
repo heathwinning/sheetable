@@ -321,6 +321,12 @@ export interface DriveFileMeta {
   mimeType: string;
 }
 
+export interface PickerFileResult {
+  id: string;
+  name: string;
+  mimeType: string;
+}
+
 // List immediate subfolders in a folder
 export async function listSubfolders(parentId: string): Promise<DriveFolderEntry[]> {
   const response = await gapi.client.drive.files.list({
@@ -393,6 +399,59 @@ export async function ensureShortcutInFolder(parentFolderId: string, targetId: s
   const existing = await findShortcutInFolder(parentFolderId, targetId);
   if (existing) return existing;
   return createShortcut(targetId, parentFolderId, name);
+}
+
+export async function pickCsvFileInFolder(folderId: string): Promise<PickerFileResult | null> {
+  const token = getAccessToken();
+  if (!token) {
+    throw new Error('Not authenticated');
+  }
+
+  await waitForGlobal('google');
+
+  await new Promise<void>((resolve, reject) => {
+    try {
+      gapi.load('picker', () => resolve());
+    } catch (err) {
+      reject(err);
+    }
+  });
+
+  const pickerNs = (window as Window & { google?: { picker?: any } }).google?.picker;
+  if (!pickerNs) {
+    throw new Error('Google Drive Picker is unavailable.');
+  }
+
+  return new Promise<PickerFileResult | null>((resolve) => {
+    const view = new pickerNs.DocsView(pickerNs.ViewId.DOCS)
+      .setParent(folderId)
+      .setIncludeFolders(false)
+      .setSelectFolderEnabled(false)
+      .setMimeTypes('text/csv,application/vnd.ms-excel,text/plain');
+
+    const picker = new pickerNs.PickerBuilder()
+      .setOAuthToken(token)
+      .setOrigin(window.location.origin)
+      .setTitle('Pick CSV from this book')
+      .addView(view)
+      .setCallback((data: any) => {
+        if (data.action === pickerNs.Action.PICKED && Array.isArray(data.docs) && data.docs.length > 0) {
+          const doc = data.docs[0];
+          resolve({
+            id: String(doc.id ?? ''),
+            name: String(doc.name ?? ''),
+            mimeType: String(doc.mimeType ?? ''),
+          });
+          return;
+        }
+        if (data.action === pickerNs.Action.CANCEL) {
+          resolve(null);
+        }
+      })
+      .build();
+
+    picker.setVisible(true);
+  });
 }
 
 // Upload a binary file (e.g. image) to Drive
