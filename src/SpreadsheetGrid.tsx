@@ -5,7 +5,7 @@ import { DataModel } from './dataModel';
 import { log } from './DebugLogger';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, GetMainMenuItemsParams, ColumnMovedEvent, FirstDataRenderedEvent } from 'ag-grid-community';
+import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnMovedEvent, FirstDataRenderedEvent } from 'ag-grid-community';
 import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
@@ -467,41 +467,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     [schema],
   );
 
-  // Normalize: trim whitespace for a column
-  const trimColumn = useCallback((colName: string) => {
-    let trimmed = 0;
-    for (const row of rows) {
-      const val = row[colName];
-      if (typeof val === 'string' && val !== val.trim()) {
-        const idx = rowIdToIndex.get(row[INTERNAL_ROW_ID]);
-        if (idx !== undefined) {
-          const errs = onEdit(idx, colName, val.trim());
-          if (errs.length === 0) trimmed++;
-        }
-      }
-    }
-    if (trimmed > 0) {
-      setError(`Trimmed whitespace in ${trimmed} cell${trimmed > 1 ? 's' : ''}`);
-    } else {
-      setError('No whitespace to trim');
-    }
-  }, [rows, rowIdToIndex, onEdit]);
-
-  const getMainMenuItems = useCallback((params: GetMainMenuItemsParams) => {
-    const defaults = params.defaultItems ?? [];
-    const colId = params.column?.getColId();
-    const col = schema.columns.find(c => c.name === colId);
-    if (!col || col.type === 'image' || col.type === 'reference') return defaults;
-    return [
-      ...defaults,
-      'separator' as const,
-      {
-        name: 'Trim whitespace',
-        action: () => trimColumn(col.name),
-      },
-    ];
-  }, [schema, trimColumn]);
-
   return (
     <div className="spreadsheet-container" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
       {error && (
@@ -574,7 +539,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           onFilterChanged={onFilterChanged}
           onFirstDataRendered={onFirstDataRendered}
           onColumnMoved={onColumnMoved}
-          getMainMenuItems={getMainMenuItems}
         />
       </div>
     </div>

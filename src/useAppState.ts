@@ -4,7 +4,7 @@ import type { TableSchema, Row, Transaction, ValidationError } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { csvToRows, rowsToCSV } from './csv';
 import type { ProjectConfig } from './config';
-import { serializeConfig, parseConfig } from './config';
+import { serializeConfig, parseConfig, serializeBooksConfig, parseBooksConfig } from './config';
 import * as drive from './drive';
 
 export interface WorkbookInfo {
@@ -30,6 +30,7 @@ const LOCAL_DEFAULT_WORKBOOK: WorkbookInfo = {
 };
 
 const LOCAL_BOOKS_STORAGE_KEY = 'sheetable_local_books_v1';
+const DRIVE_BOOKS_CONFIG_FILENAME = 'sheetable.books.json';
 
 function loadLocalBooksStorage(): LocalBooksStorage | null {
   try {
@@ -113,6 +114,7 @@ export function useAppState(): UseAppStateReturn {
   // File ID tracking for Drive
   const fileIdsRef = useRef<Map<string, string>>(new Map()); // tableId -> driveFileId
   const configFileIdRef = useRef<string | null>(null);
+  const booksConfigFileIdRef = useRef<string | null>(null);
   const configDirtyRef = useRef(false);
   const revisionRef = useRef(0);
   const undoStackRef = useRef<Transaction[]>([]);
@@ -204,6 +206,27 @@ export function useAppState(): UseAppStateReturn {
     });
   }, []);
 
+  const persistDriveBooksConfig = useCallback(async (books: WorkbookInfo[]) => {
+    const rootId = rootFolderIdRef.current;
+    if (!rootId) return;
+    const payload = serializeBooksConfig({ books: books.map(b => ({ id: b.id, name: b.name })) });
+
+    if (booksConfigFileIdRef.current) {
+      await drive.updateFile(booksConfigFileIdRef.current, payload, 'application/json');
+      return;
+    }
+
+    const rootFiles = await drive.listFilesInFolder(rootId);
+    const existing = rootFiles.find(f => f.name === DRIVE_BOOKS_CONFIG_FILENAME);
+    if (existing) {
+      booksConfigFileIdRef.current = existing.id;
+      await drive.updateFile(existing.id, payload, 'application/json');
+      return;
+    }
+
+    booksConfigFileIdRef.current = await drive.createFile(DRIVE_BOOKS_CONFIG_FILENAME, payload, rootId, 'application/json');
+  }, []);
+
   const loadWorkbook = useCallback(async (workbookId: string, workbookName: string) => {
     clearModel();
     setFolderId(workbookId);
@@ -240,16 +263,41 @@ export function useAppState(): UseAppStateReturn {
   }, [bump, clearModel, model]);
 
   const refreshWorkbooks = useCallback(async () => {
-    if (!rootFolderIdRef.current) return [] as WorkbookInfo[];
-    const folders = await drive.listSubfolders(rootFolderIdRef.current);
-    let next = folders;
-    if (next.length === 0) {
-      const defaultId = await drive.findOrCreateSubfolder('Untitled', rootFolderIdRef.current);
-      next = [{ id: defaultId, name: 'Untitled' }];
+    const rootId = rootFolderIdRef.current;
+    if (!rootId) return [] as WorkbookInfo[];
+
+    const rootFiles = await drive.listFilesInFolder(rootId);
+    const booksConfigFile = rootFiles.find(f => f.name === DRIVE_BOOKS_CONFIG_FILENAME);
+    let next: WorkbookInfo[] = [];
+
+    if (booksConfigFile) {
+      booksConfigFileIdRef.current = booksConfigFile.id;
+      try {
+        const configText = await drive.downloadFile(booksConfigFile.id);
+        const parsed = parseBooksConfig(configText);
+        next = (parsed.books ?? [])
+          .filter(b => !!b?.id && !!b?.name)
+          .map(b => ({ id: b.id, name: b.name }));
+      } catch (err) {
+        console.warn('Invalid books config, rebuilding:', err);
+      }
     }
+
+    // One-time migration when config is missing/invalid: seed from existing subfolders.
+    if (next.length === 0) {
+      const folders = await drive.listSubfolders(rootId);
+      if (folders.length > 0) {
+        next = folders;
+      } else {
+        const defaultId = await drive.findOrCreateSubfolder('Untitled', rootId);
+        next = [{ id: defaultId, name: 'Untitled' }];
+      }
+      await persistDriveBooksConfig(next);
+    }
+
     setWorkbooks(next);
     return next;
-  }, []);
+  }, [persistDriveBooksConfig]);
 
   const createTable = useCallback((schema: TableSchema, rows?: Row[]) => {
     model.createTable(schema, rows);
@@ -477,6 +525,7 @@ export function useAppState(): UseAppStateReturn {
     drive.signOut();
     setIsSignedIn(false);
     rootFolderIdRef.current = null;
+    booksConfigFileIdRef.current = null;
     const localList = Array.from(localWorkbooksRef.current.entries()).map(([id, snap]) => ({ id, name: snap.name }));
     setWorkbooks(localList.length > 0 ? localList : [LOCAL_DEFAULT_WORKBOOK]);
     setUserInfo(null);
@@ -511,11 +560,14 @@ export function useAppState(): UseAppStateReturn {
     const rootId = rootFolderIdRef.current;
     if (!rootId) return null;
     const workbookId = await drive.findOrCreateSubfolder(name, rootId);
-    const next = await refreshWorkbooks();
-    const created = next.find(w => w.id === workbookId) ?? { id: workbookId, name };
+    const existingById = workbooks.find(w => w.id === workbookId);
+    const created = existingById ?? { id: workbookId, name: name.trim() };
+    const next = existingById ? workbooks : [...workbooks, created];
+    setWorkbooks(next);
+    await persistDriveBooksConfig(next);
     await loadWorkbook(created.id, created.name);
     return created.id;
-  }, [isSignedIn, loadLocalWorkbook, loadWorkbook, refreshWorkbooks]);
+  }, [isSignedIn, loadLocalWorkbook, loadWorkbook, persistDriveBooksConfig, workbooks]);
 
   const renameWorkbook = useCallback(async (workbookId: string, name: string) => {
     const trimmed = name.trim();
@@ -538,12 +590,13 @@ export function useAppState(): UseAppStateReturn {
     }
 
     await drive.renameFile(workbookId, trimmed);
-    const next = await refreshWorkbooks();
+    const next = workbooks.map(w => w.id === workbookId ? { ...w, name: trimmed } : w);
+    setWorkbooks(next);
+    await persistDriveBooksConfig(next);
     if (folderId === workbookId) {
-      const active = next.find(w => w.id === workbookId);
-      setFolderName(active?.name ?? trimmed);
+      setFolderName(trimmed);
     }
-  }, [bump, folderId, isSignedIn, refreshWorkbooks]);
+  }, [bump, folderId, isSignedIn, persistDriveBooksConfig, workbooks]);
 
   const deleteWorkbook = useCallback(async (workbookId: string): Promise<string | null> => {
     if (!isSignedIn) {
@@ -573,17 +626,24 @@ export function useAppState(): UseAppStateReturn {
     }
 
     await drive.deleteFile(workbookId);
-    const next = await refreshWorkbooks();
-    if (next.length === 0) return null;
-
-    const activeStillExists = next.some(w => w.id === folderId);
-    let target = next.find(w => w.id === folderId) ?? next[0];
-    if (!activeStillExists || folderId === workbookId) {
-      target = next[0];
-      await loadWorkbook(target.id, target.name);
+    let next = workbooks.filter(w => w.id !== workbookId);
+    if (next.length === 0) {
+      const rootId = rootFolderIdRef.current;
+      if (rootId) {
+        const defaultId = await drive.findOrCreateSubfolder('Untitled', rootId);
+        next = [{ id: defaultId, name: 'Untitled' }];
+      }
     }
+
+    setWorkbooks(next);
+    await persistDriveBooksConfig(next);
+
+    if (next.length === 0) return null;
+    const target = next.find(w => w.id === folderId && w.id !== workbookId) ?? next[0];
+    if (!target) return null;
+    await loadWorkbook(target.id, target.name);
     return target.name;
-  }, [folderId, folderName, isSignedIn, loadLocalWorkbook, loadWorkbook, persistLocalBooks, refreshWorkbooks, snapshotLocalWorkbook]);
+  }, [folderId, folderName, isSignedIn, loadLocalWorkbook, loadWorkbook, persistDriveBooksConfig, persistLocalBooks, snapshotLocalWorkbook, workbooks]);
 
   const switchWorkbook = useCallback(async (workbookId: string) => {
     if (!isSignedIn) {
