@@ -975,9 +975,20 @@ export function useAppState(): UseAppStateReturn {
       if (sharedMeta.name?.trim()) {
         workbookName = sharedMeta.name.trim();
       }
-    } catch {
-      // Some shared items may not expose metadata with current token scope.
-      // Continue using invite payload name.
+    } catch (err: any) {
+      // Enhanced error reporting for missing or inaccessible Drive file
+      let reason = '';
+      if (err && typeof err === 'object') {
+        if (err.status === 404 || (err.result && err.result.error && err.result.error.code === 404)) {
+          reason = 'The shared Drive folder could not be found. It may have been deleted or you may not have access.';
+        } else if (err.status === 403 || (err.result && err.result.error && err.result.error.code === 403)) {
+          reason = 'You do not have permission to access the shared Drive folder. Make sure the owner shared it with your email.';
+        } else if (err.result && err.result.error && err.result.error.message) {
+          reason = err.result.error.message;
+        }
+      }
+      if (!reason) reason = 'Unknown error accessing shared Drive folder.';
+      throw new Error(reason);
     }
 
     try {
