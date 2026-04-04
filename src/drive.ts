@@ -288,6 +288,14 @@ export async function deleteFile(fileId: string): Promise<void> {
   });
 }
 
+// Rename a Drive file or folder
+export async function renameFile(fileId: string, name: string): Promise<void> {
+  await gapi.client.drive.files.update({
+    fileId,
+    resource: { name },
+  });
+}
+
 // Find or create a subfolder inside a parent folder
 export async function findOrCreateSubfolder(name: string, parentId: string): Promise<string> {
   const response = await gapi.client.drive.files.list({
@@ -300,6 +308,54 @@ export async function findOrCreateSubfolder(name: string, parentId: string): Pro
   if (existing) return existing.id!;
 
   return createFolder(name, parentId);
+}
+
+export interface DriveFolderEntry {
+  id: string;
+  name: string;
+}
+
+// List immediate subfolders in a folder
+export async function listSubfolders(parentId: string): Promise<DriveFolderEntry[]> {
+  const response = await gapi.client.drive.files.list({
+    q: `'${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id, name)',
+    pageSize: 100,
+    orderBy: 'name_natural',
+  });
+  return (response.result.files ?? [])
+    .filter(f => f.id && f.name)
+    .map(f => ({ id: f.id!, name: f.name! }));
+}
+
+// Share a Drive folder with a user by email
+export async function shareFolderWithEmail(folderId: string, emailAddress: string, role: 'reader' | 'writer' = 'writer'): Promise<void> {
+  await gapi.client.request({
+    path: `/drive/v3/files/${folderId}/permissions`,
+    method: 'POST',
+    params: {
+      sendNotificationEmail: 'true',
+    },
+    body: JSON.stringify({
+      type: 'user',
+      role,
+      emailAddress,
+    }),
+  });
+}
+
+// Optional helper for receiver flows: create a shortcut to a folder/file in a target folder
+export async function createShortcut(targetId: string, parentFolderId: string, name?: string): Promise<string> {
+  const response = await gapi.client.drive.files.create({
+    resource: {
+      name,
+      mimeType: 'application/vnd.google-apps.shortcut',
+      parents: [parentFolderId],
+      shortcutDetails: { targetId },
+    },
+    fields: 'id',
+  });
+  return response.result.id as string;
 }
 
 // Upload a binary file (e.g. image) to Drive

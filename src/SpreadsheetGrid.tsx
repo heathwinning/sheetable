@@ -257,6 +257,48 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         const displayCols = col.refDisplayColumns ?? [];
         const searchCols = col.refSearchColumns ?? [];
 
+        const setReferenceValue = (params: ValueSetterParams, newValueRaw: string) => {
+          const newValue = newValueRaw ?? '';
+          const oldValue = params.data?.[col.name] ?? '';
+          if (newValue === oldValue) return false;
+
+          const rowId = params.data?.[INTERNAL_ROW_ID];
+
+          // Draft row: insert it into the DataModel
+          if (rowId === DRAFT_ROW_ID) {
+            const newRow: Row = {};
+            for (const c of schema.columns) {
+              if (c.name === col.name) {
+                newRow[c.name] = newValue;
+              } else {
+                newRow[c.name] = params.data?.[c.name] ?? '';
+              }
+            }
+            for (const keyColName of (schema.uniqueKeys ?? [])) {
+              if (!newRow[keyColName]) {
+                newRow[keyColName] = `new-${draftCounter.current}`;
+              }
+            }
+            const errors = onInsert(newRow);
+            if (errors.length > 0) {
+              setError(errors[0].message);
+              return false;
+            }
+            setError(null);
+            return false;
+          }
+
+          const idx = rowIdToIndex.get(rowId);
+          if (idx === undefined) return false;
+          const errors = onEdit(idx, col.name, newValue);
+          if (errors.length > 0) {
+            setError(errors[0].message);
+            return false;
+          }
+          setError(null);
+          return true;
+        };
+
         const resolveRefDisplay = (rowId: string): string => {
           if (!rowId) return '';
           const refRow = model.getReferencedRow(refTable, rowId);
@@ -294,10 +336,12 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           };
         };
 
+        def.valueSetter = (params: ValueSetterParams) => setReferenceValue(params, params.newValue ?? '');
+
         const derivedDefs: ColDef[] = displayCols.map((displayPath) => ({
           colId: `${col.name}::${displayPath}`,
           headerName: `${col.displayName || col.name} · ${displayPath}`,
-          editable: false,
+          editable: true,
           minWidth: 120,
           resizable: true,
           filter: 'agTextColumnFilter',
@@ -311,11 +355,8 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
             return model.resolveColumnPath(refTable, refRow, displayPath);
           },
           comparator: (a, b) => String(a ?? '').toLowerCase().localeCompare(String(b ?? '').toLowerCase()),
-          onCellClicked: (params) => {
-            if (params.data?.[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return;
-            if (params.rowIndex == null) return;
-            params.api.startEditingCell({ rowIndex: params.rowIndex, colKey: col.name });
-          },
+          cellEditorSelector: def.cellEditorSelector,
+          valueSetter: (params: ValueSetterParams) => setReferenceValue(params, params.newValue ?? ''),
         }));
 
         if (derivedDefs.length > 0) {

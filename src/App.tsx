@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Routes, Route, useNavigate, useParams, Link } from 'react-router-dom';
+import { Routes, Route, useNavigate, useParams, Link, useLocation, Navigate } from 'react-router-dom';
 import { useAppState } from './useAppState';
 import { SpreadsheetGrid } from './SpreadsheetGrid';
 import { EditTablePage } from './EditTablePage';
@@ -11,9 +11,12 @@ import './App.css';
 // Client ID should be configured per deployment
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
+const bookPrefix = (bookId?: string) => (bookId ? `/book/${encodeURIComponent(bookId)}` : '');
+const withBook = (bookId: string | undefined, suffix: string) => `${bookPrefix(bookId)}${suffix}`;
+
 // --- Table View Page ---
 const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
-  const { tableId } = useParams<{ tableId: string }>();
+  const { tableId, bookId } = useParams<{ tableId: string; bookId?: string }>();
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
   const showAlert = useAlert();
 
@@ -68,7 +71,7 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             <Link
               key={id}
               className={`table-tab ${id === tableId ? 'active' : ''} ${id === draggingTableId ? 'dragging' : ''}`}
-              to={`/table/${encodeURIComponent(id)}`}
+              to={withBook(bookId, `/table/${encodeURIComponent(id)}`)}
               draggable
               onDragStart={(e) => {
                 setDraggingTableId(id);
@@ -97,7 +100,7 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
           ) : (
             <Link
               className="table-tab add-tab"
-              to="/table/new"
+              to={withBook(bookId, '/table/new')}
               title="Create new table"
             >
               +
@@ -116,19 +119,19 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             </button>
             <Link
               className="btn-secondary btn-sm"
-              to={`/table/${encodeURIComponent(tableId)}/import`}
+              to={withBook(bookId, `/table/${encodeURIComponent(tableId)}/import`)}
             >
               Import
             </Link>
             <Link
               className="btn-secondary btn-sm"
-              to="/import"
+              to={withBook(bookId, '/import')}
             >
               Import New
             </Link>
             <Link
               className="btn-secondary btn-sm table-tabs-edit"
-              to={`/table/${encodeURIComponent(tableId)}/edit`}
+              to={withBook(bookId, `/table/${encodeURIComponent(tableId)}/edit`)}
             >
               Edit Table
             </Link>
@@ -176,7 +179,7 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
                 Loading…
               </button>
             ) : (
-              <Link className="btn-primary" to="/table/new">
+              <Link className="btn-primary" to={withBook(bookId, '/table/new')}>
                 Create Table
               </Link>
             )}
@@ -189,14 +192,15 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
 // --- Home Page (redirect to first table or show empty state) ---
 const HomePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
+  const { bookId } = useParams<{ bookId?: string }>();
   const navigate = useNavigate();
 
   // Auto-redirect to first table
   useEffect(() => {
     if (state.tableIds.length > 0) {
-      navigate(`/table/${encodeURIComponent(state.tableIds[0])}`, { replace: true });
+      navigate(withBook(bookId, `/table/${encodeURIComponent(state.tableIds[0])}`), { replace: true });
     }
-  }, [state.tableIds, navigate]);
+  }, [state.tableIds, navigate, bookId]);
 
   if (state.tableIds.length > 0) return null;
 
@@ -205,7 +209,7 @@ const HomePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
       <div className="table-tabs">
         <Link
           className="table-tab add-tab"
-          to="/table/new"
+          to={withBook(bookId, '/table/new')}
           title="Create new table"
         >
           +
@@ -221,11 +225,11 @@ const HomePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               Loading…
             </button>
           ) : (
-            <Link className="btn-primary" to="/table/new">
+            <Link className="btn-primary" to={withBook(bookId, '/table/new')}>
               Create Table
             </Link>
           )}
-          <Link className="btn-secondary" to="/import">
+          <Link className="btn-secondary" to={withBook(bookId, '/import')}>
             Import from CSV / Sheet
           </Link>
         </div>
@@ -341,10 +345,193 @@ const DriveStatusButton: React.FC<{ state: UseAppStateReturn }> = ({ state }) =>
   );
 };
 
+const BookSidebar: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const routeBookMatch = location.pathname.match(/^\/book\/([^/]+)/);
+  const routeBookId = routeBookMatch ? decodeURIComponent(routeBookMatch[1]) : state.folderId;
+
+  const currentTail = (() => {
+    const m = location.pathname.match(/^\/book\/[^/]+(\/.*)?$/);
+    if (m) return m[1] ?? '';
+    if (location.pathname === '/') return '';
+    if (location.pathname.startsWith('/table/') || location.pathname === '/table/new' || location.pathname === '/import') {
+      return location.pathname;
+    }
+    return '';
+  })();
+
+  const onCreate = async () => {
+    const name = window.prompt('New workbook name:');
+    if (!name || !name.trim()) return;
+    const createdId = await state.createWorkbook(name.trim());
+    if (createdId) {
+      navigate(`/book/${encodeURIComponent(createdId)}${currentTail}` || `/book/${encodeURIComponent(createdId)}`);
+    }
+  };
+
+  const openBook = async (bookId: string) => {
+    await state.switchWorkbook(bookId);
+    navigate(`/book/${encodeURIComponent(bookId)}${currentTail}` || `/book/${encodeURIComponent(bookId)}`);
+  };
+
+  return (
+    <aside className="book-sidebar">
+      <div className="book-sidebar-header">
+        <span className="book-sidebar-title">Books</span>
+        <button className="btn-secondary btn-sm" onClick={() => { void onCreate(); }} disabled={state.isConnecting}>
+          New
+        </button>
+      </div>
+      <div className="book-sidebar-list">
+        {state.workbooks.map(book => {
+          const isActive = book.id === routeBookId;
+          return (
+            <div key={book.id} className={`book-sidebar-item ${isActive ? 'active' : ''}`}>
+              <button
+                className="book-sidebar-link"
+                onClick={() => { void openBook(book.id); }}
+                title={book.name}
+              >
+                {book.name}
+              </button>
+              <button
+                className="book-sidebar-edit"
+                onClick={() => navigate(`/book/${encodeURIComponent(book.id)}/settings`)}
+                title="Edit book"
+              >
+                Edit
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </aside>
+  );
+};
+
+const BookSettingsPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
+  const { bookId } = useParams<{ bookId: string }>();
+  const navigate = useNavigate();
+  const effectiveBookId = bookId ?? state.folderId ?? '';
+  const currentBook = state.workbooks.find(b => b.id === effectiveBookId);
+
+  const [name, setName] = useState(currentBook?.name ?? '');
+  const [shareEmail, setShareEmail] = useState('');
+  const [shareRole, setShareRole] = useState<'reader' | 'writer'>('writer');
+  const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!currentBook) return;
+    setName(currentBook.name);
+  }, [currentBook]);
+
+  useEffect(() => {
+    if (!effectiveBookId || effectiveBookId === state.folderId) return;
+    if (!state.workbooks.some(w => w.id === effectiveBookId)) return;
+    void state.switchWorkbook(effectiveBookId);
+  }, [effectiveBookId, state]);
+
+  if (!currentBook) {
+    return (
+      <div className="book-settings-page">
+        <div className="book-settings-card">
+          <h2>Book not found</h2>
+          <button className="btn-secondary" onClick={() => navigate('/')}>Back</button>
+        </div>
+      </div>
+    );
+  }
+
+  const saveName = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setStatus('Book name cannot be empty.');
+      return;
+    }
+    await state.renameWorkbook(currentBook.id, trimmed);
+    setStatus('Book name updated.');
+  };
+
+  const doShare = async () => {
+    if (!state.isSignedIn) {
+      setStatus('Sign in to share this book.');
+      return;
+    }
+    if (!shareEmail.trim()) {
+      setStatus('Enter an email address to share.');
+      return;
+    }
+    await state.shareWorkbook(currentBook.id, shareEmail.trim(), shareRole);
+    setStatus(`Shared with ${shareEmail.trim()} as ${shareRole}.`);
+    setShareEmail('');
+  };
+
+  return (
+    <div className="book-settings-page">
+      <div className="book-settings-card">
+        <div className="book-settings-header">
+          <h2>Book Settings</h2>
+          <button className="btn-secondary btn-sm" onClick={() => navigate(`/book/${encodeURIComponent(currentBook.id)}`)}>
+            Back to Book
+          </button>
+        </div>
+
+        <div className="book-settings-section">
+          <label className="book-settings-label">Book Name</label>
+          <div className="book-settings-row">
+            <input
+              className="edit-table-input"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Book name"
+            />
+            <button className="btn-primary" onClick={() => { void saveName(); }}>
+              Save Name
+            </button>
+          </div>
+        </div>
+
+        <div className="book-settings-section">
+          <label className="book-settings-label">Share Book</label>
+          <div className="book-settings-row">
+            <input
+              className="edit-table-input"
+              type="email"
+              value={shareEmail}
+              onChange={(e) => setShareEmail(e.target.value)}
+              placeholder="user@example.com"
+              disabled={!state.isSignedIn}
+            />
+            <select
+              className="workbook-toolbar-select"
+              value={shareRole}
+              onChange={(e) => setShareRole(e.target.value as 'reader' | 'writer')}
+              disabled={!state.isSignedIn}
+            >
+              <option value="writer">Editor</option>
+              <option value="reader">Viewer</option>
+            </select>
+            <button className="btn-secondary" onClick={() => { void doShare(); }} disabled={!state.isSignedIn}>
+              Share
+            </button>
+          </div>
+          {!state.isSignedIn && <div className="book-settings-note">Sign in with Google Drive to enable sharing.</div>}
+        </div>
+
+        {status && <div className="edit-table-notice edit-table-notice-info">{status}</div>}
+      </div>
+    </div>
+  );
+};
+
 // --- Main App Shell ---
 const App: React.FC = () => {
   const state = useAppState();
   const showAlert = useAlert();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [clientIdInput, setClientIdInput] = useState(GOOGLE_CLIENT_ID);
   const [setupDone, setSetupDone] = useState(false);
 
@@ -381,6 +568,30 @@ const App: React.FC = () => {
       showAlert('Failed to connect to Google Drive. Check your Client ID and try again.', 'Connection Error');
     }
   };
+
+  // URL -> workbook state: switching /book/:bookId should switch active workbook.
+  useEffect(() => {
+    if (state.workbooks.length === 0) return;
+    const m = location.pathname.match(/^\/book\/([^/]+)/);
+    if (!m) return;
+    const routeBookId = decodeURIComponent(m[1]);
+    if (routeBookId === state.folderId) return;
+    if (!state.workbooks.some(w => w.id === routeBookId)) return;
+    void state.switchWorkbook(routeBookId);
+  }, [location.pathname, state]);
+
+  // Preserve backward compatibility: old table/import routes get upgraded to /book/:bookId/... when possible.
+  useEffect(() => {
+    if (!state.folderId) return;
+    if (location.pathname === '/') {
+      navigate(`/book/${encodeURIComponent(state.folderId)}`, { replace: true });
+      return;
+    }
+    if (location.pathname.startsWith('/book/')) return;
+    if (location.pathname === '/table/new' || location.pathname.startsWith('/table/') || location.pathname === '/import') {
+      navigate(`/book/${encodeURIComponent(state.folderId)}${location.pathname}`, { replace: true });
+    }
+  }, [location.pathname, navigate, state.folderId]);
 
 
   // Setup screen
@@ -441,14 +652,27 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <Routes>
-        <Route path="/" element={<HomePage state={state} />} />
-        <Route path="/table/new" element={<EditTablePage state={state} />} />
-        <Route path="/table/:tableId" element={<TableViewPage state={state} />} />
-        <Route path="/table/:tableId/edit" element={<EditTablePage state={state} />} />
-        <Route path="/table/:tableId/import" element={<ImportPage state={state} />} />
-        <Route path="/import" element={<ImportPage state={state} />} />
-      </Routes>
+      <div className="app-shell">
+        <BookSidebar state={state} />
+        <div className="app-main">
+          <Routes>
+            <Route path="/" element={<HomePage state={state} />} />
+            <Route path="/book/:bookId" element={<HomePage state={state} />} />
+            <Route path="/book/:bookId/table/new" element={<EditTablePage state={state} />} />
+            <Route path="/book/:bookId/table/:tableId" element={<TableViewPage state={state} />} />
+            <Route path="/book/:bookId/settings" element={<BookSettingsPage state={state} />} />
+            <Route path="/book/:bookId/table/:tableId/edit" element={<EditTablePage state={state} />} />
+            <Route path="/book/:bookId/table/:tableId/import" element={<ImportPage state={state} />} />
+            <Route path="/book/:bookId/import" element={<ImportPage state={state} />} />
+            <Route path="/table/new" element={<EditTablePage state={state} />} />
+            <Route path="/table/:tableId" element={<TableViewPage state={state} />} />
+            <Route path="/table/:tableId/edit" element={<EditTablePage state={state} />} />
+            <Route path="/table/:tableId/import" element={<ImportPage state={state} />} />
+            <Route path="/import" element={<ImportPage state={state} />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
+      </div>
     </div>
   );
 };

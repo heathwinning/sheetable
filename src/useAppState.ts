@@ -7,6 +7,23 @@ import type { ProjectConfig } from './config';
 import { serializeConfig, parseConfig } from './config';
 import * as drive from './drive';
 
+export interface WorkbookInfo {
+  id: string;
+  name: string;
+}
+
+interface LocalWorkbookSnapshot {
+  name: string;
+  tables: Array<{ schema: TableSchema; rows: Row[] }>;
+  tableOrder: string[];
+  activeTableId: string | null;
+}
+
+const LOCAL_DEFAULT_WORKBOOK: WorkbookInfo = {
+  id: 'local-default',
+  name: 'Personal',
+};
+
 export interface UseAppStateReturn {
   // Data
   model: DataModel;
@@ -38,6 +55,11 @@ export interface UseAppStateReturn {
   isSignedIn: boolean;
   folderId: string | null;
   folderName: string | null;
+  workbooks: WorkbookInfo[];
+  createWorkbook: (name: string) => Promise<string | null>;
+  renameWorkbook: (workbookId: string, name: string) => Promise<void>;
+  switchWorkbook: (workbookId: string) => Promise<void>;
+  shareWorkbook: (workbookId: string, emailAddress: string, role?: 'reader' | 'writer') => Promise<void>;
   signIn: () => void;
   signOut: () => void;
   isSaving: boolean;
@@ -57,8 +79,9 @@ export function useAppState(): UseAppStateReturn {
   const [activeTableId, setActiveTableId] = useState<string | null>(null);
   const [tableOrder, setTableOrder] = useState<string[]>([]);
   const [isSignedIn, setIsSignedIn] = useState(false);
-  const [folderId, setFolderId] = useState<string | null>(null);
-  const [folderName, setFolderName] = useState<string | null>(null);
+  const [folderId, setFolderId] = useState<string | null>(LOCAL_DEFAULT_WORKBOOK.id);
+  const [folderName, setFolderName] = useState<string | null>(LOCAL_DEFAULT_WORKBOOK.name);
+  const [workbooks, setWorkbooks] = useState<WorkbookInfo[]>([LOCAL_DEFAULT_WORKBOOK]);
   const [driveReady, setDriveReady] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -71,6 +94,13 @@ export function useAppState(): UseAppStateReturn {
   const configDirtyRef = useRef(false);
   const revisionRef = useRef(0);
   const undoStackRef = useRef<Transaction[]>([]);
+  const rootFolderIdRef = useRef<string | null>(null);
+  const localWorkbooksRef = useRef<Map<string, LocalWorkbookSnapshot>>(
+    new Map([[LOCAL_DEFAULT_WORKBOOK.id, { name: LOCAL_DEFAULT_WORKBOOK.name, tables: [], tableOrder: [], activeTableId: null }]])
+  );
+  const localActiveWorkbookIdRef = useRef<string>(LOCAL_DEFAULT_WORKBOOK.id);
+
+  const model = modelRef.current;
 
   const bump = useCallback(() => setRevision(r => {
     const next = r + 1;
@@ -78,7 +108,114 @@ export function useAppState(): UseAppStateReturn {
     return next;
   }), []);
 
-  const model = modelRef.current;
+  const clearModel = useCallback(() => {
+    const existing = [...model.getTableIds()];
+    for (const id of existing) {
+      model.deleteTable(id);
+    }
+    fileIdsRef.current.clear();
+    configFileIdRef.current = null;
+    configDirtyRef.current = false;
+    undoStackRef.current = [];
+    setTableOrder([]);
+    setActiveTableId(null);
+  }, [model]);
+
+  const snapshotLocalWorkbook = useCallback((workbookId: string, workbookName: string) => {
+    const tableIds = model.getTableIds();
+    const tables = tableIds
+      .map(tableId => model.getTable(tableId))
+      .filter((t): t is NonNullable<typeof t> => !!t)
+      .map(table => ({
+        schema: JSON.parse(JSON.stringify(table.schema)) as TableSchema,
+        rows: table.rows.map(row => ({ ...row })),
+      }));
+
+    localWorkbooksRef.current.set(workbookId, {
+      name: workbookName,
+      tables,
+      tableOrder: [...tableOrder],
+      activeTableId,
+    });
+  }, [activeTableId, model, tableOrder]);
+
+  const loadLocalWorkbook = useCallback((workbookId: string, workbookName: string) => {
+    clearModel();
+    setFolderId(workbookId);
+    setFolderName(workbookName);
+    localActiveWorkbookIdRef.current = workbookId;
+
+    const snapshot = localWorkbooksRef.current.get(workbookId);
+    if (!snapshot) {
+      localWorkbooksRef.current.set(workbookId, {
+        name: workbookName,
+        tables: [],
+        tableOrder: [],
+        activeTableId: null,
+      });
+      bump();
+      return;
+    }
+
+    for (const table of snapshot.tables) {
+      model.createTable(
+        JSON.parse(JSON.stringify(table.schema)) as TableSchema,
+        table.rows.map(r => ({ ...r })),
+      );
+      model.markSaved(table.schema.name);
+    }
+
+    setTableOrder([...snapshot.tableOrder]);
+    setActiveTableId(snapshot.activeTableId);
+    bump();
+  }, [bump, clearModel, model]);
+
+  const loadWorkbook = useCallback(async (workbookId: string, workbookName: string) => {
+    clearModel();
+    setFolderId(workbookId);
+    setFolderName(workbookName);
+
+    const files = await drive.listFilesInFolder(workbookId);
+    const configFile = files.find(f => f.name === 'sheetable.json');
+    if (!configFile) {
+      bump();
+      return;
+    }
+
+    configFileIdRef.current = configFile.id;
+    const configText = await drive.downloadFile(configFile.id);
+    const config = parseConfig(configText);
+
+    for (const schema of config.tables) {
+      const csvFile = files.find(f => f.name === `${schema.name}.csv`);
+      let rows: Row[] = [];
+      if (csvFile) {
+        fileIdsRef.current.set(schema.name, csvFile.id);
+        const csvText = await drive.downloadFile(csvFile.id);
+        rows = csvToRows(csvText, schema);
+      }
+      model.createTable(schema, rows);
+      model.markSaved(schema.name);
+    }
+
+    setTableOrder(config.tables.map(t => t.name));
+    if (config.tables.length > 0) {
+      setActiveTableId(config.tables[0].name);
+    }
+    bump();
+  }, [bump, clearModel, model]);
+
+  const refreshWorkbooks = useCallback(async () => {
+    if (!rootFolderIdRef.current) return [] as WorkbookInfo[];
+    const folders = await drive.listSubfolders(rootFolderIdRef.current);
+    let next = folders;
+    if (next.length === 0) {
+      const defaultId = await drive.findOrCreateSubfolder('Personal', rootFolderIdRef.current);
+      next = [{ id: defaultId, name: 'Personal' }];
+    }
+    setWorkbooks(next);
+    return next;
+  }, []);
 
   const createTable = useCallback((schema: TableSchema, rows?: Row[]) => {
     model.createTable(schema, rows);
@@ -244,44 +381,21 @@ export function useAppState(): UseAppStateReturn {
     return model.getTableIds().some(id => model.isDirty(id));
   }, [model]);
 
-  // Connect to the "sheetable" folder automatically
+  // Connect to root "sheetable" folder, then load a workbook subfolder
   const connectToFolder = useCallback(async () => {
     setIsConnecting(true);
     try {
-      const folder = await drive.findOrCreateFolder();
-      setFolderId(folder.id);
-      setFolderName(folder.name);
+      const rootFolder = await drive.findOrCreateFolder();
+      rootFolderIdRef.current = rootFolder.id;
 
-      // Load existing data from folder
-      const files = await drive.listFilesInFolder(folder.id);
-      const configFile = files.find(f => f.name === 'sheetable.json');
-      if (configFile) {
-        configFileIdRef.current = configFile.id;
-        const configText = await drive.downloadFile(configFile.id);
-        const config = parseConfig(configText);
-
-        for (const schema of config.tables) {
-          const csvFile = files.find(f => f.name === `${schema.name}.csv`);
-          let rows: Row[] = [];
-          if (csvFile) {
-            fileIdsRef.current.set(schema.name, csvFile.id);
-            const csvText = await drive.downloadFile(csvFile.id);
-            rows = csvToRows(csvText, schema);
-          }
-          model.createTable(schema, rows);
-          model.markSaved(schema.name);
-        }
-        setTableOrder(config.tables.map(t => t.name));
-        undoStackRef.current = [];
-        bump();
-        if (config.tables.length > 0) {
-          setActiveTableId(config.tables[0].name);
-        }
+      const folders = await refreshWorkbooks();
+      if (folders.length > 0) {
+        await loadWorkbook(folders[0].id, folders[0].name);
       }
     } finally {
       setIsConnecting(false);
     }
-  }, [model, bump]);
+  }, [loadWorkbook, refreshWorkbooks]);
 
   // Drive integration
   const initializeDrive = useCallback(async (clientId: string) => {
@@ -319,16 +433,105 @@ export function useAppState(): UseAppStateReturn {
   }, [connectToFolder]);
 
   const signIn = useCallback(() => {
+    if (!isSignedIn && folderId && folderId.startsWith('local-')) {
+      snapshotLocalWorkbook(folderId, folderName ?? 'Personal');
+    }
     drive.requestAccessToken();
-  }, []);
+  }, [folderId, folderName, isSignedIn, snapshotLocalWorkbook]);
 
   const signOutHandler = useCallback(() => {
     drive.signOut();
     setIsSignedIn(false);
-    setFolderId(null);
-    setFolderName(null);
+    rootFolderIdRef.current = null;
+    const localList = Array.from(localWorkbooksRef.current.entries()).map(([id, snap]) => ({ id, name: snap.name }));
+    setWorkbooks(localList.length > 0 ? localList : [LOCAL_DEFAULT_WORKBOOK]);
     setUserInfo(null);
-  }, []);
+    setLastSaved(null);
+    setIsSaving(false);
+
+    const targetId = localActiveWorkbookIdRef.current;
+    const target = localWorkbooksRef.current.get(targetId);
+    loadLocalWorkbook(targetId, target?.name ?? 'Personal');
+  }, [loadLocalWorkbook]);
+
+  const createWorkbook = useCallback(async (name: string): Promise<string | null> => {
+    if (!isSignedIn) {
+      const trimmed = name.trim();
+      if (!trimmed) return null;
+      const currentLocalId = localActiveWorkbookIdRef.current;
+      const currentLocalName = localWorkbooksRef.current.get(currentLocalId)?.name ?? 'Personal';
+      snapshotLocalWorkbook(currentLocalId, currentLocalName);
+      const workbookId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      localWorkbooksRef.current.set(workbookId, {
+        name: trimmed,
+        tables: [],
+        tableOrder: [],
+        activeTableId: null,
+      });
+      const next = Array.from(localWorkbooksRef.current.entries()).map(([id, snap]) => ({ id, name: snap.name }));
+      setWorkbooks(next);
+      loadLocalWorkbook(workbookId, trimmed);
+      return workbookId;
+    }
+
+    const rootId = rootFolderIdRef.current;
+    if (!rootId) return null;
+    const workbookId = await drive.findOrCreateSubfolder(name, rootId);
+    const next = await refreshWorkbooks();
+    const created = next.find(w => w.id === workbookId) ?? { id: workbookId, name };
+    await loadWorkbook(created.id, created.name);
+    return created.id;
+  }, [isSignedIn, loadLocalWorkbook, loadWorkbook, refreshWorkbooks]);
+
+  const renameWorkbook = useCallback(async (workbookId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+
+    if (!isSignedIn) {
+      const snapshot = localWorkbooksRef.current.get(workbookId);
+      if (!snapshot) return;
+      localWorkbooksRef.current.set(workbookId, {
+        ...snapshot,
+        name: trimmed,
+      });
+      const next = Array.from(localWorkbooksRef.current.entries()).map(([id, snap]) => ({ id, name: snap.name }));
+      setWorkbooks(next);
+      if (folderId === workbookId) {
+        setFolderName(trimmed);
+      }
+      bump();
+      return;
+    }
+
+    await drive.renameFile(workbookId, trimmed);
+    const next = await refreshWorkbooks();
+    if (folderId === workbookId) {
+      const active = next.find(w => w.id === workbookId);
+      setFolderName(active?.name ?? trimmed);
+    }
+  }, [bump, folderId, isSignedIn, refreshWorkbooks]);
+
+  const switchWorkbook = useCallback(async (workbookId: string) => {
+    if (!isSignedIn) {
+      const currentLocalId = localActiveWorkbookIdRef.current;
+      const currentLocalName = localWorkbooksRef.current.get(currentLocalId)?.name ?? 'Personal';
+      snapshotLocalWorkbook(currentLocalId, currentLocalName);
+
+      const target = workbooks.find(w => w.id === workbookId);
+      if (!target) return;
+      loadLocalWorkbook(target.id, target.name);
+      return;
+    }
+
+    const target = workbooks.find(w => w.id === workbookId);
+    if (!target) return;
+    await loadWorkbook(target.id, target.name);
+  }, [isSignedIn, loadLocalWorkbook, loadWorkbook, snapshotLocalWorkbook, workbooks]);
+
+  const shareWorkbook = useCallback(async (workbookId: string, emailAddress: string, role: 'reader' | 'writer' = 'writer') => {
+    if (!isSignedIn || !workbookId) return;
+    await drive.shareFolderWithEmail(workbookId, emailAddress, role);
+  }, [isSignedIn]);
 
 
 
@@ -440,6 +643,11 @@ export function useAppState(): UseAppStateReturn {
     isSignedIn,
     folderId,
     folderName,
+    workbooks,
+    createWorkbook,
+    renameWorkbook,
+    switchWorkbook,
+    shareWorkbook,
     signIn,
     signOut: signOutHandler,
     isSaving,

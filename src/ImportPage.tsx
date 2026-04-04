@@ -179,10 +179,12 @@ function guessColumnType(values: string[]): ColumnType {
 }
 
 export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
-  const { tableId } = useParams<{ tableId: string }>();
+  const { tableId, bookId } = useParams<{ tableId: string; bookId?: string }>();
   const navigate = useNavigate();
   const showAlert = useAlert();
   const isNewTable = !tableId;
+  const bookBase = bookId ? `/book/${encodeURIComponent(bookId)}` : '';
+  const toBookPath = (suffix: string) => `${bookBase}${suffix}`;
 
   // Source data
   const [sourceHeaders, setSourceHeaders] = useState<string[]>([]);
@@ -626,7 +628,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
       setImportResult({ imported, errors });
       setImporting(false);
       if (imported > 0) {
-        navigate(`/table/${encodeURIComponent(newId)}`);
+        navigate(toBookPath(`/table/${encodeURIComponent(newId)}`));
       }
       return;
     }
@@ -710,9 +712,9 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
     setImportResult({ imported, errors });
     setImporting(false);
     if (imported > 0) {
-      navigate(`/table/${encodeURIComponent(tableId)}`);
+      navigate(toBookPath(`/table/${encodeURIComponent(tableId)}`));
     }
-  }, [tableId, schema, mappings, sourceRows, sourceHeaders, state, parseDate, resolveReference, isNewTable, newTableName, newTableColumns, showAlert, navigate]);
+  }, [tableId, schema, mappings, sourceRows, sourceHeaders, state, parseDate, resolveReference, isNewTable, newTableName, newTableColumns, showAlert, navigate, toBookPath]);
 
   // For existing table mode, require valid table  
   if (!isNewTable && !schema) {
@@ -720,7 +722,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
       <div className="import-page">
         <div className="import-card">
           <h2>Table not found</h2>
-          <button className="btn-secondary" onClick={() => navigate('/')}>Back</button>
+          <button className="btn-secondary" onClick={() => navigate(bookBase || '/')}>Back</button>
         </div>
       </div>
     );
@@ -751,7 +753,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
       <div className="import-card">
         <div className="import-header">
           <h2>{isNewTable ? 'Import into New Table' : `Import into ${schema!.name}`}</h2>
-          <button className="btn-secondary" onClick={() => navigate(tableId ? `/table/${encodeURIComponent(tableId)}` : '/')}>
+          <button className="btn-secondary" onClick={() => navigate(tableId ? toBookPath(`/table/${encodeURIComponent(tableId)}`) : (bookBase || '/'))}>
             Cancel
           </button>
         </div>
@@ -1214,7 +1216,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
             {goToTableId && (
               <button
                 className="btn-primary"
-                onClick={() => navigate(`/table/${encodeURIComponent(goToTableId)}`)}
+                onClick={() => navigate(toBookPath(`/table/${encodeURIComponent(goToTableId)}`))}
               >
                 Go to Table
               </button>

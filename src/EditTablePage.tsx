@@ -117,11 +117,13 @@ interface EditTablePageProps {
 }
 
 export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
-  const { tableId } = useParams<{ tableId: string }>();
+  const { tableId, bookId } = useParams<{ tableId: string; bookId?: string }>();
   const navigate = useNavigate();
   const { showDialog } = useDialog();
   const isCreate = !tableId;
   const schema = tableId ? state.getSchema(tableId) : undefined;
+  const bookBase = bookId ? `/book/${encodeURIComponent(bookId)}` : '';
+  const toBookPath = (suffix: string) => `${bookBase}${suffix}`;
 
   const [tableName, setTableName] = useState(schema?.name ?? '');
   const [columns, setColumns] = useState<ColumnDef[]>(
@@ -414,7 +416,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       <div className="edit-table-page">
         <div className="edit-table-card">
           <h2>Table not found</h2>
-          <button className="btn-secondary" onClick={() => navigate('/')}>
+          <button className="btn-secondary" onClick={() => navigate(bookBase || '/')}>
             Back
           </button>
         </div>
@@ -728,7 +730,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
 
     if (isCreate) {
       state.createTable(newSchema);
-      navigate(`/table/${encodeURIComponent(trimmedName)}`, { replace: true });
+      navigate(toBookPath(`/table/${encodeURIComponent(trimmedName)}`), { replace: true });
     } else {
       // Apply schema update
       state.updateSchema(tableId!, newSchema);
@@ -736,9 +738,9 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       // Rename table if name changed
       if (trimmedName !== tableId) {
         state.renameTable(tableId!, trimmedName);
-        navigate(`/table/${encodeURIComponent(trimmedName)}`, { replace: true });
+        navigate(toBookPath(`/table/${encodeURIComponent(trimmedName)}`), { replace: true });
       } else {
-        navigate(`/table/${encodeURIComponent(tableId!)}`);
+        navigate(toBookPath(`/table/${encodeURIComponent(tableId!)}`));
       }
     }
   };
@@ -759,7 +761,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     });
     if (result === 'delete' || result === 'delete-drive') {
       state.deleteTable(tableId, result === 'delete-drive');
-      navigate('/');
+      navigate(bookBase || '/');
     }
   };
 
@@ -768,7 +770,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       <div className="edit-table-card">
         <div className="edit-table-header">
           <h2>{isCreate ? 'New Table' : 'Edit Table'}</h2>
-          <button className="btn-secondary btn-sm" onClick={() => navigate(tableId ? `/table/${encodeURIComponent(tableId)}` : '/')}>
+          <button className="btn-secondary btn-sm" onClick={() => navigate(tableId ? toBookPath(`/table/${encodeURIComponent(tableId)}`) : (bookBase || '/'))}>
             {isCreate ? '← Back' : '← Back to Table'}
           </button>
         </div>
@@ -910,7 +912,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         )}
 
         <div className="edit-table-actions">
-          <button className="btn-secondary" onClick={() => navigate(tableId ? `/table/${encodeURIComponent(tableId)}` : '/')}>
+          <button className="btn-secondary" onClick={() => navigate(tableId ? toBookPath(`/table/${encodeURIComponent(tableId)}`) : (bookBase || '/'))}>
             Cancel
           </button>
           {!isCreate && (

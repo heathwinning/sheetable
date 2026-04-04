@@ -129,6 +129,152 @@ body {
   gap: 8px;
 }
 
+.app-shell {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.book-sidebar {
+  width: 240px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.book-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.book-sidebar-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.book-sidebar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+}
+
+.book-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.book-sidebar-item.active {
+  background: var(--cell-selected);
+  border-color: #c7d2fe;
+}
+
+.book-sidebar-link {
+  flex: 1;
+  border: none;
+  background: none;
+  text-align: left;
+  color: var(--text);
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.book-sidebar-link:hover {
+  background: #f4f6fb;
+}
+
+.book-sidebar-edit {
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.book-sidebar-edit:hover {
+  color: var(--text);
+}
+
+.book-settings-page {
+  padding: 16px;
+}
+
+.book-settings-card {
+  max-width: 760px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.book-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.book-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.book-settings-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.book-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.book-settings-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.book-settings-row .workbook-toolbar-select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  color: var(--text);
+  height: 34px;
+  min-width: 140px;
+  padding: 0 8px;
+}
+
 /* Drive Status Button */
 .drive-status-wrapper {
   position: relative;
@@ -288,8 +434,32 @@ body {
   cursor: pointer;
 }
 
+.drive-dropdown-item:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
 .drive-dropdown-item:hover {
   background: #f5f5fa;
+}
+
+.drive-dropdown-item:disabled:hover {
+  background: none;
+}
+
+.drive-dropdown-section-title {
+  padding: 8px 14px 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.drive-dropdown-workbook-name {
+  padding: 4px 14px 8px;
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 600;
 }
 
 .folder-indicator {
