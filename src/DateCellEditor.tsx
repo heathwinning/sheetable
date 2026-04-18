@@ -26,7 +26,7 @@ export default function DateCellEditor({ value, onValueChange, stopEditing }: Cu
           const formatted = formatDate(date);
           log('DateCellEditor selected:', formatted);
           onValueChange(formatted);
-          stopEditing();
+          setTimeout(() => stopEditing(), 0);
         }}
         dateFormat="yyyy/MM/dd"
         inline

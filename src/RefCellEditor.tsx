@@ -53,7 +53,7 @@ export default function RefCellEditor(props: RefCellEditorProps) {
   const selectValue = useCallback((rowId: string) => {
     log('RefCellEditor selectValue:', rowId);
     onValueChange(rowId || null);
-    stopEditing();
+    setTimeout(() => stopEditing(), 0);
   }, [onValueChange, stopEditing]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
