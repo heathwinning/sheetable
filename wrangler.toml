@@ -1,0 +1,17 @@
+name = "sheetable"
+compatibility_date = "2024-12-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sheetable-db"
+database_id = "5d853fa5-c1b5-4950-ae51-3bd2dfcf6188"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "sheetable-images"
+
+# Environment variables (set via `wrangler pages secret put <KEY>`)
+# GOOGLE_CLIENT_ID
+# GOOGLE_CLIENT_SECRET
+# SESSION_SECRET

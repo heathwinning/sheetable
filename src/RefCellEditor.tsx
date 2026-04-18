@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { Row } from './types';
 import { INTERNAL_ROW_ID } from './types';
-import type { DataModel } from './dataModel';
 import { log } from './DebugLogger';
 
 interface RefCellEditorProps {
@@ -10,13 +9,13 @@ interface RefCellEditorProps {
   stopEditing: () => void;
   refRows: Row[];
   refTable: string;
-  model: DataModel;
+  resolveColumnPath: (tableName: string, row: Row, path: string) => string;
   searchColumns: string[];
   displayColumns: string[];
 }
 
 export default function RefCellEditor(props: RefCellEditorProps) {
-  const { refRows, refTable, model, searchColumns, displayColumns, onValueChange, stopEditing } = props;
+  const { refRows, refTable, resolveColumnPath, searchColumns, displayColumns, onValueChange, stopEditing } = props;
   const [search, setSearch] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -28,10 +27,10 @@ export default function RefCellEditor(props: RefCellEditorProps) {
     const sCols = searchColumns.length > 0 ? searchColumns : displayColumns;
     return refRows.map(row => ({
       row,
-      displayText: dCols.map(c => model.resolveColumnPath(refTable, row, c)).filter(Boolean).join(' · '),
-      searchText: sCols.map(c => model.resolveColumnPath(refTable, row, c).toLowerCase()).join(' '),
+      displayText: dCols.map(c => resolveColumnPath(refTable, row, c)).filter(Boolean).join(' · '),
+      searchText: sCols.map(c => resolveColumnPath(refTable, row, c).toLowerCase()).join(' '),
     }));
-  }, [refRows, refTable, model, displayColumns, searchColumns]);
+  }, [refRows, refTable, resolveColumnPath, displayColumns, searchColumns]);
 
   const filtered = useMemo(() =>
     search

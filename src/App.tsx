@@ -6,11 +6,11 @@ import { EditTablePage } from './EditTablePage';
 import { ChartSheetPage } from './ChartSheetPage';
 import { useAlert, usePromptInput, useConfirm } from './DialogProvider';
 import { ImportPage } from './ImportPage';
+import { rowsToCSV } from './csv';
+import * as api from './api';
 import type { UseAppStateReturn } from './useAppState';
+import type { BookMember, BookInvite } from './types';
 import './App.css';
-
-// Client ID should be configured per deployment
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 const bookPrefix = (bookName?: string) => (bookName ? `/book/${encodeURIComponent(bookName)}` : '');
 const withBook = (bookName: string | undefined, suffix: string) => `${bookPrefix(bookName)}${suffix}`;
@@ -159,7 +159,6 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             key={tableId}
             schema={activeSchema}
             rows={activeRows}
-            model={state.model}
             onEdit={(rowIndex, columnName, newValue) =>
               state.applyEdit(tableId, rowIndex, columnName, newValue)
             }
@@ -179,14 +178,28 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
                 columns: reordered,
               });
             }}
+            onColumnWidthChange={(widths) => {
+              const updated = activeSchema.columns.map(c =>
+                widths[c.name] !== undefined ? { ...c, width: Math.round(widths[c.name]) } : c
+              );
+              if (updated.every((c, i) => c.width === activeSchema.columns[i].width)) return;
+              state.updateSchema(tableId, {
+                ...activeSchema,
+                columns: updated,
+              });
+            }}
             revision={state.revision}
-            folderId={state.folderId}
+            bookId={state.activeBookId ?? null}
+            getReferencedRow={state.getReferencedRow}
+            getReferenceRows={state.getReferenceRows}
+            resolveColumnPath={state.resolveColumnPath}
+            resolveColumnPathLabel={state.resolveColumnPathLabel}
           />
         ) : (
           <div className="empty-state-main">
             <h2>No table selected</h2>
-            <p>Create a new table to get started, or connect to Google Drive to load existing data.</p>
-            {state.isConnecting ? (
+            <p>Create a new table to get started.</p>
+            {state.isLoading ? (
               <button className="btn-primary" disabled style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span className="drive-status-dot connecting" style={{ position: 'static', border: 'none' }} />
                 Loading…
@@ -223,29 +236,50 @@ const HomePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
     <div className="app-body">
       <div className="main-content">
         <div className="empty-state-main">
-          <h2>No tables yet</h2>
-          <p>Create a new table to get started, or connect to Google Drive to load existing data.</p>
-          {state.isConnecting ? (
-            <button className="btn-primary" disabled style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="drive-status-dot connecting" style={{ position: 'static', border: 'none' }} />
-              Loading…
-            </button>
+          {bookId ? (
+            <>
+              <h2>No tables yet</h2>
+              <p>Create a new table to get started.</p>
+              {state.isLoading ? (
+                <button className="btn-primary" disabled style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="drive-status-dot connecting" style={{ position: 'static', border: 'none' }} />
+                  Loading…
+                </button>
+              ) : (
+                <Link className="btn-primary" to={withBook(bookId, '/table/new')}>
+                  Create Table
+                </Link>
+              )}
+              <Link className="btn-secondary" to={withBook(bookId, '/import')}>
+                Import from CSV / Sheet
+              </Link>
+            </>
           ) : (
-            <Link className="btn-primary" to={withBook(bookId, '/table/new')}>
-              Create Table
-            </Link>
+            <>
+              <h2>Welcome to Sheetable</h2>
+              {state.user ? (
+                <>
+                  <p>Create or open a book to get started.</p>
+                  <Link className="btn-primary" to="/book/new/settings">
+                    Create Book
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <p>Sign in to get started.</p>
+                  <button className="btn-primary" onClick={state.signIn}>Sign in</button>
+                </>
+              )}
+            </>
           )}
-          <Link className="btn-secondary" to={withBook(bookId, '/import')}>
-            Import from CSV / Sheet
-          </Link>
         </div>
       </div>
     </div>
   );
 };
 
-// --- Drive Status Button ---
-const DriveStatusButton: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
+// --- User Status Button ---
+const UserButton: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -261,18 +295,16 @@ const DriveStatusButton: React.FC<{ state: UseAppStateReturn }> = ({ state }) =>
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  // Not ready yet — show loading indicator
-  if (!state.driveReady) {
+  if (state.isLoading) {
     return (
       <span className="drive-btn drive-btn-loading">
         <span className="drive-status-dot connecting" style={{ position: 'static', border: 'none' }} />
-        Connecting…
+        Loading…
       </span>
     );
   }
 
-  // Not signed in
-  if (!state.isSignedIn) {
+  if (!state.user) {
     return (
       <button onClick={state.signIn} className="drive-btn drive-btn-signin">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -283,65 +315,31 @@ const DriveStatusButton: React.FC<{ state: UseAppStateReturn }> = ({ state }) =>
     );
   }
 
-  // Determine sync status
-  let statusIcon: React.ReactNode;
-  let statusText: string;
-  if (state.isConnecting) {
-    statusIcon = <span className="drive-status-dot connecting" />;
-    statusText = 'Connecting…';
-  } else if (state.isSaving) {
-    statusIcon = <span className="drive-status-dot saving" />;
-    statusText = 'Saving…';
-  } else if (state.isAnyDirty()) {
-    statusIcon = <span className="drive-status-dot dirty" />;
-    statusText = 'Unsaved changes';
-  } else if (state.lastSaved) {
-    statusIcon = <span className="drive-status-dot synced" />;
-    statusText = `Saved ${state.lastSaved.toLocaleTimeString()}`;
-  } else {
-    statusIcon = <span className="drive-status-dot synced" />;
-    statusText = 'Connected';
-  }
-
   return (
     <div className="drive-status-wrapper" ref={menuRef}>
       <button
         className="drive-btn drive-btn-status"
         onClick={() => setOpen(o => !o)}
-        title={statusText}
+        title={state.user.name}
       >
-        {state.userInfo?.picture ? (
-          <img
-            src={state.userInfo.picture}
-            alt=""
-            className="drive-avatar"
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <span className="drive-avatar-placeholder">
-            {state.userInfo?.name?.[0]?.toUpperCase() ?? '?'}
-          </span>
-        )}
-        {statusIcon}
+        <svg className="drive-avatar-placeholder" viewBox="0 0 28 28" fill="none">
+          <circle cx="14" cy="11" r="4" fill="white"/>
+          <path d="M6 23c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="white"/>
+        </svg>
+        <span className="drive-status-dot synced" />
       </button>
       {open && (
         <div className="drive-dropdown">
-          {state.userInfo && (
-            <div className="drive-dropdown-user">
-              <div className="drive-dropdown-name">{state.userInfo.name}</div>
-              {state.userInfo.email && (
-                <div className="drive-dropdown-email">{state.userInfo.email}</div>
-              )}
-            </div>
-          )}
-          <div className="drive-dropdown-divider" />
-          <div className="drive-dropdown-status">
-            {statusIcon} {statusText}
+          <div className="drive-dropdown-user">
+            <div className="drive-dropdown-name">{state.user.name}</div>
+            {state.user.email && (
+              <div className="drive-dropdown-email">{state.user.email}</div>
+            )}
           </div>
           <div className="drive-dropdown-divider" />
           <button
             className="drive-dropdown-item"
-            onClick={() => { state.signOut(); setOpen(false); }}
+            onClick={() => { void state.signOut(); setOpen(false); }}
           >
             Sign out
           </button>
@@ -355,7 +353,7 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn; onMinimize: () => void }
   const navigate = useNavigate();
   const location = useLocation();
   const routeBookMatch = location.pathname.match(/^\/book\/([^/]+)/);
-  const routeBookName = routeBookMatch ? decodeURIComponent(routeBookMatch[1]) : state.folderName;
+  const routeBookName = routeBookMatch ? decodeURIComponent(routeBookMatch[1]) : state.activeBookName;
 
   const currentTail = (() => {
     const m = location.pathname.match(/^\/book\/[^/]+(\/.*)?$/);
@@ -367,14 +365,10 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn; onMinimize: () => void }
     return '';
   })();
 
-  const onCreate = async () => {
-    navigate('/book/new/settings');
-  };
-
   const openBook = async (bookId: string) => {
-    await state.switchWorkbook(bookId);
-    const book = state.workbooks.find(b => b.id === bookId);
-    const bookName = book?.name ?? state.folderName ?? '';
+    await state.switchBook(bookId);
+    const book = state.books.find(b => b.id === bookId);
+    const bookName = book?.name ?? state.activeBookName ?? '';
     if (!bookName) return;
     navigate(`/book/${encodeURIComponent(bookName)}${currentTail}` || `/book/${encodeURIComponent(bookName)}`);
   };
@@ -393,10 +387,10 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn; onMinimize: () => void }
         <span className="book-sidebar-title">Books</span>
       </div>
       <div className="book-sidebar-list">
-        <button className="book-sidebar-nav-new" onClick={() => { void onCreate(); }} disabled={state.isConnecting}>
+        <button className="book-sidebar-nav-new" onClick={() => navigate('/book/new/settings')} disabled={state.isLoading}>
           + New Book
         </button>
-        {state.workbooks.map(book => {
+        {state.books.map(book => {
           const isActive = book.name === routeBookName;
           return (
             <div key={book.id} className={`book-sidebar-item ${isActive ? 'active' : ''}`}>
@@ -426,13 +420,32 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
   const confirm = useConfirm();
-  const effectiveBookName = createMode ? '' : (bookId ?? state.folderName ?? '');
-  const currentBook = state.workbooks.find(b => b.name === effectiveBookName);
+  const effectiveBookName = createMode ? '' : (bookId ?? state.activeBookName ?? '');
+
+  // Track book by ID so renames don't lose it
+  const [trackedBookId, setTrackedBookId] = useState<string | null>(() => {
+    const book = state.books.find(b => b.name === effectiveBookName);
+    return book?.id ?? null;
+  });
+
+  // Update tracked ID when navigating to a different book
+  useEffect(() => {
+    if (createMode) return;
+    const book = state.books.find(b => b.name === effectiveBookName);
+    if (book && book.id !== trackedBookId) {
+      setTrackedBookId(book.id);
+    }
+  }, [createMode, effectiveBookName, state.books, trackedBookId]);
+
+  const currentBook = trackedBookId
+    ? state.books.find(b => b.id === trackedBookId)
+    : state.books.find(b => b.name === effectiveBookName);
 
   const [name, setName] = useState(currentBook?.name ?? '');
   const [shareEmail, setShareEmail] = useState('');
-  const [shareRole, setShareRole] = useState<'reader' | 'writer'>('writer');
-  const [shareLink, setShareLink] = useState('');
+  const [shareRole, setShareRole] = useState<'editor' | 'viewer'>('editor');
+  const [members, setMembers] = useState<BookMember[]>([]);
+  const [invites, setInvites] = useState<BookInvite[]>([]);
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -444,13 +457,30 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
     setName(currentBook.name);
   }, [createMode, currentBook]);
 
+  // Load members when viewing existing book
+  useEffect(() => {
+    if (createMode || !currentBook) return;
+    api.listMembers(currentBook.id).then(data => {
+      setMembers(data.members);
+      setInvites(data.invites);
+    }).catch(() => {});
+  }, [createMode, currentBook]);
+
   useEffect(() => {
     if (createMode) return;
-    if (!effectiveBookName || effectiveBookName === state.folderName) return;
-    const target = state.workbooks.find(w => w.name === effectiveBookName);
+    if (!effectiveBookName || effectiveBookName === state.activeBookName) return;
+    const target = state.books.find(w => w.name === effectiveBookName);
     if (!target) return;
-    void state.switchWorkbook(target.id);
+    void state.switchBook(target.id);
   }, [createMode, effectiveBookName, state]);
+
+  // Sync URL when book name changes (e.g. after rename)
+  useEffect(() => {
+    if (createMode || !currentBook) return;
+    if (effectiveBookName !== currentBook.name) {
+      navigate(`/book/${encodeURIComponent(currentBook.name)}/settings`, { replace: true });
+    }
+  }, [createMode, currentBook, effectiveBookName, navigate]);
 
   if (!createMode && !currentBook) {
     return (
@@ -470,7 +500,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
       return;
     }
     if (createMode) {
-      const createdId = await state.createWorkbook(trimmed);
+      const createdId = await state.createBook(trimmed);
       if (!createdId) {
         setStatus('Failed to create book.');
         return;
@@ -484,7 +514,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
       return;
     }
 
-    await state.renameWorkbook(currentBook.id, trimmed);
+    await state.renameBook(currentBook.id, trimmed);
     setStatus('Book name updated.');
   };
 
@@ -493,7 +523,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
       setStatus('Create the book first to enable sharing.');
       return;
     }
-    if (!state.isSignedIn) {
+    if (!state.user) {
       setStatus('Sign in to share this book.');
       return;
     }
@@ -502,31 +532,74 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
       return;
     }
     try {
-      const link = await state.createWorkbookInviteLink(currentBook.id, shareEmail.trim(), shareRole);
-      setShareLink(link);
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(link);
-        setStatus(`Invite link copied for ${shareEmail.trim()} (${shareRole}).`);
+      const result = await api.addMember(currentBook.id, shareEmail.trim(), shareRole);
+      if (result.invited) {
+        const link = `${window.location.origin}/#/invite/${currentBook.id}`;
+        void navigator.clipboard.writeText(link);
+        setStatus(`Invited ${shareEmail.trim()} as ${shareRole}. Invite link copied to clipboard.`);
       } else {
-        setStatus(`Invite link generated for ${shareEmail.trim()} (${shareRole}). Copy it below.`);
+        setStatus(`Added ${shareEmail.trim()} as ${shareRole}.`);
       }
       setShareEmail('');
+      // Refresh member + invite list
+      const updated = await api.listMembers(currentBook.id);
+      setMembers(updated.members);
+      setInvites(updated.invites);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to generate invite link.';
+      const message = err instanceof Error ? err.message : 'Failed to add member.';
       setStatus(message);
     }
+  };
+
+  const changeRole = async (email: string, newRole: string) => {
+    if (!currentBook) return;
+    try {
+      await api.addMember(currentBook.id, email, newRole);
+      const updated = await api.listMembers(currentBook.id);
+      setMembers(updated.members);
+      setInvites(updated.invites);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to change role.';
+      setStatus(message);
+    }
+  };
+
+  const removeMember = async (userId: string) => {
+    if (!currentBook) return;
+    try {
+      await api.removeMember(currentBook.id, userId);
+      setMembers(prev => prev.filter(m => m.userId !== userId));
+      setStatus('Member removed.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to remove member.';
+      setStatus(message);
+    }
+  };
+
+  const cancelInvite = async (email: string) => {
+    if (!currentBook) return;
+    try {
+      await api.cancelInvite(currentBook.id, email);
+      setInvites(prev => prev.filter(i => i.email !== email));
+      setStatus('Invitation cancelled.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to cancel invitation.';
+      setStatus(message);
+    }
+  };
+
+  const copyInviteLink = (bookId: string) => {
+    const link = `${window.location.origin}/#/invite/${bookId}`;
+    void navigator.clipboard.writeText(link);
+    setStatus('Invite link copied to clipboard.');
   };
 
   const doDelete = async () => {
     if (createMode || !currentBook) return;
     const confirmed = await confirm(`Delete book "${currentBook.name}"? This cannot be undone.`, 'Delete Book');
     if (!confirmed) return;
-    const nextName = await state.deleteWorkbook(currentBook.id);
-    if (nextName) {
-      navigate(`/book/${encodeURIComponent(nextName)}`, { replace: true });
-    } else {
-      navigate('/', { replace: true });
-    }
+    await state.deleteBook(currentBook.id);
+    navigate('/', { replace: true });
   };
 
   return (
@@ -534,8 +607,8 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
       <div className="book-settings-card">
         <div className="book-settings-header">
           <h2>{createMode ? 'New Book' : 'Book Settings'}</h2>
-          <button className="btn-secondary btn-sm" onClick={() => navigate(createMode ? (state.folderName ? `/book/${encodeURIComponent(state.folderName)}` : '/') : (currentBook ? `/book/${encodeURIComponent(currentBook.name)}` : '/'))}>
-            Back to Book
+          <button className="btn-secondary btn-sm" onClick={() => navigate(createMode ? (state.activeBookName ? `/book/${encodeURIComponent(state.activeBookName)}` : '/') : (currentBook ? `/book/${encodeURIComponent(currentBook.name)}` : '/'))}>
+            ← Back to Book
           </button>
         </div>
 
@@ -556,52 +629,82 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
         </div>
 
         <div className="book-settings-section">
-          <label className="book-settings-label">Share Book</label>
-          <div className="book-settings-row">
-            <input
-              className="edit-table-input"
-              type="email"
-              value={shareEmail}
-              onChange={(e) => setShareEmail(e.target.value)}
-              placeholder="user@example.com"
-              disabled={!state.isSignedIn || createMode}
-            />
-            <select
-              className="workbook-toolbar-select"
-              value={shareRole}
-              onChange={(e) => setShareRole(e.target.value as 'reader' | 'writer')}
-              disabled={!state.isSignedIn || createMode}
-            >
-              <option value="writer">Editor</option>
-              <option value="reader">Viewer</option>
-            </select>
-            <button className="btn-secondary" onClick={() => { void doShare(); }} disabled={!state.isSignedIn || createMode}>
-              Generate Invite Link
-            </button>
-          </div>
-          {shareLink && (
-            <div className="book-settings-row" style={{ marginTop: 8 }}>
+          <label className="book-settings-label">Members</label>
+          <div className="members-list">
+            {members.map(m => (
+              <div key={m.userId} className="member-row">
+                <span className="member-name">{m.name || m.email}</span>
+                <span className="member-role">
+                  {m.role === 'owner' ? (
+                    <span className="text-text-muted">owner</span>
+                  ) : (
+                    <select
+                      className="workbook-toolbar-select"
+                      value={m.role}
+                      onChange={(e) => { void changeRole(m.email, e.target.value); }}
+                      style={{ fontSize: 12, padding: '2px 4px' }}
+                    >
+                      <option value="editor">Editor</option>
+                      <option value="viewer">Viewer</option>
+                    </select>
+                  )}
+                </span>
+                <span className="member-actions">
+                  {m.role !== 'owner' && (
+                    <button className="btn-ghost btn-sm" onClick={() => { void removeMember(m.userId); }}>Remove</button>
+                  )}
+                </span>
+              </div>
+            ))}
+            {invites.map(inv => (
+              <div key={inv.email} className="member-row">
+                <span className="member-name">{inv.email} <span className="text-text-muted">(invited)</span></span>
+                <span className="member-role">
+                  <select
+                    className="workbook-toolbar-select"
+                    value={inv.role}
+                    onChange={(e) => { void changeRole(inv.email, e.target.value); }}
+                    style={{ fontSize: 12, padding: '2px 4px' }}
+                  >
+                    <option value="editor">Editor</option>
+                    <option value="viewer">Viewer</option>
+                  </select>
+                </span>
+                <span className="member-actions">
+                  <button className="btn-ghost btn-sm" onClick={() => currentBook && copyInviteLink(currentBook.id)}>Copy Link</button>
+                  <button className="btn-ghost btn-sm" onClick={() => { void cancelInvite(inv.email); }}>Cancel</button>
+                </span>
+              </div>
+            ))}
+            <div className="member-row member-add-row">
               <input
                 className="edit-table-input"
-                type="text"
-                value={shareLink}
-                readOnly
+                type="email"
+                value={shareEmail}
+                onChange={(e) => setShareEmail(e.target.value)}
+                placeholder="user@example.com"
+                disabled={!state.user || createMode}
               />
-              <button
-                className="btn-secondary"
-                onClick={() => {
-                  if (navigator.clipboard?.writeText) {
-                    void navigator.clipboard.writeText(shareLink);
-                    setStatus('Invite link copied.');
-                  }
-                }}
-              >
-                Copy
-              </button>
+              <span className="member-role">
+                <select
+                  className="workbook-toolbar-select"
+                  value={shareRole}
+                  onChange={(e) => setShareRole(e.target.value as 'editor' | 'viewer')}
+                  disabled={!state.user || createMode}
+                >
+                  <option value="editor">Editor</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+              </span>
+              <span className="member-actions">
+                <button className="btn-secondary" onClick={() => { void doShare(); }} disabled={!state.user || createMode}>
+                  Add Member
+                </button>
+              </span>
             </div>
-          )}
-          {createMode && <div className="book-settings-note">Create this book first, then share it from this page.</div>}
-          {!createMode && !state.isSignedIn && <div className="book-settings-note">Sign in with Google Drive to enable sharing.</div>}
+          </div>
+          {createMode && <div className="book-settings-note">Create this book first, then add members.</div>}
+          {!createMode && !state.user && <div className="book-settings-note">Sign in to manage members.</div>}
         </div>
 
         {!createMode && currentBook && (
@@ -621,64 +724,85 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
   );
 };
 
-const AcceptInvitePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
+// --- Invite Accept Page ---
+const InviteAcceptPage: React.FC<{ state: ReturnType<typeof useAppState> }> = ({ state }) => {
+  const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
-  const location = useLocation();
-  const [status, setStatus] = useState<'idle' | 'needs-signin' | 'working' | 'done' | 'error'>('idle');
-  const [message, setMessage] = useState('');
-  const { isSignedIn, signIn, acceptWorkbookInvite } = state;
-
-  const inviteToken = new URLSearchParams(location.search).get('invite') ?? '';
+  const [info, setInfo] = useState<{ bookName: string; status: string; role?: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [accepting, setAccepting] = useState(false);
 
   useEffect(() => {
-    if (!inviteToken) {
-      setStatus('error');
-      setMessage('Invite link is invalid or missing token.');
-      return;
+    if (!bookId) return;
+    api.getInviteStatus(bookId).then(setInfo).catch(() => setError('Failed to load invitation.'));
+  }, [bookId]);
+
+  useEffect(() => {
+    if (!info) return;
+    if (info.status === 'already-member') {
+      navigate(`/book/${encodeURIComponent(info.bookName)}`, { replace: true });
     }
+  }, [info, navigate]);
 
-    if (!isSignedIn) {
-      setStatus('needs-signin');
-      setMessage('Sign in with the invited email to accept this shared book.');
-      return;
+  const doAccept = async () => {
+    if (!bookId || !info) return;
+    setAccepting(true);
+    try {
+      await api.acceptInvite(bookId);
+      // Refresh books list then navigate
+      await state.refreshBooks();
+      navigate(`/book/${encodeURIComponent(info.bookName)}`, { replace: true });
+    } catch {
+      setError('Failed to accept invitation.');
+      setAccepting(false);
     }
+  };
 
-    let cancelled = false;
-    setStatus('working');
-    setMessage('Accepting invite and configuring your Sheetable books...');
+  if (error) {
+    return (
+      <div className="book-settings-page">
+        <div className="book-settings-card">
+          <h2>Invitation</h2>
+          <p>{error}</p>
+          <button className="btn-secondary" onClick={() => navigate('/')}>Go Home</button>
+        </div>
+      </div>
+    );
+  }
 
-    acceptWorkbookInvite(inviteToken)
-      .then(book => {
-        if (cancelled) return;
-        setStatus('done');
-        setMessage(`Book "${book.name}" added.`);
-        navigate(`/book/${encodeURIComponent(book.name)}`, { replace: true });
-      })
-      .catch(err => {
-        if (cancelled) return;
-        setStatus('error');
-        setMessage(err instanceof Error ? err.message : 'Failed to accept invite.');
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [acceptWorkbookInvite, inviteToken, isSignedIn, navigate]);
+  if (!info) {
+    return (
+      <div className="book-settings-page">
+        <div className="book-settings-card">
+          <h2>Loading invitation…</h2>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="book-settings-page">
       <div className="book-settings-card">
-        <h2>Accept Shared Book</h2>
-        <p>{message}</p>
-        {status === 'needs-signin' && (
-          <div className="book-settings-row">
-            <button className="btn-primary" onClick={signIn}>Sign in</button>
-          </div>
+        <h2>You&apos;re invited to join &ldquo;{info.bookName}&rdquo;</h2>
+        {info.status === 'sign-in-required' && (
+          <>
+            <p>Sign in with Google to accept this invitation.</p>
+            <button className="btn-primary" onClick={state.signIn}>Sign in with Google</button>
+          </>
         )}
-        {(status === 'error' || status === 'done') && (
-          <div className="book-settings-row">
-            <button className="btn-secondary" onClick={() => navigate('/', { replace: true })}>Go Home</button>
-          </div>
+        {info.status === 'pending' && (
+          <>
+            <p>You&apos;ve been invited as <strong>{info.role}</strong>.</p>
+            <button className="btn-primary" onClick={() => { void doAccept(); }} disabled={accepting}>
+              {accepting ? 'Joining…' : 'Accept Invitation'}
+            </button>
+          </>
+        )}
+        {info.status === 'no-invite' && (
+          <>
+            <p>No pending invitation found for {state.user?.email}. The book owner needs to invite your email address first.</p>
+            <button className="btn-secondary" onClick={() => navigate('/')}>Go Home</button>
+          </>
         )}
       </div>
     </div>
@@ -689,23 +813,33 @@ const AcceptInvitePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => 
 const App: React.FC = () => {
   const state = useAppState();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const showAlert = useAlert();
+  const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
-  const [clientIdInput, setClientIdInput] = useState(GOOGLE_CLIENT_ID);
-  const [setupDone, setSetupDone] = useState(false);
 
-  // Initialize Drive API after setup
+  // Sync AG Grid dark mode with system preference
   useEffect(() => {
-    if (GOOGLE_CLIENT_ID && !state.driveReady) {
-      state.initializeDrive(GOOGLE_CLIENT_ID)
-        .then(() => setSetupDone(true))
-        .catch(err => {
-          console.error('Failed to initialize Google Drive:', err);
-          setSetupDone(true); // Still allow app usage without Drive
-        });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      document.documentElement.setAttribute('data-ag-theme-mode', mq.matches ? 'dark' : 'light');
+    };
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  // After login, redirect back to the page the user was on (e.g. invite page)
+  useEffect(() => {
+    if (!state.user) return;
+    const redirect = localStorage.getItem('sheetable-post-login-redirect');
+    if (redirect) {
+      localStorage.removeItem('sheetable-post-login-redirect');
+      const path = redirect.replace(/^#/, '');
+      if (path && path !== '/' && path !== location.pathname) {
+        navigate(path, { replace: true });
+      }
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard shortcut: Ctrl+S / Cmd+S to prevent default
   useEffect(() => {
@@ -718,86 +852,30 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const handleSetup = async () => {
-    if (!clientIdInput.trim()) return;
-    try {
-      await state.initializeDrive(clientIdInput.trim());
-      setSetupDone(true);
-    } catch (err) {
-      console.error('Failed to initialize Google Drive:', err);
-      showAlert('Failed to connect to Google Drive. Check your Client ID and try again.', 'Connection Error');
-    }
-  };
-
-  // URL -> workbook state: switching /book/:bookId should switch active workbook.
+  // URL -> book state: switching /book/:bookId should switch active book.
   useEffect(() => {
-    if (state.workbooks.length === 0) return;
+    if (state.books.length === 0) return;
     const m = location.pathname.match(/^\/book\/([^/]+)/);
     if (!m) return;
     const routeBookName = decodeURIComponent(m[1]);
-    if (routeBookName === state.folderName) return;
-    const target = state.workbooks.find(w => w.name === routeBookName);
+    if (routeBookName === state.activeBookName) return;
+    const target = state.books.find(w => w.name === routeBookName);
     if (!target) return;
-    void state.switchWorkbook(target.id);
+    void state.switchBook(target.id);
   }, [location.pathname, state]);
 
-  // Preserve backward compatibility: old table/import routes get upgraded to /book/:bookId/... when possible.
+  // Redirect bare / to active book when one exists.
   useEffect(() => {
-    if (!state.folderName) return;
+    if (!state.activeBookName) return;
     if (location.pathname === '/') {
-      navigate(`/book/${encodeURIComponent(state.folderName)}`, { replace: true });
+      navigate(`/book/${encodeURIComponent(state.activeBookName)}`, { replace: true });
       return;
     }
     if (location.pathname.startsWith('/book/')) return;
     if (location.pathname === '/table/new' || location.pathname.startsWith('/table/') || location.pathname === '/import') {
-      navigate(`/book/${encodeURIComponent(state.folderName)}${location.pathname}`, { replace: true });
+      navigate(`/book/${encodeURIComponent(state.activeBookName)}${location.pathname}`, { replace: true });
     }
-  }, [location.pathname, navigate, state.folderName]);
-
-
-  // Setup screen
-  if (!setupDone && !GOOGLE_CLIENT_ID) {
-    return (
-      <div className="app">
-        <div className="setup-screen">
-          <h1>Sheetable</h1>
-          <p>Spreadsheet-like editor with Google Drive persistence</p>
-          <div className="setup-card">
-            <h2>Setup Google Drive Access</h2>
-            <p>
-              Enter your Google OAuth Client ID to connect to Google Drive.
-              You can create one in the{' '}
-              <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">
-                Google Cloud Console
-              </a>.
-            </p>
-            <div className="setup-form">
-              <input
-                type="text"
-                value={clientIdInput}
-                onChange={e => setClientIdInput(e.target.value)}
-                placeholder="your-client-id.apps.googleusercontent.com"
-                className="client-id-input"
-              />
-              <button onClick={handleSetup} className="btn-primary" disabled={!clientIdInput.trim()}>
-                Connect
-              </button>
-            </div>
-            <p className="setup-note">
-              Or set VITE_GOOGLE_CLIENT_ID in a .env file and restart.
-            </p>
-            <hr className="setup-divider" />
-            <button
-              className="btn-secondary"
-              onClick={() => setSetupDone(true)}
-            >
-              Skip — Use without Google Drive
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  }, [location.pathname, navigate, state.activeBookName]);
 
   // Derive current book route for header tabs
   const headerBookMatch = location.pathname.match(/^\/book\/([^/]+)/);
@@ -809,12 +887,39 @@ const App: React.FC = () => {
   const headerTableId = tableMatch ? decodeURIComponent(tableMatch[1]) : null;
   const isTableView = !!headerTableId && !location.pathname.includes('/edit') && !location.pathname.includes('/import');
 
+  const handleTabDrop = (targetId: string) => {
+    if (!draggingTableId || draggingTableId === targetId) return;
+    const fromIndex = state.tableIds.indexOf(draggingTableId);
+    const toIndex = state.tableIds.indexOf(targetId);
+    if (fromIndex >= 0 && toIndex >= 0) {
+      state.reorderTables(fromIndex, toIndex);
+    }
+    setDraggingTableId(null);
+  };
+
+  const showAlert = useAlert();
   const runUndo = () => {
     const errors = state.undo();
     if (errors.length > 0) {
       void showAlert(errors[0].message, 'Undo Failed');
     }
   };
+
+  const exportCSV = () => {
+    if (!headerTableId) return;
+    const schema = state.getSchema(headerTableId);
+    const rows = state.getRows(headerTableId);
+    if (!schema) return;
+    const csv = rowsToCSV(schema, rows);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${headerTableId}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="app">
       {/* Top bar */}
@@ -831,6 +936,11 @@ const App: React.FC = () => {
           <Link to="/" className="app-title-link">
             <h1 className="app-title">Sheetable</h1>
           </Link>
+          {headerBookId && (
+            <Link to={`/book/${encodeURIComponent(headerBookId)}/settings`} className="header-book-name" title={headerBookId}>
+              {headerBookId}
+            </Link>
+          )}
         </div>
         {isOnSheetRoute && (state.tableIds.length > 0 || state.chartSheetIds.length > 0) && (
           <div className="header-tabs">
@@ -839,11 +949,25 @@ const App: React.FC = () => {
               return (
                 <Link
                   key={id}
-                  className={`table-tab ${isActive ? 'active' : ''}`}
+                  className={`table-tab ${isActive ? 'active' : ''} ${id === draggingTableId ? 'dragging' : ''}`}
                   to={withBook(headerBookId, `/table/${encodeURIComponent(id)}`)}
+                  draggable
+                  onDragStart={(e) => {
+                    setDraggingTableId(id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', id);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    handleTabDrop(id);
+                  }}
+                  onDragEnd={() => setDraggingTableId(null)}
                 >
                   {id}
-                  {state.isDirty(id) && <span className="tab-dirty">●</span>}
                 </Link>
               );
             })}
@@ -859,7 +983,7 @@ const App: React.FC = () => {
                 </Link>
               );
             })}
-            {state.isConnecting ? (
+            {state.isLoading ? (
               <span className="table-tab add-tab disabled" title="Loading…" style={{ opacity: 0.5, cursor: 'default' }}>
                 <span className="drive-status-dot connecting" style={{ position: 'static', border: 'none' }} />
               </span>
@@ -883,6 +1007,14 @@ const App: React.FC = () => {
                 </svg>
               </button>
               <ImportMenu bookId={headerBookId} tableId={headerTableId} />
+              <button
+                className="header-action-btn"
+                onClick={exportCSV}
+                title="Export as CSV"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span className="header-action-label">Export</span>
+              </button>
               <Link
                 className="header-action-btn"
                 to={withBook(headerBookId, `/table/${encodeURIComponent(headerTableId)}/edit`)}
@@ -893,7 +1025,7 @@ const App: React.FC = () => {
               </Link>
             </div>
           )}
-          <DriveStatusButton state={state} />
+          <UserButton state={state} />
         </div>
       </header>
 
@@ -907,6 +1039,7 @@ const App: React.FC = () => {
         <div className="app-main">
           <Routes>
             <Route path="/" element={<HomePage state={state} />} />
+            <Route path="/invite/:bookId" element={<InviteAcceptPage state={state} />} />
             <Route path="/book/new/settings" element={<BookSettingsPage state={state} createMode={true} />} />
             <Route path="/book/:bookId" element={<HomePage state={state} />} />
             <Route path="/book/:bookId/table/new" element={<EditTablePage state={state} />} />
@@ -916,7 +1049,6 @@ const App: React.FC = () => {
             <Route path="/book/:bookId/table/:tableId/edit" element={<EditTablePage state={state} />} />
             <Route path="/book/:bookId/table/:tableId/import" element={<ImportPage state={state} />} />
             <Route path="/book/:bookId/import" element={<ImportPage state={state} />} />
-            <Route path="/accept" element={<AcceptInvitePage state={state} />} />
             <Route path="/table/new" element={<EditTablePage state={state} />} />
             <Route path="/table/:tableId" element={<TableViewPage state={state} />} />
             <Route path="/table/:tableId/edit" element={<EditTablePage state={state} />} />

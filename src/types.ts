@@ -6,26 +6,19 @@ export type ColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 
 
 export interface ColumnDef {
   name: string;
-  displayName?: string; // optional display name shown in column header
+  displayName?: string;
   type: ColumnType;
-  // For reference columns
+  width?: number;
   refTable?: string;
-  refDisplayColumns?: string[]; // columns shown in the cell for a referenced row
-  refSearchColumns?: string[];  // columns shown/searched in the dropdown editor
+  refDisplayColumns?: string[];
+  refSearchColumns?: string[];
 }
 
 export interface TableSchema {
   name: string;
   columns: ColumnDef[];
-  // Backing CSV file ID in Drive
-  csvFileId?: string;
-  // Legacy field kept only for backwards compatibility with older configs.
-  csvFileName?: string;
-  // Column names that together form the unique key (can be one or more)
   uniqueKeys: string[];
-  // Default sort when opening the table
   defaultSort?: { column: string; direction: 'asc' | 'desc' }[];
-  // Where the new-row draft appears: 'top' or 'bottom' (default: 'bottom')
   draftRowPosition?: 'top' | 'bottom';
 }
 
@@ -36,51 +29,58 @@ export interface TableData {
   rows: Row[];
 }
 
-export interface Transaction {
-  id: number;
-  tableId: string;
-  type: 'update' | 'insert' | 'delete';
-  rowIndex?: number; // for update/delete
-  rowId?: string; // stable row identifier (preferred for delete/undo)
-  columnName?: string; // for update
-  oldValue?: string;
-  newValue?: string;
-  row?: Row; // for insert
-  timestamp: number;
-}
-
 export interface ValidationError {
   message: string;
   rowIndex: number;
   columnName?: string;
 }
 
-export interface AppState {
-  tables: Record<string, TableData>;
-  schemas: Record<string, TableSchema>;
-  generation: Record<string, number>; // dirty tracking per table
-  lastSavedGeneration: Record<string, number>;
-}
-
 // Chart sheet — stores Graphic Walker chart configurations
 export interface ChartSheet {
   name: string;
-  /** Selected source table for this chart sheet */
   tableName?: string;
-  /** Chart sheet mode persisted in config */
   mode?: 'edit' | 'display';
-  /** Persisted chart configurations (from VizSpecStore.exportCode()) */
   charts: unknown[];
 }
 
-// Google Drive types
-export interface DriveFolder {
+// User session from API
+export interface SessionUser {
   id: string;
+  email: string;
   name: string;
 }
 
-export interface DriveFile {
+// Book info from API
+export interface BookInfo {
   id: string;
   name: string;
-  mimeType: string;
+  owner_id: string;
+  role: string;
+  created_at: string;
+}
+
+// Book member from API
+export interface BookMember {
+  userId: string;
+  email: string;
+  name: string;
+  role: string;
+}
+
+// Pending invite from API
+export interface BookInvite {
+  email: string;
+  role: string;
+  createdAt: string;
+}
+
+// Undo entry
+export interface UndoEntry {
+  type: 'update' | 'insert' | 'delete';
+  tableId: string;
+  rowId: string;
+  column?: string;
+  oldValue?: string;
+  newValue?: string;
+  row?: Row;
 }

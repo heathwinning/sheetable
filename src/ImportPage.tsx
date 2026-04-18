@@ -5,7 +5,7 @@ import type { UseAppStateReturn } from './useAppState';
 import type { ColumnDef, ColumnType, Row, TableSchema } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { parseCSV } from './csv';
-import * as drive from './drive';
+import * as api from './api';
 import { useAlert } from './DialogProvider';
 
 interface ImportPageProps {
@@ -84,24 +84,6 @@ const DATE_FORMATS: { value: string; label: string; parse: (s: string) => string
       return mon ? `${m[3]}-${mon}-${m[2].padStart(2, '0')}` : null;
     },
   },
-  {
-    value: 'auto',
-    label: 'Auto-detect',
-    parse: (s) => {
-      // Try ISO first
-      const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-      if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-      // Try Date constructor
-      const d = new Date(s);
-      if (!isNaN(d.getTime())) {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
-      }
-      return null;
-    },
-  },
 ];
 
 interface ColumnMapping {
@@ -111,6 +93,7 @@ interface ColumnMapping {
   dateFormat?: string;
   // For reference columns: source column → ref table column pairs for matching
   refSourceMappings?: { sourceColumn: string; refColumn: string }[];
+  createMissing?: boolean;
 }
 
 const selectStyles = {
@@ -166,15 +149,45 @@ interface NewTableColumn {
   dateFormat?: string;
   refTable?: string;
   refSourceMappings?: { sourceColumn: string; refColumn: string }[];
+  createMissing?: boolean;
 }
 
+// Detect a date format from sample values.
+// Returns the format `value` string if ≥80% of non-empty samples match, or null.
+function detectDateFormat(values: string[]): string | null {
+  const samples = values.map(v => v.trim()).filter(Boolean).slice(0, 30);
+  if (samples.length === 0) return null;
+  const threshold = Math.max(1, Math.floor(samples.length * 0.8));
+  for (const fmt of DATE_FORMATS) {
+    const matched = samples.filter(s => fmt.parse(s) !== null).length;
+    if (matched >= threshold) return fmt.value;
+  }
+  return null;
+}
+
+// Datetime regex: date portion + T or space + time portion (HH:MM or HH:MM:SS, optional fractional, optional Z/offset)
+const DATETIME_RE = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}[T ]\d{1,2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
+
 function guessColumnType(values: string[]): ColumnType {
-  const samples = values.filter(v => v.trim()).slice(0, 20);
+  const samples = values.filter(v => v.trim()).slice(0, 30);
   if (samples.length === 0) return 'text';
-  if (samples.every(v => /^-?\d+$/.test(v.trim()))) return 'integer';
-  if (samples.every(v => /^-?\d+\.?\d*$/.test(v.trim()))) return 'decimal';
-  if (samples.every(v => /^\d{4}-\d{1,2}-\d{1,2}$/.test(v.trim()))) return 'date';
-  if (samples.every(v => /^(true|false)$/i.test(v.trim()))) return 'bool';
+  const threshold = Math.max(1, Math.floor(samples.length * 0.8));
+
+  // Integer
+  if (samples.filter(v => /^-?\d+$/.test(v.trim())).length >= threshold) return 'integer';
+  // Decimal
+  if (samples.filter(v => /^-?\d+\.?\d*$/.test(v.trim())).length >= threshold) return 'decimal';
+  // Boolean
+  if (samples.filter(v => /^(true|false|yes|no|0|1)$/i.test(v.trim())).length >= threshold) return 'bool';
+
+  // Datetime (check before date since datetime is more specific)
+  if (samples.filter(v => DATETIME_RE.test(v.trim())).length >= threshold) return 'datetime';
+
+  // Date — try every format
+  for (const fmt of DATE_FORMATS) {
+    if (samples.filter(s => fmt.parse(s.trim()) !== null).length >= threshold) return 'date';
+  }
+
   return 'text';
 }
 
@@ -204,10 +217,13 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
   const [showSheetDialog, setShowSheetDialog] = useState(false);
   const [sheetUrl, setSheetUrl] = useState('');
   const [sheetLoading, setSheetLoading] = useState(false);
-  const [sheetTabs, setSheetTabs] = useState<drive.SheetTab[]>([]);
-  const [selectedSheetGid, setSelectedSheetGid] = useState<number | undefined>(undefined);
-  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(null);
+  const [sheetList, setSheetList] = useState<{ sheetId: number; title: string; index: number }[] | null>(null);
+  const [selectedSheetGid, setSelectedSheetGid] = useState<number | null>(null);
+  const [spreadsheetTitle, setSpreadsheetTitle] = useState('');
   const [createdTableId, setCreatedTableId] = useState<string | null>(null);
+  const [showUrlDialog, setShowUrlDialog] = useState(false);
+  const [csvUrl, setCsvUrl] = useState('');
+  const [urlLoading, setUrlLoading] = useState(false);
 
   const schema = tableId ? state.getSchema(tableId) : undefined;
 
@@ -241,15 +257,16 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
 
   // Import from Google Sheet
   const handleGoogleSheetImport = useCallback(async () => {
-    if (!state.folderId) {
-      showAlert('Connect to Google Drive first');
+    if (!state.activeBookId) {
+      showAlert('Open a book first');
       return;
     }
     setShowSheetDialog(true);
     setSheetUrl('');
-    setSheetTabs([]);
-    setSpreadsheetId(null);
-  }, [state.folderId, showAlert]);
+    setSheetList(null);
+    setSelectedSheetGid(null);
+    setSpreadsheetTitle('');
+  }, [state.activeBookId, showAlert]);
 
   const handleSheetUrlSubmit = async () => {
     if (!sheetUrl.trim()) return;
@@ -258,55 +275,72 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
       showAlert('Invalid Google Sheets URL');
       return;
     }
+    if (!state.activeBookId) return;
     setSheetLoading(true);
     try {
       const ssId = match[1];
-      // Try to fetch sheet tabs; fall back to direct import if Sheets API unavailable
-      let tabs: drive.SheetTab[] = [];
-      try {
-        tabs = await drive.getSpreadsheetSheets(ssId);
-      } catch (err) {
-        // Sheets API may not be enabled — fall back to importing first sheet
-        console.warn('Could not fetch sheet tabs (enable Google Sheets API in Cloud Console for sheet selection):', err);
-        tabs = [];
-      }
-      setSpreadsheetId(ssId);
-
-      if (tabs.length > 1) {
-        // Multiple sheets — let user pick
-        setSheetTabs(tabs);
-        setSelectedSheetGid(tabs[0]?.sheetId);
-        setSheetLoading(false);
-      } else {
-        // Single sheet or couldn't fetch tabs — import directly
-        const gid = tabs.length === 1 ? tabs[0].sheetId : undefined;
-        const sheetName = tabs.length === 1 ? tabs[0].title : undefined;
-        const csvText = await drive.exportSheetAsCSV(ssId, gid);
-        setSourceFileName(sheetName ? `Google Sheet — ${sheetName}` : 'Google Sheet');
-        setShowSheetDialog(false);
-        setSheetTabs([]);
-        loadCSVData(csvText);
+      const { title, sheets } = await api.fetchGoogleSheetList(state.activeBookId, ssId);
+      setSpreadsheetTitle(title);
+      setSheetList(sheets);
+      if (sheets.length > 0) {
+        setSelectedSheetGid(sheets[0].sheetId);
       }
     } catch (err) {
-      console.error('Failed to import from Google Sheets:', err);
-      showAlert('Failed to import from Google Sheets. Make sure the sheet is shared and you have access.');
+      console.error('Failed to list sheets:', err);
+      showAlert('Failed to load sheet list. Make sure the spreadsheet is publicly accessible.');
+    } finally {
       setSheetLoading(false);
     }
   };
 
-  const handleSheetTabImport = async () => {
-    if (!spreadsheetId || selectedSheetGid === undefined) return;
-    setSheetLoading(true);
+  const handleUrlImport = useCallback(async () => {
+    if (!state.activeBookId) {
+      showAlert('Open a book first');
+      return;
+    }
+    setShowUrlDialog(true);
+    setCsvUrl('');
+  }, [state.activeBookId, showAlert]);
+
+  const handleUrlFetch = async () => {
+    if (!csvUrl.trim() || !state.activeBookId) return;
+    setUrlLoading(true);
     try {
-      const tab = sheetTabs.find(t => t.sheetId === selectedSheetGid);
-      const csvText = await drive.exportSheetAsCSV(spreadsheetId, selectedSheetGid);
-      setSourceFileName(`Google Sheet — ${tab?.title ?? 'Sheet'}`);
-      setShowSheetDialog(false);
-      setSheetTabs([]);
+      const { csvText } = await api.fetchCsvFromUrl(state.activeBookId, csvUrl.trim());
+      // Derive a filename from the URL
+      let label = 'URL Import';
+      try {
+        const u = new URL(csvUrl.trim());
+        const parts = u.pathname.split('/');
+        const last = parts[parts.length - 1];
+        if (last) label = decodeURIComponent(last);
+      } catch { /* ignore */ }
+      setSourceFileName(label);
+      setShowUrlDialog(false);
       loadCSVData(csvText);
     } catch (err) {
-      console.error('Failed to import sheet tab:', err);
-      showAlert('Failed to import the selected sheet.');
+      console.error('Failed to fetch CSV from URL:', err);
+      showAlert('Failed to fetch CSV from URL. Check that the URL is accessible and returns CSV data.');
+    } finally {
+      setUrlLoading(false);
+    }
+  };
+
+  const handleSheetImportConfirm = async () => {
+    const match = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    if (!match || !state.activeBookId || selectedSheetGid == null) return;
+    setSheetLoading(true);
+    try {
+      const ssId = match[1];
+      const selectedSheet = sheetList?.find(s => s.sheetId === selectedSheetGid);
+      const { csvText } = await api.fetchGoogleSheet(state.activeBookId, ssId, selectedSheetGid);
+      const label = selectedSheet?.title ?? 'Sheet';
+      setSourceFileName(spreadsheetTitle ? `${spreadsheetTitle} — ${label}` : `Google Sheet — ${label}`);
+      setShowSheetDialog(false);
+      loadCSVData(csvText);
+    } catch (err) {
+      console.error('Failed to import from Google Sheets:', err);
+      showAlert('Failed to import from Google Sheets. Make sure the sheet is publicly accessible.');
     } finally {
       setSheetLoading(false);
     }
@@ -328,18 +362,20 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
       // New table mode: auto-generate column definitions with guessed types
       const cols: NewTableColumn[] = headers.map((header, idx) => {
         const colValues = rows.map(r => r[idx] ?? '');
+        const guessedType = guessColumnType(colValues);
+        const isDateLike = guessedType === 'date' || guessedType === 'datetime';
         return {
           sourceColumn: header,
           enabled: true,
           name: header,
-          type: guessColumnType(colValues),
-          dateFormat: guessColumnType(colValues) === 'date' ? 'auto' : undefined,
+          type: guessedType,
+          dateFormat: isDateLike ? (detectDateFormat(colValues) ?? 'yyyy-mm-dd') : undefined,
         };
       });
       setNewTableColumns(cols);
     } else if (schema) {
       // Existing table mode: auto-map source columns to target columns by name match
-      const autoMappings: ColumnMapping[] = headers.map(header => {
+      const autoMappings: ColumnMapping[] = headers.map((header, idx) => {
         const matchedCol = schema.columns.find(
           c => c.name.toLowerCase() === header.toLowerCase() ||
                (c.displayName && c.displayName.toLowerCase() === header.toLowerCase())
@@ -349,9 +385,10 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
           targetColumn: matchedCol?.name ?? '',
           enabled: !!matchedCol,
         };
-        // Auto-set date format for date columns
+        // Auto-detect date format from source data for date columns
         if (matchedCol && (matchedCol.type === 'date' || matchedCol.type === 'datetime')) {
-          mapping.dateFormat = 'auto';
+          const colValues = rows.map(r => r[idx] ?? '');
+          mapping.dateFormat = detectDateFormat(colValues) ?? 'yyyy-mm-dd';
         }
         // Auto-set ref match columns for reference columns
         if (matchedCol && matchedCol.type === 'reference' && matchedCol.refTable) {
@@ -381,7 +418,11 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
       if (updates.targetColumn !== undefined && schema) {
         const col = schema.columns.find(c => c.name === updates.targetColumn);
         if (col && (col.type === 'date' || col.type === 'datetime')) {
-          updated.dateFormat = updated.dateFormat || 'auto';
+          if (!updated.dateFormat) {
+            const srcIdx = sourceHeaders.indexOf(updated.sourceColumn);
+            const colValues = srcIdx >= 0 ? sourceRows.map(r => r[srcIdx] ?? '') : [];
+            updated.dateFormat = detectDateFormat(colValues) ?? 'yyyy-mm-dd';
+          }
         } else {
           delete updated.dateFormat;
         }
@@ -412,7 +453,11 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
       const updated = { ...c, ...updates };
       if (updates.type !== undefined) {
         if (updates.type === 'date' || updates.type === 'datetime') {
-          updated.dateFormat = updated.dateFormat || 'auto';
+          if (!updated.dateFormat) {
+            const srcIdx = sourceHeaders.indexOf(updated.sourceColumn);
+            const colValues = srcIdx >= 0 ? sourceRows.map(r => r[srcIdx] ?? '') : [];
+            updated.dateFormat = detectDateFormat(colValues) ?? 'yyyy-mm-dd';
+          }
         } else {
           delete updated.dateFormat;
         }
@@ -450,23 +495,27 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
   // Resolve a reference to a _rowId by matching multiple source→ref column pairs
   const resolveReference = useCallback(
     (refTableId: string, pairs: { sourceValue: string; refColumn: string }[]): string | null => {
-      const refTable = state.model.getTable(refTableId);
-      if (!refTable) return null;
+      const refSchema = state.getSchema(refTableId);
+      const refRows = state.getRows(refTableId);
+      if (!refSchema) return null;
       if (pairs.length === 0) return null;
 
       // All source values empty → empty reference
       if (pairs.every(p => !p.sourceValue)) return '';
 
+      if (!refRows.length) return null;
+
       // Helper: get display value for a column, following references if the column is itself a reference
       const getDisplayValue = (colName: string, rawValue: string): string => {
         if (!rawValue) return '';
-        const colDef = refTable.schema.columns.find(c => c.name === colName);
+        const colDef = refSchema.columns.find(c => c.name === colName);
         if (colDef?.type === 'reference' && colDef.refTable) {
-          const nestedTable = state.model.getTable(colDef.refTable);
-          if (nestedTable) {
-            const nestedRow = nestedTable.rows.find(r => r[INTERNAL_ROW_ID] === rawValue);
+          const nestedSchema = state.getSchema(colDef.refTable);
+          const nestedRows = state.getRows(colDef.refTable);
+          if (nestedSchema && nestedRows.length) {
+            const nestedRow = nestedRows.find(r => r[INTERNAL_ROW_ID] === rawValue);
             if (nestedRow) {
-              const displayCols = colDef.refDisplayColumns ?? [nestedTable.schema.columns[0]?.name].filter(Boolean);
+              const displayCols = colDef.refDisplayColumns ?? [nestedSchema.columns[0]?.name].filter(Boolean);
               return displayCols.map(c => nestedRow[c] ?? '').filter(Boolean).join(' · ');
             }
           }
@@ -476,7 +525,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
       };
 
       // Find a ref row where all pairs match simultaneously
-      for (const row of refTable.rows) {
+      for (const row of refRows) {
         const allMatch = pairs.every(p => {
           const displayValue = getDisplayValue(p.refColumn, row[p.refColumn] ?? '');
           return displayValue.toLowerCase() === p.sourceValue.toLowerCase();
@@ -487,8 +536,96 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
       }
       return null;
     },
-    [state.model],
+    [state],
   );
+
+  // Create missing reference entries, recursively handling nested references.
+  // Adds new rows to local state immediately for subsequent lookups.
+  // Tracks all created rows in pendingRefInserts for batch persistence.
+  const pendingRefInserts = React.useRef<Map<string, Array<{ rowId: string; data: Record<string, string> }>>>(new Map());
+
+  const createMissingReferences = useCallback(
+    (
+      refTableId: string,
+      pairs: { sourceValue: string; refColumn: string }[],
+    ): string => {
+      const refSchema = state.getSchema(refTableId);
+      const refRows = state.getRows(refTableId);
+      if (!refSchema) return '';
+      if (pairs.length === 0 || pairs.every(p => !p.sourceValue)) return '';
+
+      // Build new row with matched columns filled in
+      const newRow: Row = {};
+      for (const col of refSchema.columns) {
+        newRow[col.name] = '';
+      }
+
+      for (const pair of pairs) {
+        const colDef = refSchema.columns.find(c => c.name === pair.refColumn);
+        if (!colDef) continue;
+
+        if (colDef.type === 'reference' && colDef.refTable) {
+          // Recursively resolve or create the nested reference
+          const nestedSchema = state.getSchema(colDef.refTable);
+          if (nestedSchema) {
+            // Build nested pairs: match by display/search columns
+            const nestedMatchCols = colDef.refDisplayColumns ?? [nestedSchema.columns[0]?.name].filter(Boolean);
+            // Split compound values (e.g. "a · b") back to individual columns
+            const sourceValues = pair.sourceValue.split(' · ');
+            const nestedPairs = nestedMatchCols.map((nc, idx) => ({
+              sourceValue: sourceValues[idx] ?? pair.sourceValue,
+              refColumn: nc,
+            }));
+
+            // Try to resolve first
+            let nestedId = resolveReference(colDef.refTable, nestedPairs);
+            if (nestedId === null) {
+              // Recursively create
+              nestedId = createMissingReferences(colDef.refTable, nestedPairs);
+            }
+            newRow[pair.refColumn] = nestedId;
+          }
+        } else {
+          newRow[pair.refColumn] = pair.sourceValue;
+        }
+      }
+
+      // Assign sequential _rowId
+      const maxId = Math.max(0, ...refRows.map(r => Number(r[INTERNAL_ROW_ID]) || 0));
+      const newRowId = String(maxId + 1);
+      newRow[INTERNAL_ROW_ID] = newRowId;
+
+      // Add to local state so subsequent lookups find it
+      refRows.push(newRow);
+
+      // Track for batch persistence
+      if (!pendingRefInserts.current.has(refTableId)) {
+        pendingRefInserts.current.set(refTableId, []);
+      }
+      pendingRefInserts.current.get(refTableId)!.push({
+        rowId: newRowId,
+        data: Object.fromEntries(refSchema.columns.map(c => [c.name, newRow[c.name] ?? ''])),
+      });
+
+      return newRowId;
+    },
+    [state, resolveReference],
+  );
+
+  // Flush all pending ref inserts to the server in bulk
+  const flushPendingRefInserts = useCallback(async () => {
+    if (!state.activeBookId) return;
+    for (const [tableId, rows] of pendingRefInserts.current.entries()) {
+      if (rows.length === 0) continue;
+      const operations = rows.map(r => ({
+        type: 'insert' as const,
+        rowId: r.rowId,
+        data: r.data,
+      }));
+      await api.bulkRowOps(state.activeBookId, tableId, operations);
+    }
+    pendingRefInserts.current.clear();
+  }, [state.activeBookId]);
 
   // Parse a date value using selected format
   const parseDate = useCallback(
@@ -502,6 +639,8 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
 
   // Execute import
   const handleImport = useCallback(async () => {
+    pendingRefInserts.current.clear();
+
     if (isNewTable) {
       // New table mode: create table, then insert rows
       if (!newTableName.trim()) {
@@ -538,10 +677,16 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
         const col: ColumnDef = { name: c.name.trim(), type: c.type };
         if (c.type === 'reference' && c.refTable) {
           col.refTable = c.refTable;
-          const refSchema = state.getSchema(c.refTable);
-          if (refSchema) {
-            col.refDisplayColumns = [refSchema.columns[0]?.name].filter(Boolean);
-            col.refSearchColumns = [refSchema.columns[0]?.name].filter(Boolean);
+          const refCols = (c.refSourceMappings ?? []).map(m => m.refColumn).filter(Boolean);
+          if (refCols.length > 0) {
+            col.refDisplayColumns = refCols;
+            col.refSearchColumns = refCols;
+          } else {
+            const refSchema = state.getSchema(c.refTable);
+            if (refSchema) {
+              col.refDisplayColumns = [refSchema.columns[0]?.name].filter(Boolean);
+              col.refSearchColumns = [refSchema.columns[0]?.name].filter(Boolean);
+            }
           }
         }
         return col;
@@ -552,12 +697,12 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
         uniqueKeys: [],
       };
 
-      state.createTable(newSchema);
+      await state.createTable(newSchema);
       const newId = newSchema.name;
       setCreatedTableId(newId);
 
       const errors: string[] = [];
-      let imported = 0;
+      const validRows: Row[] = [];
 
       for (let i = 0; i < sourceRows.length; i++) {
         const sourceRow = sourceRows[i];
@@ -580,7 +725,10 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
               refColumn: sm.refColumn,
             }));
             if (pairs.length > 0 && pairs.some(p => p.sourceValue)) {
-              const resolved = resolveReference(schemaCol.refTable, pairs);
+              let resolved = resolveReference(schemaCol.refTable, pairs);
+              if (resolved === null && colDef.createMissing) {
+                resolved = createMissingReferences(schemaCol.refTable, pairs);
+              }
               if (resolved === null) {
                 const desc = pairs.map(p => `${p.refColumn}="${p.sourceValue}"`).join(', ');
                 errors.push(`Row ${i + 1}: Could not find reference (${desc}) for column "${schemaCol.name}"`);
@@ -615,19 +763,37 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
           newRow[colDef.name.trim()] = value;
         }
 
-        if (skipRow) continue;
-
-        const insertErrors = state.insertRow(newId, newRow);
-        if (insertErrors.length > 0) {
-          errors.push(`Row ${i + 1}: ${insertErrors[0].message}`);
-        } else {
-          imported++;
+        if (!skipRow) {
+          validRows.push(newRow);
         }
       }
 
-      setImportResult({ imported, errors });
+      // Flush any created reference entries to the server
+      await flushPendingRefInserts();
+
+      // Bulk insert all valid rows via API
+      if (validRows.length > 0 && state.activeBookId) {
+        try {
+          const operations = validRows.map((row, i) => ({
+            type: 'insert' as const,
+            rowId: String(i + 1),
+            data: Object.fromEntries(
+              columns.map(c => [c.name, row[c.name] ?? ''])
+            ),
+          }));
+          await api.bulkRowOps(state.activeBookId, newId, operations);
+          // Reload rows from server to get correct state
+          const serverRows = await api.listRows(state.activeBookId, newId);
+          state.setRows(newId, serverRows);
+        } catch (err) {
+          console.error('Bulk insert failed:', err);
+          errors.push(`Bulk insert failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        }
+      }
+
+      setImportResult({ imported: validRows.length, errors });
       setImporting(false);
-      if (imported > 0) {
+      if (validRows.length > 0) {
         navigate(toBookPath(`/table/${encodeURIComponent(newId)}`));
       }
       return;
@@ -640,7 +806,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
 
     const enabledMappings = mappings.filter(m => m.enabled && m.targetColumn);
     const errors: string[] = [];
-    let imported = 0;
+    const validRows: Row[] = [];
 
     for (let i = 0; i < sourceRows.length; i++) {
       const sourceRow = sourceRows[i];
@@ -664,7 +830,10 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
             refColumn: sm.refColumn,
           }));
           if (pairs.length > 0 && pairs.some(p => p.sourceValue)) {
-            const resolved = resolveReference(col.refTable, pairs);
+            let resolved = resolveReference(col.refTable, pairs);
+            if (resolved === null && mapping.createMissing) {
+              resolved = createMissingReferences(col.refTable, pairs);
+            }
             if (resolved === null) {
               const desc = pairs.map(p => `${p.refColumn}="${p.sourceValue}"`).join(', ');
               errors.push(`Row ${i + 1}: Could not find reference (${desc}) for column "${col.name}"`);
@@ -699,22 +868,44 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
         newRow[mapping.targetColumn] = value;
       }
 
-      if (skipRow) continue;
-
-      const insertErrors = state.insertRow(tableId, newRow);
-      if (insertErrors.length > 0) {
-        errors.push(`Row ${i + 1}: ${insertErrors[0].message}`);
-      } else {
-        imported++;
+      if (!skipRow) {
+        validRows.push(newRow);
       }
     }
 
-    setImportResult({ imported, errors });
+    // Flush any created reference entries to the server
+    await flushPendingRefInserts();
+
+    // Bulk insert all valid rows via API
+    if (validRows.length > 0 && state.activeBookId) {
+      try {
+        // Get current max _rowId for sequential numbering
+        const existingRows = state.getRows(tableId);
+        const maxId = Math.max(0, ...existingRows.map(r => Number(r[INTERNAL_ROW_ID]) || 0));
+
+        const operations = validRows.map((row, i) => ({
+          type: 'insert' as const,
+          rowId: String(maxId + i + 1),
+          data: Object.fromEntries(
+            schema.columns.map(c => [c.name, row[c.name] ?? ''])
+          ),
+        }));
+        await api.bulkRowOps(state.activeBookId, tableId, operations);
+        // Reload rows from server
+        const serverRows = await api.listRows(state.activeBookId, tableId);
+        state.setRows(tableId, serverRows);
+      } catch (err) {
+        console.error('Bulk insert failed:', err);
+        errors.push(`Bulk insert failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
+    }
+
+    setImportResult({ imported: validRows.length, errors });
     setImporting(false);
-    if (imported > 0) {
+    if (validRows.length > 0) {
       navigate(toBookPath(`/table/${encodeURIComponent(tableId)}`));
     }
-  }, [tableId, schema, mappings, sourceRows, sourceHeaders, state, parseDate, resolveReference, isNewTable, newTableName, newTableColumns, showAlert, navigate, toBookPath]);
+  }, [tableId, schema, mappings, sourceRows, sourceHeaders, state, parseDate, resolveReference, createMissingReferences, flushPendingRefInserts, isNewTable, newTableName, newTableColumns, showAlert, navigate, toBookPath]);
 
   // For existing table mode, require valid table  
   if (!isNewTable && !schema) {
@@ -780,7 +971,10 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
               <input type="file" accept=".csv,.txt" onChange={handleFileUpload} hidden />
               <span className="btn-primary">Upload CSV</span>
             </label>
-            {state.isSignedIn && (
+            <button className="btn-secondary" onClick={handleUrlImport}>
+              Import from URL
+            </button>
+            {state.user && (
               <button className="btn-secondary" onClick={handleGoogleSheetImport}>
                 Import from Google Sheet
               </button>
@@ -793,45 +987,48 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
           )}
         </div>
 
+        {/* CSV URL dialog */}
+        {showUrlDialog && (
+          <div className="app-dialog-overlay" onClick={() => { if (!urlLoading) setShowUrlDialog(false); }}>
+            <div className="app-dialog" onClick={(e) => e.stopPropagation()}>
+              <h3 className="app-dialog-title">Import from URL</h3>
+              <p className="app-dialog-message">Paste the URL of a CSV file.</p>
+              <input
+                className="import-sheet-url-input"
+                type="url"
+                placeholder="https://example.com/data.csv"
+                value={csvUrl}
+                onChange={(e) => setCsvUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleUrlFetch(); }}
+                autoFocus
+                disabled={urlLoading}
+              />
+              <div className="app-dialog-actions">
+                <button
+                  className="app-dialog-btn app-dialog-btn-secondary"
+                  onClick={() => setShowUrlDialog(false)}
+                  disabled={urlLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="app-dialog-btn app-dialog-btn-primary"
+                  onClick={handleUrlFetch}
+                  disabled={urlLoading || !csvUrl.trim()}
+                >
+                  {urlLoading ? 'Fetching...' : 'Fetch'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Google Sheet URL dialog */}
         {showSheetDialog && (
-          <div className="app-dialog-overlay" onClick={() => { if (!sheetLoading) { setShowSheetDialog(false); setSheetTabs([]); } }}>
+          <div className="app-dialog-overlay" onClick={() => { if (!sheetLoading) setShowSheetDialog(false); }}>
             <div className="app-dialog" onClick={(e) => e.stopPropagation()}>
               <h3 className="app-dialog-title">Import from Google Sheet</h3>
-              {sheetTabs.length > 1 ? (
-                <>
-                  <p className="app-dialog-message">Select a sheet to import:</p>
-                  <div className="import-sheet-tabs">
-                    {sheetTabs.map(tab => (
-                      <label key={tab.sheetId} className={`import-sheet-tab-option${selectedSheetGid === tab.sheetId ? ' selected' : ''}`}>
-                        <input
-                          type="radio"
-                          name="sheetTab"
-                          checked={selectedSheetGid === tab.sheetId}
-                          onChange={() => setSelectedSheetGid(tab.sheetId)}
-                        />
-                        {tab.title}
-                      </label>
-                    ))}
-                  </div>
-                  <div className="app-dialog-actions">
-                    <button
-                      className="app-dialog-btn app-dialog-btn-secondary"
-                      onClick={() => { setShowSheetDialog(false); setSheetTabs([]); }}
-                      disabled={sheetLoading}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      className="app-dialog-btn app-dialog-btn-primary"
-                      onClick={handleSheetTabImport}
-                      disabled={sheetLoading || selectedSheetGid === undefined}
-                    >
-                      {sheetLoading ? 'Loading...' : 'Import'}
-                    </button>
-                  </div>
-                </>
-              ) : (
+              {!sheetList ? (
                 <>
                   <p className="app-dialog-message">Paste the Google Sheets share URL below.</p>
                   <input
@@ -857,7 +1054,44 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
                       onClick={handleSheetUrlSubmit}
                       disabled={sheetLoading || !sheetUrl.trim()}
                     >
-                      {sheetLoading ? 'Loading...' : 'Import'}
+                      {sheetLoading ? 'Loading...' : 'Next'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="app-dialog-message">
+                    {spreadsheetTitle ? <><strong>{spreadsheetTitle}</strong> — </> : ''}
+                    Select a sheet to import:
+                  </p>
+                  <div className="import-sheet-tabs">
+                    {sheetList.map((sheet) => (
+                      <label key={sheet.sheetId} className={`import-sheet-tab-option${selectedSheetGid === sheet.sheetId ? ' selected' : ''}`}>
+                        <input
+                          type="radio"
+                          name="sheetGid"
+                          value={sheet.sheetId}
+                          checked={selectedSheetGid === sheet.sheetId}
+                          onChange={() => setSelectedSheetGid(sheet.sheetId)}
+                        />
+                        {sheet.title}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="app-dialog-actions">
+                    <button
+                      className="app-dialog-btn app-dialog-btn-secondary"
+                      onClick={() => { setSheetList(null); setSelectedSheetGid(null); }}
+                      disabled={sheetLoading}
+                    >
+                      Back
+                    </button>
+                    <button
+                      className="app-dialog-btn app-dialog-btn-primary"
+                      onClick={handleSheetImportConfirm}
+                      disabled={sheetLoading || selectedSheetGid == null}
+                    >
+                      {sheetLoading ? 'Importing...' : 'Import'}
                     </button>
                   </div>
                 </>
@@ -883,7 +1117,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
                   </div>
                   {newTableColumns.map((col, i) => (
                     <div key={i} className="import-mapping-row">
-                      <span className="import-mapping-cell">
+                      <span className="import-mapping-cell import-mapping-cell-check">
                         <input
                           type="checkbox"
                           checked={col.enabled}
@@ -896,8 +1130,8 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
                           e.g. "{sourceRows[0]?.[sourceHeaders.indexOf(col.sourceColumn)] ?? ''}"
                         </span>
                       </span>
-                      <span className="import-mapping-cell">→</span>
-                      <span className="import-mapping-cell import-mapping-cell-wide">
+                      <span className="import-mapping-cell import-mapping-cell-arrow">→</span>
+                      <span className="import-mapping-cell import-mapping-cell-wide import-mapping-cell-name">
                         <input
                           className="import-col-name-input"
                           type="text"
@@ -905,7 +1139,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
                           onChange={(e) => updateNewTableColumn(i, { name: e.target.value })}
                         />
                       </span>
-                      <span className="import-mapping-cell">
+                      <span className="import-mapping-cell import-mapping-cell-type">
                         <Select
                           options={typeOptions}
                           value={typeOptions.find(o => o.value === col.type) ?? null}
@@ -915,14 +1149,14 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
                           menuPortalTarget={document.body}
                         />
                       </span>
-                      <span className="import-mapping-cell import-mapping-cell-wide">
+                      <span className="import-mapping-cell import-mapping-cell-wide import-mapping-cell-options">
                         {(col.type === 'date' || col.type === 'datetime') && (
                           <Select
                             options={DATE_FORMATS.map(f => ({ value: f.value, label: f.label }))}
                             value={DATE_FORMATS.map(f => ({ value: f.value, label: f.label })).find(
-                              o => o.value === (col.dateFormat ?? 'auto')
+                              o => o.value === col.dateFormat
                             )}
-                            onChange={(opt) => updateNewTableColumn(i, { dateFormat: opt?.value ?? 'auto' })}
+                            onChange={(opt) => updateNewTableColumn(i, { dateFormat: opt?.value ?? 'yyyy-mm-dd' })}
                             styles={selectStyles}
                             isClearable={false}
                             menuPortalTarget={document.body}
@@ -1002,6 +1236,14 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
                                     });
                                   }}
                                 >+ Add column match</button>
+                                <label className="import-ref-create-missing">
+                                  <input
+                                    type="checkbox"
+                                    checked={col.createMissing ?? false}
+                                    onChange={(e) => updateNewTableColumn(i, { createMissing: e.target.checked })}
+                                  />
+                                  Create missing entries
+                                </label>
                               </div>
                             )}
                           </div>
@@ -1026,7 +1268,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
 
                     return (
                       <div key={i} className="import-mapping-row">
-                        <span className="import-mapping-cell">
+                        <span className="import-mapping-cell import-mapping-cell-check">
                           <input
                             type="checkbox"
                             checked={mapping.enabled}
@@ -1039,8 +1281,8 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
                             e.g. "{sourceRows[0]?.[sourceHeaders.indexOf(mapping.sourceColumn)] ?? ''}"
                           </span>
                         </span>
-                        <span className="import-mapping-cell">→</span>
-                        <span className="import-mapping-cell import-mapping-cell-wide">
+                        <span className="import-mapping-cell import-mapping-cell-arrow">→</span>
+                        <span className="import-mapping-cell import-mapping-cell-wide import-mapping-cell-name">
                           <Select
                             options={targetColumnOptions}
                             value={targetColumnOptions.find(o => o.value === mapping.targetColumn) ?? null}
@@ -1051,14 +1293,14 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
                             menuPortalTarget={document.body}
                           />
                         </span>
-                        <span className="import-mapping-cell import-mapping-cell-wide">
+                        <span className="import-mapping-cell import-mapping-cell-wide import-mapping-cell-options">
                           {isDate && (
                             <Select
                               options={DATE_FORMATS.map(f => ({ value: f.value, label: f.label }))}
                               value={DATE_FORMATS.map(f => ({ value: f.value, label: f.label })).find(
-                                o => o.value === (mapping.dateFormat ?? 'auto')
+                                o => o.value === mapping.dateFormat
                               )}
-                              onChange={(opt) => updateMapping(i, { dateFormat: opt?.value ?? 'auto' })}
+                              onChange={(opt) => updateMapping(i, { dateFormat: opt?.value ?? 'yyyy-mm-dd' })}
                               styles={selectStyles}
                               isClearable={false}
                               menuPortalTarget={document.body}
@@ -1128,6 +1370,14 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
                                     });
                                   }}
                                 >+ Add column match</button>
+                                <label className="import-ref-create-missing">
+                                  <input
+                                    type="checkbox"
+                                    checked={mapping.createMissing ?? false}
+                                    onChange={(e) => updateMapping(i, { createMissing: e.target.checked })}
+                                  />
+                                  Create missing entries
+                                </label>
                               </div>
                             </div>
                           )}

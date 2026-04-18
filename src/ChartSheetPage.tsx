@@ -155,7 +155,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           const fid = `${col.name}__ref__${path.replace(/\./g, '__')}`;
           const pathType = getColumnTypeFromPath(state, col.refTable, path) ?? 'text';
           const mapped = mapColumnType(pathType);
-          const prettyPath = state.model.resolveColumnPathLabel(col.refTable, path);
+          const prettyPath = state.resolveColumnPathLabel(col.refTable, path);
           const label = `${displayName} → ${prettyPath || path.replace(/\./g, ' → ')}`;
 
           tableFields.push({
@@ -193,7 +193,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
       }
 
       for (const [fid, refMeta] of referencePathByFid.entries()) {
-        const value = state.model.resolveColumnPath(
+        const value = state.resolveColumnPath(
           selectedTableName,
           row,
           `${refMeta.sourceCol}.${refMeta.path}`,

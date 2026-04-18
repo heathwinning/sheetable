@@ -1,11 +1,10 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import type { TableSchema, Row, ValidationError } from './types';
 import { INTERNAL_ROW_ID } from './types';
-import { DataModel } from './dataModel';
 import { log } from './DebugLogger';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnMovedEvent, FirstDataRenderedEvent } from 'ag-grid-community';
+import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnMovedEvent, ColumnResizedEvent, FirstDataRenderedEvent } from 'ag-grid-community';
 import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
@@ -23,22 +22,21 @@ function toSortableDateEpoch(value: unknown): number {
 interface SpreadsheetGridProps {
   schema: TableSchema;
   rows: Row[];
-  model: DataModel;
   onEdit: (rowIndex: number, columnName: string, newValue: string) => ValidationError[];
   onInsert: (row: Row) => ValidationError[];
   onDeleteRow: (rowIndex: number) => ValidationError[];
   onColumnOrderChange?: (orderedColumnNames: string[]) => void;
+  onColumnWidthChange?: (columnWidths: Record<string, number>) => void;
   revision: number;
-  folderId: string | null;
+  bookId: string | null;
+  // Reference helpers (from useAppState)
+  getReferencedRow: (refTable: string, rowId: string) => Row | undefined;
+  getReferenceRows: (refTable: string) => Row[];
+  resolveColumnPath: (tableName: string, row: Row, path: string) => string;
+  resolveColumnPathLabel: (tableName: string, path: string) => string;
 }
 
 const gridTheme = themeQuartz.withParams({
-  backgroundColor: '#ffffff',
-  foregroundColor: '#1e1e2e',
-  headerBackgroundColor: '#f5f6f8',
-  rowHoverColor: '#f0f4ff',
-  selectedRowBackgroundColor: '#e0e7ff',
-  borderColor: '#d4d4d8',
   cellHorizontalPaddingScale: 0.8,
   headerFontSize: 12,
   fontSize: 13,
@@ -50,19 +48,24 @@ const gridTheme = themeQuartz.withParams({
 export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   schema,
   rows,
-  model,
   onEdit,
   onInsert,
   onDeleteRow,
   onColumnOrderChange,
+  onColumnWidthChange,
   revision,
-  folderId,
+  bookId,
+  getReferencedRow,
+  getReferenceRows,
+  resolveColumnPath,
+  resolveColumnPathLabel,
 }) => {
   const [error, setError] = useState<string | null>(null);
   const gridRef = useRef<AgGridReact>(null);
   const draftCounter = useRef(0);
   const { openDialog, dialogElement } = useImageDialog();
   const [filterActive, setFilterActive] = useState(false);
+  const [displayedRowCount, setDisplayedRowCount] = useState<number | null>(null);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [bulkEditCol, setBulkEditCol] = useState('');
   const [bulkEditValue, setBulkEditValue] = useState('');
@@ -73,7 +76,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     setSelectedRowIds(ids);
   }, []);
 
-  // Create a fresh draft row (local-only, not in DataModel)
+  // Create a fresh draft row (local-only, not yet persisted)
   const makeDraftRow = useCallback((): Row => {
     draftCounter.current += 1;
     const row: Row = { [INTERNAL_ROW_ID]: DRAFT_ROW_ID };
@@ -108,7 +111,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
   const onFilterChanged = useCallback((event: FilterChangedEvent) => {
     const model = event.api.getFilterModel();
-    setFilterActive(Object.keys(model).length > 0);
+    const isFiltered = Object.keys(model).length > 0;
+    setFilterActive(isFiltered);
+    setDisplayedRowCount(isFiltered ? event.api.getDisplayedRowCount() : null);
   }, []);
 
   const onFirstDataRendered = useCallback((event: FirstDataRenderedEvent) => {
@@ -135,6 +140,21 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       onColumnOrderChange(ordered);
     }
   }, [onColumnOrderChange, schema.columns]);
+
+  const onColumnResized = useCallback((event: ColumnResizedEvent) => {
+    if (!event.finished || !onColumnWidthChange || event.source === 'api') return;
+    const schemaColNames = new Set(schema.columns.map(c => c.name));
+    const widths: Record<string, number> = {};
+    for (const col of event.columns ?? []) {
+      const id = col.getColId();
+      if (schemaColNames.has(id)) {
+        widths[id] = col.getActualWidth();
+      }
+    }
+    if (Object.keys(widths).length > 0) {
+      onColumnWidthChange(widths);
+    }
+  }, [onColumnWidthChange, schema.columns]);
 
   // Map row _rowId to index in the real rows array (excluding draft)
   const rowIdToIndex = useMemo(() => {
@@ -211,6 +231,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         headerName: col.displayName || col.name,
         editable: true,
         minWidth: 80,
+        ...(col.width ? { width: col.width } : {}),
         resizable: true,
         ...(sortEntry ? { sort: sortEntry.direction, sortIndex: sortIdx } : {}),
         valueSetter: (params: ValueSetterParams) => {
@@ -222,7 +243,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
             const rowId = params.data[INTERNAL_ROW_ID];
 
-            // Draft row: insert it into the DataModel
+            // Draft row: insert it via API
             if (rowId === DRAFT_ROW_ID) {
               const newRow: Row = {};
               for (const c of schema.columns) {
@@ -242,10 +263,10 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
               }
               setError(null);
               log('draft promoted via', col.name, '->', newValue);
-              return false; // Return false because the real data comes from the new DataModel row
+              return false; // Return false because the real data comes from the newly inserted row
             }
 
-            // Normal row: apply edit via DataModel
+            // Normal row: apply edit via API
             const idx = rowIdToIndex.get(rowId);
             if (idx === undefined) {
               log('valueSetter: row not found for', rowId);
@@ -277,7 +298,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
           const rowId = params.data?.[INTERNAL_ROW_ID];
 
-          // Draft row: insert it into the DataModel
+          // Draft row: insert it via API
           if (rowId === DRAFT_ROW_ID) {
             const newRow: Row = {};
             for (const c of schema.columns) {
@@ -314,11 +335,11 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
         const resolveRefDisplay = (rowId: string): string => {
           if (!rowId) return '';
-          const refRow = model.getReferencedRow(refTable, rowId);
+          const refRow = getReferencedRow(refTable, rowId);
           if (!refRow) return `[missing: ${rowId}]`;
           const cols = displayCols.length > 0 ? displayCols : searchCols;
           if (cols.length === 0) return `Row ${rowId}`;
-          return cols.map(c => model.resolveColumnPath(refTable, refRow, c)).filter(Boolean).join(' · ');
+          return cols.map(c => resolveColumnPath(refTable, refRow, c)).filter(Boolean).join(' · ');
         };
 
         // Show display columns instead of raw _rowId, resolving nested references
@@ -340,9 +361,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
             popup: true,
             popupPosition: 'under',
             params: {
-              refRows: model.getReferenceRows(refTable),
+              refRows: getReferenceRows(refTable),
               refTable,
-              model,
+              resolveColumnPath,
               searchColumns: searchCols,
               displayColumns: displayCols,
             },
@@ -353,7 +374,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
         const derivedDefs: ColDef[] = displayCols.map((displayPath) => ({
           colId: `${col.name}::${displayPath}`,
-          headerName: `${col.displayName || col.name} → ${model.resolveColumnPathLabel(refTable, displayPath)}`,
+          headerName: `${col.displayName || col.name} → ${resolveColumnPathLabel(refTable, displayPath)}`,
           editable: true,
           minWidth: 120,
           resizable: true,
@@ -363,9 +384,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           valueGetter: (params) => {
             const rowId = params.data?.[col.name] ?? '';
             if (!rowId) return '';
-            const refRow = model.getReferencedRow(refTable, rowId);
+            const refRow = getReferencedRow(refTable, rowId);
             if (!refRow) return '';
-            return model.resolveColumnPath(refTable, refRow, displayPath);
+            return resolveColumnPath(refTable, refRow, displayPath);
           },
           comparator: (a, b) => String(a ?? '').toLowerCase().localeCompare(String(b ?? '').toLowerCase()),
           cellEditorSelector: def.cellEditorSelector,
@@ -419,18 +440,18 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         def.cellRenderer = ImageCellRenderer;
         def.editable = false;
         def.onCellClicked = (params) => {
-          if (!folderId) {
-            setError('Connect to Google Drive to upload images');
+          if (!bookId) {
+            setError('Sign in and open a book to upload images');
             return;
           }
           const rowId = params.data[INTERNAL_ROW_ID];
           if (rowId === DRAFT_ROW_ID) return;
 
-          const currentFileId = params.value || null;
-          openDialog(currentFileId, folderId, schema.name, (newFileId) => {
+          const currentKey = params.value || null;
+          openDialog(currentKey, bookId, schema.name, (newKey) => {
             const idx = rowIdToIndex.get(rowId);
             if (idx !== undefined) {
-              const errors = onEdit(idx, col.name, newFileId ?? '');
+              const errors = onEdit(idx, col.name, newKey ?? '');
               if (errors.length > 0) {
                 setError(errors[0].message);
               }
@@ -444,7 +465,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
     return cols;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schema, model, revision, rowIdToIndex, onEdit, onInsert, folderId]);
+  }, [schema, revision, rowIdToIndex, onEdit, onInsert, bookId, getReferencedRow, getReferenceRows, resolveColumnPath, resolveColumnPathLabel]);
 
   // Style draft row with dimmer text
   const getRowClass = useCallback((params: RowClassParams) => {
@@ -485,6 +506,17 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       .map(c => ({ value: c.name, label: c.displayName || c.name })),
     [schema],
   );
+
+  const ZOOM_KEY = 'sheetable-grid-zoom';
+  const [zoom, setZoom] = useState(() => {
+    const stored = localStorage.getItem(ZOOM_KEY);
+    return stored ? Math.max(0.25, Math.min(2, Number(stored) || 1)) : 1;
+  });
+  const changeZoom = useCallback((next: number) => {
+    const clamped = Math.max(0.25, Math.min(2, Math.round(next * 100) / 100));
+    setZoom(clamped);
+    localStorage.setItem(ZOOM_KEY, String(clamped));
+  }, []);
 
   return (
     <div className="spreadsheet-container" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -537,7 +569,20 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         </div>
       )}
       {dialogElement}
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div className="grid-status-bar">
+        <span className="grid-row-count">
+          {rows.length} row{rows.length !== 1 ? 's' : ''}{displayedRowCount !== null ? ` (${displayedRowCount} shown)` : ''}
+        </span>
+        <span className="grid-status-spacer" />
+      </div>
+      {zoom !== 1 && (
+        <div className="grid-zoom-bar">
+          <button className="grid-zoom-btn" onClick={() => changeZoom(zoom - 0.1)} disabled={zoom <= 0.25} title="Zoom out">−</button>
+          <button className="grid-zoom-label" onClick={() => changeZoom(1)} title="Reset zoom">{Math.round(zoom * 100)}%</button>
+          <button className="grid-zoom-btn" onClick={() => changeZoom(zoom + 0.1)} disabled={zoom >= 2} title="Zoom in">+</button>
+        </div>
+      )}
+      <div style={{ flex: 1, minHeight: 0, zoom }}>
         <AgGridReact
           ref={gridRef}
           modules={[AllCommunityModule]}
@@ -558,6 +603,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           onFilterChanged={onFilterChanged}
           onFirstDataRendered={onFirstDataRendered}
           onColumnMoved={onColumnMoved}
+          onColumnResized={onColumnResized}
         />
       </div>
     </div>

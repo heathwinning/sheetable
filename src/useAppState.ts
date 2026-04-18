@@ -1,1218 +1,828 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { DataModel } from './dataModel';
-import type { TableSchema, Row, Transaction, ValidationError, ChartSheet } from './types';
+import type { TableSchema, Row, ValidationError, ChartSheet, UndoEntry, SessionUser, BookInfo } from './types';
 import { INTERNAL_ROW_ID } from './types';
-import { csvToRows, rowsToCSV } from './csv';
-import type { ProjectConfig } from './config';
-import { serializeConfig, parseConfig, serializeBooksConfig, parseBooksConfig } from './config';
-import * as drive from './drive';
-
-export interface WorkbookInfo {
-  id: string;
-  name: string;
-}
-
-export interface WorkbookInvitePayload {
-  workbookId: string;
-  workbookName: string;
-  emailAddress: string;
-  role: 'reader' | 'writer';
-}
-
-interface LocalWorkbookSnapshot {
-  name: string;
-  tables: Array<{ schema: TableSchema; rows: Row[] }>;
-  tableOrder: string[];
-  activeTableId: string | null;
-  chartSheets?: ChartSheet[];
-}
-
-interface LocalBooksStorage {
-  activeWorkbookId: string;
-  workbooks: Record<string, LocalWorkbookSnapshot>;
-}
-
-const LOCAL_DEFAULT_WORKBOOK: WorkbookInfo = {
-  id: 'local-default',
-  name: 'Untitled',
-};
-
-const LOCAL_BOOKS_STORAGE_KEY = 'sheetable_local_books_v1';
-const DRIVE_BOOKS_CONFIG_FILENAME = 'sheetable.books.json';
-
-function encodeInvitePayload(payload: WorkbookInvitePayload): string {
-  const json = JSON.stringify(payload);
-  const bytes = new TextEncoder().encode(json);
-  let binary = '';
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function decodeInvitePayload(token: string): WorkbookInvitePayload {
-  const normalized = token.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-  const binary = atob(padded);
-  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-  const json = new TextDecoder().decode(bytes);
-  const parsed = JSON.parse(json) as Partial<WorkbookInvitePayload>;
-
-  if (!parsed.workbookId || !parsed.workbookName || !parsed.emailAddress || !parsed.role) {
-    throw new Error('Invalid invite token.');
-  }
-  if (parsed.role !== 'reader' && parsed.role !== 'writer') {
-    throw new Error('Invalid invite role.');
-  }
-
-  return {
-    workbookId: parsed.workbookId,
-    workbookName: parsed.workbookName,
-    emailAddress: parsed.emailAddress,
-    role: parsed.role,
-  };
-}
-
-function loadLocalBooksStorage(): LocalBooksStorage | null {
-  try {
-    const raw = localStorage.getItem(LOCAL_BOOKS_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as LocalBooksStorage;
-  } catch {
-    return null;
-  }
-}
-
-function saveLocalBooksStorage(storage: LocalBooksStorage): void {
-  localStorage.setItem(LOCAL_BOOKS_STORAGE_KEY, JSON.stringify(storage));
-}
-
-function toErrorMessage(err: unknown): string {
-  if (err instanceof Error && err.message) return err.message;
-  const maybe = err as { result?: { error?: { message?: string } }; body?: string; message?: string };
-  return maybe?.result?.error?.message || maybe?.message || maybe?.body || 'Unknown error';
-}
+import * as api from './api';
+import { log } from './DebugLogger';
 
 export interface UseAppStateReturn {
-  // Data
-  model: DataModel;
+  // Auth
+  user: SessionUser | null;
+  isLoading: boolean;
+  signIn: () => void;
+  signOut: () => Promise<void>;
+
+  // Books
+  books: BookInfo[];
+  activeBookId: string | null;
+  activeBookName: string | null;
+  switchBook: (bookId: string) => Promise<void>;
+  refreshBooks: () => Promise<void>;
+  createBook: (name: string) => Promise<string | null>;
+  renameBook: (bookId: string, name: string) => Promise<void>;
+  deleteBook: (bookId: string) => Promise<void>;
+
+  // Tables
   tableIds: string[];
   activeTableId: string | null;
   setActiveTableId: (id: string | null) => void;
-
-  // Table operations
-  createTable: (schema: TableSchema, rows?: Row[]) => void;
-  deleteTable: (tableId: string, alsoDeleteFromDrive?: boolean) => void;
-  renameTable: (oldName: string, newName: string) => void;
+  getSchema: (tableId: string) => TableSchema | undefined;
+  getRows: (tableId: string) => Row[];
+  setRows: (tableId: string, rows: Row[]) => void;
+  createTable: (schema: TableSchema, rows?: Row[]) => Promise<void>;
+  deleteTable: (tableId: string) => Promise<void>;
+  renameTable: (oldName: string, newName: string) => Promise<void>;
   renameColumn: (tableId: string, oldName: string, newName: string) => void;
   reorderTables: (fromIndex: number, toIndex: number) => void;
-  updateSchema: (tableId: string, schema: TableSchema) => void;
-  getRows: (tableId: string) => Row[];
-  getSchema: (tableId: string) => TableSchema | undefined;
-  listWorkbookCsvFiles: () => Promise<Array<{ id: string; name: string }>>;
-  loadTableFromCsvFile: (tableId: string, fileId: string) => Promise<void>;
-  renameTableCsvFile: (tableId: string, nextFileName: string) => Promise<void>;
+  updateSchema: (tableId: string, schema: TableSchema) => Promise<void>;
 
-  // Transaction
+  // Row operations
   applyEdit: (tableId: string, rowIndex: number, columnName: string, newValue: string) => ValidationError[];
   insertRow: (tableId: string, row: Row) => ValidationError[];
   deleteRow: (tableId: string, rowIndex: number) => ValidationError[];
+
+  // Undo
   undo: () => ValidationError[];
   canUndo: boolean;
 
-  // Dirty state
-  isDirty: (tableId: string) => boolean;
-  isAnyDirty: () => boolean;
-
-  // Drive
-  isSignedIn: boolean;
-  folderId: string | null;
-  folderName: string | null;
-  workbooks: WorkbookInfo[];
-  createWorkbook: (name: string) => Promise<string | null>;
-  renameWorkbook: (workbookId: string, name: string) => Promise<void>;
-  deleteWorkbook: (workbookId: string) => Promise<string | null>;
-  switchWorkbook: (workbookId: string) => Promise<void>;
-  shareWorkbook: (workbookId: string, emailAddress: string, role?: 'reader' | 'writer') => Promise<void>;
-  createWorkbookInviteLink: (workbookId: string, emailAddress: string, role?: 'reader' | 'writer') => Promise<string>;
-  acceptWorkbookInvite: (token: string) => Promise<WorkbookInfo>;
-  signIn: () => void;
-  signOut: () => void;
-  isSaving: boolean;
-  lastSaved: Date | null;
-  initializeDrive: (clientId: string) => Promise<void>;
-  driveReady: boolean;
-  isConnecting: boolean;
-  userInfo: drive.UserInfo | null;
-
-  // Chart sheets
+  // Charts
   chartSheetIds: string[];
   getChartSheet: (id: string) => ChartSheet | undefined;
-  createChartSheet: (name: string) => void;
-  deleteChartSheet: (name: string) => void;
-  renameChartSheet: (oldName: string, newName: string) => void;
-  updateChartSheet: (name: string, charts: unknown[]) => void;
-  setChartSheetTable: (name: string, tableName: string) => void;
-  setChartSheetMode: (name: string, mode: 'edit' | 'display') => void;
+  createChartSheet: (name: string) => Promise<void>;
+  deleteChartSheet: (name: string) => Promise<void>;
+  renameChartSheet: (oldName: string, newName: string) => Promise<void>;
+  updateChartSheet: (name: string, charts: unknown[]) => Promise<void>;
+  setChartSheetTable: (name: string, tableName: string) => Promise<void>;
+  setChartSheetMode: (name: string, mode: 'edit' | 'display') => Promise<void>;
 
-  // Revision counter to trigger re-renders
+  // Reference helpers (replacement for DataModel methods)
+  getReferencedRow: (refTable: string, rowId: string) => Row | undefined;
+  getReferenceRows: (refTable: string) => Row[];
+  resolveColumnPath: (tableName: string, row: Row, path: string) => string;
+  resolveColumnPathLabel: (tableName: string, path: string) => string;
+  getColumnPaths: (tableName: string) => { path: string; label: string }[];
+
+  // Revision counter
   revision: number;
 }
 
+// ---- Validation helpers ----
+
+function validateType(type: string, value: string, rowIndex: number, columnName: string): ValidationError[] {
+  if (value === '') return [];
+  switch (type) {
+    case 'integer':
+      if (!/^-?\d+$/.test(value))
+        return [{ message: `"${value}" is not a valid integer`, rowIndex, columnName }];
+      break;
+    case 'decimal':
+      if (isNaN(Number(value)) || value.trim() === '')
+        return [{ message: `"${value}" is not a valid decimal`, rowIndex, columnName }];
+      break;
+    case 'date':
+      if (!/^\d{4}[-/]\d{2}[-/]\d{2}$/.test(value) || isNaN(Date.parse(value.replace(/\//g, '-'))))
+        return [{ message: `"${value}" is not a valid date (YYYY/MM/DD)`, rowIndex, columnName }];
+      break;
+    case 'datetime':
+      if (isNaN(Date.parse(value)))
+        return [{ message: `"${value}" is not a valid datetime`, rowIndex, columnName }];
+      break;
+    case 'bool':
+      if (!['true', 'false', '1', '0', 'yes', 'no'].includes(value.toLowerCase()))
+        return [{ message: `"${value}" is not a valid boolean (true/false)`, rowIndex, columnName }];
+      break;
+  }
+  return [];
+}
+
+function validateUniqueKey(rows: Row[], _schema: TableSchema, keyValues: Record<string, string>, excludeRow: number): ValidationError[] {
+  const keyColumns = Object.keys(keyValues);
+  for (const colName of keyColumns) {
+    if (keyValues[colName] === '') {
+      return [{ message: `Key column "${colName}" cannot be empty`, rowIndex: excludeRow, columnName: colName }];
+    }
+  }
+  for (let i = 0; i < rows.length; i++) {
+    if (i === excludeRow) continue;
+    const matches = keyColumns.every(col => rows[i][col] === keyValues[col]);
+    if (matches) {
+      const keyStr = keyColumns.map(c => `${c}="${keyValues[c]}"`).join(', ');
+      return [{
+        message: keyColumns.length === 1
+          ? `Duplicate key "${keyValues[keyColumns[0]]}" in column "${keyColumns[0]}"`
+          : `Duplicate composite key: ${keyStr}`,
+        rowIndex: excludeRow,
+        columnName: keyColumns[0],
+      }];
+    }
+  }
+  return [];
+}
+
+// ---- Per-row write queue ----
+
+const rowQueues = new Map<string, Promise<void>>();
+
+function enqueueWrite(rowId: string, fn: () => Promise<void>): void {
+  const prev = rowQueues.get(rowId) ?? Promise.resolve();
+  const next = prev.then(fn, fn).then(() => {
+    if (rowQueues.get(rowId) === next) rowQueues.delete(rowId);
+  });
+  rowQueues.set(rowId, next);
+}
+
+// ---- Main hook ----
+
 export function useAppState(): UseAppStateReturn {
-  const modelRef = useRef(new DataModel());
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [books, setBooks] = useState<BookInfo[]>([]);
+  const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [activeTableId, setActiveTableId] = useState<string | null>(null);
   const [tableOrder, setTableOrder] = useState<string[]>([]);
-  const [isSignedIn, setIsSignedIn] = useState(false);
-  const [folderId, setFolderId] = useState<string | null>(LOCAL_DEFAULT_WORKBOOK.id);
-  const [folderName, setFolderName] = useState<string | null>(LOCAL_DEFAULT_WORKBOOK.name);
-  const [workbooks, setWorkbooks] = useState<WorkbookInfo[]>([LOCAL_DEFAULT_WORKBOOK]);
-  const [driveReady, setDriveReady] = useState(false);
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [userInfo, setUserInfo] = useState<drive.UserInfo | null>(null);
-
-  // File ID tracking for Drive
-  const fileIdsRef = useRef<Map<string, string>>(new Map()); // tableId -> driveFileId
-  const configFileIdRef = useRef<string | null>(null);
-  const booksConfigFileIdRef = useRef<string | null>(null);
-  const configDirtyRef = useRef(false);
-  const revisionRef = useRef(0);
-  const undoStackRef = useRef<Transaction[]>([]);
-  const chartSheetsRef = useRef<Map<string, ChartSheet>>(new Map());
   const [chartSheetOrder, setChartSheetOrder] = useState<string[]>([]);
-  const rootFolderIdRef = useRef<string | null>(null);
-  const localWorkbooksRef = useRef<Map<string, LocalWorkbookSnapshot>>(
-    new Map([[LOCAL_DEFAULT_WORKBOOK.id, { name: LOCAL_DEFAULT_WORKBOOK.name, tables: [], tableOrder: [], activeTableId: null }]])
-  );
-  const localActiveWorkbookIdRef = useRef<string>(LOCAL_DEFAULT_WORKBOOK.id);
-  const initializedLocalRef = useRef(false);
 
-  const model = modelRef.current;
+  // In-memory data store (replaces DataModel)
+  const schemasRef = useRef<Map<string, TableSchema>>(new Map());
+  const rowsRef = useRef<Map<string, Row[]>>(new Map());
+  const chartSheetsRef = useRef<Map<string, ChartSheet>>(new Map());
+  const undoStackRef = useRef<UndoEntry[]>([]);
 
-  const bump = useCallback(() => setRevision(r => {
-    const next = r + 1;
-    revisionRef.current = next;
-    return next;
-  }), []);
+  const bump = useCallback(() => setRevision(r => r + 1), []);
 
-  const clearModel = useCallback(() => {
-    const existing = [...model.getTableIds()];
-    for (const id of existing) {
-      model.deleteTable(id);
-    }
-    fileIdsRef.current.clear();
-    configFileIdRef.current = null;
-    configDirtyRef.current = false;
-    undoStackRef.current = [];
-    chartSheetsRef.current.clear();
-    setChartSheetOrder([]);
-    setTableOrder([]);
-    setActiveTableId(null);
-  }, [model]);
+  // ---- Check auth on mount ----
+  useEffect(() => {
+    api.getMe()
+      .then(u => { setUser(u); setIsLoading(false); })
+      .catch(() => setIsLoading(false));
+  }, []);
 
-  const snapshotLocalWorkbook = useCallback((workbookId: string, workbookName: string) => {
-    const tableIds = model.getTableIds();
-    const tables = tableIds
-      .map(tableId => model.getTable(tableId))
-      .filter((t): t is NonNullable<typeof t> => !!t)
-      .map(table => ({
-        schema: JSON.parse(JSON.stringify(table.schema)) as TableSchema,
-        rows: table.rows.map(row => ({ ...row })),
-      }));
+  // ---- Load books when user changes ----
+  useEffect(() => {
+    if (!user) { setBooks([]); setActiveBookId(null); return; }
+    api.listBooks().then(b => {
+      setBooks(b);
+      if (b.length > 0 && !activeBookId) setActiveBookId(b[0].id);
+    }).catch(console.error);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    localWorkbooksRef.current.set(workbookId, {
-      name: workbookName,
-      tables,
-      tableOrder: [...tableOrder],
-      activeTableId,
-      chartSheets: [...chartSheetsRef.current.values()].map(cs => ({ ...cs, charts: [...cs.charts] })),
-    });
-  }, [activeTableId, model, tableOrder]);
-
-  const loadLocalWorkbook = useCallback((workbookId: string, workbookName: string) => {
-    clearModel();
-    setFolderId(workbookId);
-    setFolderName(workbookName);
-    localActiveWorkbookIdRef.current = workbookId;
-
-    const snapshot = localWorkbooksRef.current.get(workbookId);
-    if (!snapshot) {
-      localWorkbooksRef.current.set(workbookId, {
-        name: workbookName,
-        tables: [],
-        tableOrder: [],
-        activeTableId: null,
-      });
+  // ---- Load tables + charts when active book changes ----
+  useEffect(() => {
+    if (!activeBookId) {
+      schemasRef.current.clear();
+      rowsRef.current.clear();
+      chartSheetsRef.current.clear();
+      setTableOrder([]);
+      setChartSheetOrder([]);
+      setActiveTableId(null);
       bump();
       return;
     }
 
-    for (const table of snapshot.tables) {
-      model.createTable(
-        JSON.parse(JSON.stringify(table.schema)) as TableSchema,
-        table.rows.map(r => ({ ...r })),
-      );
-      model.markSaved(table.schema.name);
-    }
+    let cancelled = false;
 
-    setTableOrder([...snapshot.tableOrder]);
-    setActiveTableId(snapshot.activeTableId);
-    if (snapshot.chartSheets) {
-      for (const cs of snapshot.chartSheets) {
-        chartSheetsRef.current.set(cs.name, { ...cs, charts: [...cs.charts] });
-      }
-      setChartSheetOrder(snapshot.chartSheets.map(cs => cs.name));
-    }
-    bump();
-  }, [bump, clearModel, model]);
-
-  const persistLocalBooks = useCallback(() => {
-    const obj: Record<string, LocalWorkbookSnapshot> = {};
-    for (const [id, snap] of localWorkbooksRef.current.entries()) {
-      obj[id] = snap;
-    }
-    saveLocalBooksStorage({
-      activeWorkbookId: localActiveWorkbookIdRef.current,
-      workbooks: obj,
-    });
-  }, []);
-
-  const persistDriveBooksConfig = useCallback(async (books: WorkbookInfo[]) => {
-    const rootId = rootFolderIdRef.current;
-    if (!rootId) return;
-    const payload = serializeBooksConfig({ books: books.map(b => ({ id: b.id, name: b.name })) });
-
-    if (booksConfigFileIdRef.current) {
-      await drive.updateFile(booksConfigFileIdRef.current, payload, 'application/json');
-      return;
-    }
-
-    const rootFiles = await drive.listFilesInFolder(rootId);
-    const existing = rootFiles.find(f => f.name === DRIVE_BOOKS_CONFIG_FILENAME);
-    if (existing) {
-      booksConfigFileIdRef.current = existing.id;
-      await drive.updateFile(existing.id, payload, 'application/json');
-      return;
-    }
-
-    booksConfigFileIdRef.current = await drive.createFile(DRIVE_BOOKS_CONFIG_FILENAME, payload, rootId, 'application/json');
-  }, []);
-
-  const loadWorkbook = useCallback(async (workbookId: string, workbookName: string) => {
-    clearModel();
-    setFolderId(workbookId);
-    setFolderName(workbookName);
-
-    const files = await drive.listFilesInFolder(workbookId);
-    const configFile = files.find(f => f.name === 'sheetable.json');
-    if (!configFile) {
-      bump();
-      return;
-    }
-
-    configFileIdRef.current = configFile.id;
-    const configText = await drive.downloadFile(configFile.id);
-    const config = parseConfig(configText);
-
-    const loadedTables = await Promise.all(config.tables.map(async (rawSchema) => {
-      const schema: TableSchema = { ...rawSchema };
-      const csvFileId = schema.csvFileId?.trim();
-      const legacyCsvFileName = schema.csvFileName?.trim();
-      const fallbackCsvFileName = legacyCsvFileName || `${schema.name}.csv`;
-      const csvFile = (csvFileId ? files.find(f => f.id === csvFileId) : undefined)
-        ?? files.find(f => f.name === fallbackCsvFileName);
-      let rows: Row[] = [];
-      if (csvFile) {
-        schema.csvFileId = csvFile.id;
-        fileIdsRef.current.set(schema.name, csvFile.id);
-        const csvText = await drive.downloadFile(csvFile.id);
-        rows = csvToRows(csvText, schema);
-      }
-
-      return {
-        schema,
-        rows,
-        needsConfigMigration: (!csvFileId && !!csvFile) || !!legacyCsvFileName,
-      };
-    }));
-
-    for (const loadedTable of loadedTables) {
-      model.createTable(loadedTable.schema, loadedTable.rows);
-      model.markSaved(loadedTable.schema.name);
-      if (loadedTable.needsConfigMigration) {
-        configDirtyRef.current = true;
-      }
-    }
-
-    setTableOrder(config.tables.map(t => t.name));
-
-    // Load chart sheets
-    if (config.chartSheets) {
-      for (const cs of config.chartSheets) {
-        chartSheetsRef.current.set(cs.name, { ...cs });
-      }
-      setChartSheetOrder(config.chartSheets.map(cs => cs.name));
-    }
-
-    if (config.tables.length > 0) {
-      setActiveTableId(config.tables[0].name);
-    }
-    bump();
-  }, [bump, clearModel, model]);
-
-  const refreshWorkbooks = useCallback(async () => {
-    const rootId = rootFolderIdRef.current;
-    if (!rootId) return [] as WorkbookInfo[];
-
-    const rootFiles = await drive.listFilesInFolder(rootId);
-    const booksConfigFile = rootFiles.find(f => f.name === DRIVE_BOOKS_CONFIG_FILENAME);
-    let next: WorkbookInfo[] = [];
-
-    if (booksConfigFile) {
-      booksConfigFileIdRef.current = booksConfigFile.id;
+    (async () => {
       try {
-        const configText = await drive.downloadFile(booksConfigFile.id);
-        const parsed = parseBooksConfig(configText);
-        next = (parsed.books ?? [])
-          .filter(b => !!b?.id && !!b?.name)
-          .map(b => ({ id: b.id, name: b.name }));
+        const [schemas, charts] = await Promise.all([
+          api.listTables(activeBookId),
+          api.listCharts(activeBookId),
+        ]);
+
+        if (cancelled) return;
+
+        schemasRef.current.clear();
+        rowsRef.current.clear();
+
+        const order: string[] = [];
+        for (const schema of schemas) {
+          schemasRef.current.set(schema.name, schema);
+          order.push(schema.name);
+        }
+        setTableOrder(order);
+
+        chartSheetsRef.current.clear();
+        const chartOrder: string[] = [];
+        for (const chart of charts) {
+          chartSheetsRef.current.set(chart.name, chart);
+          chartOrder.push(chart.name);
+        }
+        setChartSheetOrder(chartOrder);
+
+        // Load all row data in parallel
+        const rowPromises = schemas.map(async (schema) => {
+          const rows = await api.listRows(activeBookId, schema.name);
+          if (!cancelled) rowsRef.current.set(schema.name, rows);
+        });
+        await Promise.all(rowPromises);
+
+        if (!cancelled) {
+          undoStackRef.current = [];
+          if (order.length > 0) setActiveTableId(order[0]);
+          bump();
+        }
       } catch (err) {
-        console.warn('Invalid books config, rebuilding:', err);
+        console.error('Failed to load book data:', err);
       }
+    })();
+
+    return () => { cancelled = true; };
+  }, [activeBookId, bump]);
+
+  const activeBookName = useMemo(() => {
+    return books.find(b => b.id === activeBookId)?.name ?? null;
+  }, [books, activeBookId]);
+
+  // ---- Auth ----
+  const signIn = useCallback(() => {
+    // Save current hash route so we can redirect back after OAuth
+    const hash = window.location.hash;
+    if (hash && hash !== '#/' && hash !== '#') {
+      localStorage.setItem('sheetable-post-login-redirect', hash);
+    }
+    window.location.href = api.loginUrl();
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await api.logout();
+    setUser(null);
+    setBooks([]);
+    setActiveBookId(null);
+  }, []);
+
+  // ---- Books ----
+  const refreshBooks = useCallback(async () => {
+    const b = await api.listBooks();
+    setBooks(b);
+  }, []);
+
+  const switchBook = useCallback(async (bookId: string) => {
+    setActiveBookId(bookId);
+  }, []);
+
+  const createBook = useCallback(async (name: string): Promise<string | null> => {
+    try {
+      const book = await api.createBook(name);
+      setBooks(prev => [...prev, { id: book.id, name: book.name, owner_id: user?.id ?? '', role: 'owner', created_at: new Date().toISOString() }]);
+      setActiveBookId(book.id);
+      return book.id;
+    } catch (err) {
+      console.error('Failed to create book:', err);
+      return null;
+    }
+  }, [user]);
+
+  const renameBook = useCallback(async (bookId: string, name: string) => {
+    await api.renameBook(bookId, name);
+    setBooks(prev => prev.map(b => b.id === bookId ? { ...b, name } : b));
+  }, []);
+
+  const doDeleteBook = useCallback(async (bookId: string) => {
+    await api.deleteBook(bookId);
+    setBooks(prev => {
+      const next = prev.filter(b => b.id !== bookId);
+      if (activeBookId === bookId) {
+        setActiveBookId(next.length > 0 ? next[0].id : null);
+      }
+      return next;
+    });
+  }, [activeBookId]);
+
+  // ---- Reference helpers (replaces DataModel) ----
+  const getReferencedRow = useCallback((refTable: string, rowId: string): Row | undefined => {
+    const rows = rowsRef.current.get(refTable);
+    return rows?.find(r => r[INTERNAL_ROW_ID] === rowId);
+  }, []);
+
+  const getReferenceRows = useCallback((refTable: string): Row[] => {
+    return rowsRef.current.get(refTable) ?? [];
+  }, []);
+
+  const resolveColumnPath = useCallback((tableName: string, row: Row, path: string): string => {
+    const parts = path.split('.');
+    const schema = schemasRef.current.get(tableName);
+    if (!schema) return '';
+
+    const colName = parts[0];
+    const value = row[colName] ?? '';
+
+    if (parts.length === 1) {
+      const col = schema.columns.find(c => c.name === colName);
+      if (col?.type === 'reference' && col.refTable && value) {
+        const refRow = getReferencedRow(col.refTable, value);
+        if (!refRow) return '';
+        const displayCols = col.refDisplayColumns ?? [];
+        if (displayCols.length > 0) {
+          return displayCols.map(dc => resolveColumnPath(col.refTable!, refRow, dc)).filter(Boolean).join(' · ');
+        }
+        return value;
+      }
+      return value;
     }
 
-    // One-time migration when config is missing/invalid: seed from existing subfolders.
-    if (next.length === 0) {
-      const folders = await drive.listSubfolders(rootId);
-      if (folders.length > 0) {
-        next = folders;
+    const col = schema.columns.find(c => c.name === colName);
+    if (!col || col.type !== 'reference' || !col.refTable || !value) return '';
+
+    const refRow = getReferencedRow(col.refTable, value);
+    if (!refRow) return '';
+    return resolveColumnPath(col.refTable, refRow, parts.slice(1).join('.'));
+  }, [getReferencedRow]);
+
+  const resolveColumnPathLabel = useCallback((tableName: string, path: string): string => {
+    const parts = path.split('.').filter(Boolean);
+    if (parts.length === 0) return '';
+
+    const labels: string[] = [];
+    let currentTable = tableName;
+
+    for (const part of parts) {
+      const schema = schemasRef.current.get(currentTable);
+      if (!schema) { labels.push(part); break; }
+      const col = schema.columns.find(c => c.name === part);
+      if (!col) { labels.push(part); break; }
+      labels.push(col.displayName || col.name);
+      if (col.type !== 'reference' || !col.refTable) break;
+      currentTable = col.refTable;
+    }
+
+    return labels.join(' → ');
+  }, []);
+
+  const getColumnPaths = useCallback((tableName: string): { path: string; label: string }[] => {
+    const schema = schemasRef.current.get(tableName);
+    if (!schema) return [];
+
+    const result: { path: string; label: string }[] = [];
+    for (const col of schema.columns) {
+      if (col.type === 'reference' && col.refTable) {
+        const refSchema = schemasRef.current.get(col.refTable);
+        if (refSchema) {
+          for (const refCol of refSchema.columns) {
+            result.push({ path: `${col.name}.${refCol.name}`, label: `${col.name} → ${refCol.name}` });
+          }
+        }
       } else {
-        const defaultId = await drive.findOrCreateSubfolder('Untitled', rootId);
-        next = [{ id: defaultId, name: 'Untitled' }];
+        result.push({ path: col.name, label: col.name });
       }
-      await persistDriveBooksConfig(next);
     }
+    return result;
+  }, []);
 
-    setWorkbooks(next);
-    return next;
-  }, [persistDriveBooksConfig]);
+  // ---- Table CRUD ----
+  const getSchema = useCallback((tableId: string) => schemasRef.current.get(tableId), []);
+  const getRows = useCallback((tableId: string) => rowsRef.current.get(tableId) ?? [], []);
 
-  const createTable = useCallback((schema: TableSchema, rows?: Row[]) => {
-    model.createTable(schema, rows);
-    setTableOrder(prev => (prev.includes(schema.name) ? prev : [...prev, schema.name]));
+  const doCreateTable = useCallback(async (schema: TableSchema, rows?: Row[]) => {
+    if (!activeBookId) return;
+    await api.createTable(activeBookId, schema, rows);
+
+    schemasRef.current.set(schema.name, schema);
+    rowsRef.current.set(schema.name, rows ?? []);
+    setTableOrder(prev => [...prev, schema.name]);
     setActiveTableId(schema.name);
-    configDirtyRef.current = true;
-    undoStackRef.current = [];
-    bump();
-  }, [model, bump]);
 
-  const deleteTable = useCallback((tableId: string, alsoDeleteFromDrive?: boolean) => {
-    if (alsoDeleteFromDrive) {
-      const fileId = fileIdsRef.current.get(tableId);
-      if (fileId) {
-        drive.deleteFile(fileId).catch(err => console.error('Failed to delete from Drive:', err));
-        fileIdsRef.current.delete(tableId);
+    // Reload rows from server to get server-assigned IDs
+    const serverRows = await api.listRows(activeBookId, schema.name);
+    rowsRef.current.set(schema.name, serverRows);
+    bump();
+  }, [activeBookId, bump]);
+
+  const doDeleteTable = useCallback(async (tableId: string) => {
+    if (!activeBookId) return;
+    await api.deleteTable(activeBookId, tableId);
+    schemasRef.current.delete(tableId);
+    rowsRef.current.delete(tableId);
+    setTableOrder(prev => {
+      const next = prev.filter(id => id !== tableId);
+      if (activeTableId === tableId) {
+        setActiveTableId(next.length > 0 ? next[0] : null);
+      }
+      return next;
+    });
+    bump();
+  }, [activeBookId, activeTableId, bump]);
+
+  const doRenameTable = useCallback(async (oldName: string, newName: string) => {
+    if (!activeBookId) return;
+    await api.renameTable(activeBookId, oldName, newName);
+
+    const schema = schemasRef.current.get(oldName);
+    if (schema) {
+      schema.name = newName;
+      schemasRef.current.delete(oldName);
+      schemasRef.current.set(newName, schema);
+    }
+    const rows = rowsRef.current.get(oldName);
+    if (rows) {
+      rowsRef.current.delete(oldName);
+      rowsRef.current.set(newName, rows);
+    }
+    // Update references in other tables
+    for (const [, s] of schemasRef.current) {
+      for (const col of s.columns) {
+        if (col.refTable === oldName) col.refTable = newName;
       }
     }
-    model.deleteTable(tableId);
-    setTableOrder(prev => prev.filter(id => id !== tableId));
-    configDirtyRef.current = true;
-    setActiveTableId(prev => prev === tableId ? null : prev);
-    undoStackRef.current = [];
-    bump();
-  }, [model, bump]);
-
-  const renameTable = useCallback((oldName: string, newName: string) => {
-    model.renameTable(oldName, newName);
     setTableOrder(prev => prev.map(id => id === oldName ? newName : id));
-    setActiveTableId(prev => prev === oldName ? newName : prev);
-    configDirtyRef.current = true;
-    undoStackRef.current = [];
+    if (activeTableId === oldName) setActiveTableId(newName);
     bump();
-  }, [model, bump]);
+  }, [activeBookId, activeTableId, bump]);
 
-  const renameColumn = useCallback((tableId: string, oldName: string, newName: string) => {
-    model.renameColumn(tableId, oldName, newName);
-    configDirtyRef.current = true;
-    undoStackRef.current = [];
-    bump();
-  }, [model, bump]);
+  const doRenameColumn = useCallback((tableId: string, oldName: string, newName: string) => {
+    if (!activeBookId || !oldName || !newName || oldName === newName) return;
 
-  const reorderTables = useCallback((fromIndex: number, toIndex: number) => {
-    if (fromIndex === toIndex) return;
-    setTableOrder(prev => {
-      if (fromIndex < 0 || toIndex < 0 || fromIndex >= prev.length || toIndex >= prev.length) {
-        return prev;
+    const schema = schemasRef.current.get(tableId);
+    const rows = rowsRef.current.get(tableId);
+    if (!schema || !rows) return;
+
+    // Rename in rows
+    for (const row of rows) {
+      if (oldName in row) {
+        row[newName] = row[oldName] ?? '';
+        delete row[oldName];
       }
+    }
+
+    // Rename in schema
+    for (const col of schema.columns) {
+      if (col.name === oldName) col.name = newName;
+    }
+    schema.uniqueKeys = schema.uniqueKeys.map(k => k === oldName ? newName : k);
+    if (schema.defaultSort) {
+      schema.defaultSort = schema.defaultSort.map(s => s.column === oldName ? { ...s, column: newName } : s);
+    }
+
+    // Update reference paths in other schemas
+    for (const [, s] of schemasRef.current) {
+      for (const col of s.columns) {
+        if (col.type === 'reference' && col.refTable === tableId) {
+          if (col.refDisplayColumns) {
+            col.refDisplayColumns = col.refDisplayColumns.map(p => rewritePath(p, oldName, newName));
+          }
+          if (col.refSearchColumns) {
+            col.refSearchColumns = col.refSearchColumns.map(p => rewritePath(p, oldName, newName));
+          }
+        }
+      }
+    }
+
+    // Persist schema change to server
+    api.updateTableSchema(activeBookId, tableId, schema).catch(console.error);
+    bump();
+  }, [activeBookId, bump]);
+
+  const doReorderTables = useCallback((fromIndex: number, toIndex: number) => {
+    setTableOrder(prev => {
       const next = [...prev];
       const [moved] = next.splice(fromIndex, 1);
       next.splice(toIndex, 0, moved);
       return next;
     });
-    configDirtyRef.current = true;
-    bump();
-  }, [bump]);
-
-  const updateSchema = useCallback((tableId: string, schema: TableSchema) => {
-    model.updateSchema(tableId, schema);
-    configDirtyRef.current = true;
-    undoStackRef.current = [];
-    bump();
-  }, [model, bump]);
-
-  const getRows = useCallback((tableId: string): Row[] => {
-    return [...(model.getTable(tableId)?.rows ?? [])];
-  }, [model]);
-
-  const getSchema = useCallback((tableId: string): TableSchema | undefined => {
-    return model.getTable(tableId)?.schema;
-  }, [model]);
-
-  const listWorkbookCsvFiles = useCallback(async (): Promise<Array<{ id: string; name: string }>> => {
-    if (!isSignedIn || !folderId) {
-      const rows = model.getTableIds().map(id => {
-        const schema = model.getTable(id)?.schema;
-        return {
-          id: schema?.csvFileId?.trim() || '',
-          name: schema?.csvFileName?.trim() || `${id}.csv`,
-        };
-      });
-      const deduped = new Map<string, { id: string; name: string }>();
-      for (const row of rows) {
-        if (!deduped.has(row.name)) deduped.set(row.name, row);
-      }
-      return Array.from(deduped.values()).sort((a, b) => a.name.localeCompare(b.name));
-    }
-
-    const files = await drive.listFilesInFolder(folderId);
-    return files
-      .filter(f => f.name.toLowerCase().endsWith('.csv'))
-      .map(f => ({ id: f.id, name: f.name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [folderId, isSignedIn, model]);
-
-  const loadTableFromCsvFile = useCallback(async (tableId: string, fileId: string): Promise<void> => {
-    const table = model.getTable(tableId);
-    if (!table) {
-      throw new Error(`Table "${tableId}" not found.`);
-    }
-
-    const csvText = await drive.downloadFile(fileId);
-    const rows = csvToRows(csvText, table.schema);
-    const nextSchema: TableSchema = {
-      ...table.schema,
-      csvFileId: fileId,
-    };
-
-    model.deleteTable(tableId);
-    model.createTable(nextSchema, rows);
-    model.markSaved(tableId);
-
-    fileIdsRef.current.set(tableId, fileId);
-    configDirtyRef.current = true;
-    undoStackRef.current = [];
-    bump();
-  }, [bump, model]);
-
-  const renameTableCsvFile = useCallback(async (tableId: string, nextFileName: string): Promise<void> => {
-    const table = model.getTable(tableId);
-    if (!table) {
-      throw new Error(`Table "${tableId}" not found.`);
-    }
-
-    const fileId = table.schema.csvFileId?.trim() || fileIdsRef.current.get(tableId);
-    if (!fileId) {
-      throw new Error('This table is not bound to a Drive CSV file yet.');
-    }
-
-    const trimmed = nextFileName.trim();
-    if (!trimmed) {
-      throw new Error('CSV file name cannot be empty.');
-    }
-    if (!trimmed.toLowerCase().endsWith('.csv')) {
-      throw new Error('CSV file name must end with .csv.');
-    }
-
-    await drive.renameFile(fileId, trimmed);
-  }, [model]);
-
-  // --- Chart sheet CRUD ---
-  const chartSheetIds = useMemo(() => {
-    void revision; // depend on revision for re-render
-    return [...chartSheetOrder];
-  }, [chartSheetOrder, revision]);
-
-  const getChartSheet = useCallback((name: string): ChartSheet | undefined => {
-    return chartSheetsRef.current.get(name);
   }, []);
 
-  const createChartSheet = useCallback((name: string) => {
-    if (chartSheetsRef.current.has(name)) return;
-    const defaultTableName = activeTableId ?? model.getTableIds()[0] ?? undefined;
-    const cs: ChartSheet = { name, tableName: defaultTableName, mode: 'edit', charts: [] };
-    chartSheetsRef.current.set(name, cs);
-    setChartSheetOrder(prev => [...prev, name]);
-    configDirtyRef.current = true;
-    bump();
-  }, [activeTableId, bump, model]);
+  const doUpdateSchema = useCallback(async (tableId: string, schema: TableSchema) => {
+    if (!activeBookId) return;
 
-  const deleteChartSheet = useCallback((name: string) => {
-    chartSheetsRef.current.delete(name);
-    setChartSheetOrder(prev => prev.filter(n => n !== name));
-    configDirtyRef.current = true;
-    bump();
-  }, [bump]);
+    const oldSchema = schemasRef.current.get(tableId);
+    const rows = rowsRef.current.get(tableId);
 
-  const renameChartSheet = useCallback((oldName: string, newName: string) => {
-    const trimmed = newName.trim();
-    if (!trimmed || oldName === trimmed) return;
-    const cs = chartSheetsRef.current.get(oldName);
-    if (!cs) return;
-    chartSheetsRef.current.delete(oldName);
-    cs.name = trimmed;
-    chartSheetsRef.current.set(trimmed, cs);
-    setChartSheetOrder(prev => prev.map(n => n === oldName ? trimmed : n));
-    configDirtyRef.current = true;
-    bump();
-  }, [bump]);
+    if (rows && oldSchema) {
+      const oldCols = new Set(oldSchema.columns.map(c => c.name));
+      const newCols = new Set(schema.columns.map(c => c.name));
+      for (const row of rows) {
+        for (const col of schema.columns) {
+          if (!oldCols.has(col.name) && !(col.name in row)) row[col.name] = '';
+        }
+        for (const oldCol of oldCols) {
+          if (!newCols.has(oldCol)) delete row[oldCol];
+        }
+      }
+    }
 
-  const updateChartSheet = useCallback((name: string, charts: unknown[]) => {
-    const cs = chartSheetsRef.current.get(name);
-    if (!cs) return;
-    cs.charts = charts;
-    configDirtyRef.current = true;
+    schemasRef.current.set(tableId, schema);
+    await api.updateTableSchema(activeBookId, tableId, schema);
     bump();
-  }, [bump]);
+  }, [activeBookId, bump]);
 
-  const setChartSheetTable = useCallback((name: string, tableName: string) => {
-    const cs = chartSheetsRef.current.get(name);
-    if (!cs) return;
-    if (cs.tableName === tableName) return;
-    cs.tableName = tableName;
-    // Reset chart specs when source table changes to avoid stale field bindings.
-    cs.charts = [];
-    configDirtyRef.current = true;
-    bump();
-  }, [bump]);
-
-  const setChartSheetMode = useCallback((name: string, mode: 'edit' | 'display') => {
-    const cs = chartSheetsRef.current.get(name);
-    if (!cs) return;
-    if (cs.mode === mode) return;
-    cs.mode = mode;
-    configDirtyRef.current = true;
-    bump();
-  }, [bump]);
+  // ---- Row operations with client-side validation + async server writes ----
 
   const applyEdit = useCallback((tableId: string, rowIndex: number, columnName: string, newValue: string): ValidationError[] => {
-    const table = model.getTable(tableId);
-    const oldValue = table?.rows[rowIndex]?.[columnName] ?? '';
-    const tx: Transaction = {
-      id: model.nextTransactionId(),
-      tableId,
-      type: 'update',
-      rowIndex,
-      columnName,
-      oldValue,
-      newValue,
-      timestamp: Date.now(),
-    };
-    const errors = model.applyTransaction(tx);
-    if (errors.length === 0) {
-      undoStackRef.current.push({
-        id: model.nextTransactionId(),
-        tableId,
-        type: 'update',
-        rowIndex,
-        columnName,
-        newValue: oldValue,
-        timestamp: Date.now(),
-      });
-      bump();
+    const schema = schemasRef.current.get(tableId);
+    const rows = rowsRef.current.get(tableId);
+    if (!schema || !rows || rowIndex < 0 || rowIndex >= rows.length) {
+      return [{ message: 'Table or row not found', rowIndex }];
     }
-    return errors;
-  }, [model, bump]);
 
-  const insertRow = useCallback((tableId: string, row: Row): ValidationError[] => {
-    const tx: Transaction = {
-      id: model.nextTransactionId(),
-      tableId,
-      type: 'insert',
-      row,
-      timestamp: Date.now(),
-    };
-    const errors = model.applyTransaction(tx);
-    if (errors.length === 0) {
-      const table = model.getTable(tableId);
-      const inserted = table?.rows[table.rows.length - 1];
-      const insertedRowId = inserted?.[INTERNAL_ROW_ID];
-      if (insertedRowId) {
-        undoStackRef.current.push({
-          id: model.nextTransactionId(),
-          tableId,
-          type: 'delete',
-          rowId: insertedRowId,
-          timestamp: Date.now(),
-        });
+    const col = schema.columns.find(c => c.name === columnName);
+    if (!col) return [{ message: `Column "${columnName}" not found`, rowIndex }];
+
+    // Type validation
+    const typeErrors = validateType(col.type, newValue, rowIndex, columnName);
+    if (typeErrors.length > 0) return typeErrors;
+
+    // Unique key validation
+    if (schema.uniqueKeys.includes(columnName)) {
+      const keyValues: Record<string, string> = {};
+      for (const keyCol of schema.uniqueKeys) {
+        keyValues[keyCol] = keyCol === columnName ? newValue : rows[rowIndex][keyCol];
       }
-      bump();
+      const errors = validateUniqueKey(rows, schema, keyValues, rowIndex);
+      if (errors.length > 0) return errors;
     }
-    return errors;
-  }, [model, bump]);
 
-  const deleteRow = useCallback((tableId: string, rowIndex: number): ValidationError[] => {
-    const table = model.getTable(tableId);
-    const deletedRow = table?.rows[rowIndex] ? { ...table.rows[rowIndex] } : undefined;
-    const tx: Transaction = {
-      id: model.nextTransactionId(),
-      tableId,
-      type: 'delete',
-      rowIndex,
-      timestamp: Date.now(),
-    };
-    const errors = model.applyTransaction(tx);
-    if (errors.length === 0) {
-      if (deletedRow) {
-        undoStackRef.current.push({
-          id: model.nextTransactionId(),
-          tableId,
-          type: 'insert',
-          row: deletedRow,
-          timestamp: Date.now(),
-        });
+    // Reference validation
+    if (col.type === 'reference' && col.refTable && newValue !== '') {
+      const refRows = rowsRef.current.get(col.refTable);
+      if (!refRows?.some(r => r[INTERNAL_ROW_ID] === newValue)) {
+        return [{ message: `Referenced row not found in "${col.refTable}"`, rowIndex }];
       }
-      bump();
     }
-    return errors;
-  }, [model, bump]);
 
-  const undo = useCallback((): ValidationError[] => {
-    const tx = undoStackRef.current.pop();
-    if (!tx) return [];
-    const errors = model.applyTransaction(tx);
-    if (errors.length > 0) {
-      // Put it back if undo failed so user can retry after fixing dependencies.
-      undoStackRef.current.push(tx);
-      return errors;
+    // Apply optimistic update
+    const oldValue = rows[rowIndex][columnName] ?? '';
+    const rowId = rows[rowIndex][INTERNAL_ROW_ID];
+    rows[rowIndex][columnName] = newValue;
+
+    // Push undo entry
+    undoStackRef.current.push({ type: 'update', tableId, rowId, column: columnName, oldValue, newValue });
+    log('applyEdit:', tableId, rowId, columnName, oldValue, '->', newValue);
+
+    // Async server write (per-row queue)
+    if (activeBookId) {
+      const bookId = activeBookId;
+      enqueueWrite(rowId, () =>
+        api.updateRow(bookId, tableId, rowId, { [columnName]: newValue })
+          .catch(err => {
+            console.error('Server write failed, reverting:', err);
+            const currentRows = rowsRef.current.get(tableId);
+            const row = currentRows?.find(r => r[INTERNAL_ROW_ID] === rowId);
+            if (row) {
+              row[columnName] = oldValue;
+              bump();
+            }
+          })
+      );
     }
+
     bump();
     return [];
-  }, [model, bump]);
+  }, [activeBookId, bump]);
 
-  const isDirty = useCallback((tableId: string): boolean => {
-    return model.isDirty(tableId);
-  }, [model]);
+  const doInsertRow = useCallback((tableId: string, row: Row): ValidationError[] => {
+    const schema = schemasRef.current.get(tableId);
+    const rows = rowsRef.current.get(tableId);
+    if (!schema || !rows) return [{ message: 'Table not found', rowIndex: -1 }];
 
-  const isAnyDirty = useCallback((): boolean => {
-    return model.getTableIds().some(id => model.isDirty(id));
-  }, [model]);
+    const newRowIndex = rows.length;
 
-  // Connect to root "sheetable" folder, then load a workbook subfolder
-  const connectToFolder = useCallback(async () => {
-    setIsConnecting(true);
-    try {
-      const rootFolder = await drive.findOrCreateFolder();
-      rootFolderIdRef.current = rootFolder.id;
+    // Validate types
+    for (const col of schema.columns) {
+      const value = row[col.name] ?? '';
+      const typeErrors = validateType(col.type, value, newRowIndex, col.name);
+      if (typeErrors.length > 0) return typeErrors;
 
-      const folders = await refreshWorkbooks();
-      if (folders.length > 0) {
-        await loadWorkbook(folders[0].id, folders[0].name);
+      if (col.type === 'reference' && col.refTable && value !== '') {
+        const refRows = rowsRef.current.get(col.refTable);
+        if (!refRows?.some(r => r[INTERNAL_ROW_ID] === value)) {
+          return [{ message: `Referenced row not found in "${col.refTable}"`, rowIndex: newRowIndex }];
+        }
       }
-    } finally {
-      setIsConnecting(false);
     }
-  }, [loadWorkbook, refreshWorkbooks]);
 
-  // Drive integration
-  const initializeDrive = useCallback(async (clientId: string) => {
-    drive.setClientId(clientId);
-    await drive.initGapi();
+    // Validate unique key
+    if (schema.uniqueKeys.length > 0) {
+      const keyValues: Record<string, string> = {};
+      for (const keyCol of schema.uniqueKeys) keyValues[keyCol] = row[keyCol] ?? '';
+      const errors = validateUniqueKey(rows, schema, keyValues, -1);
+      if (errors.length > 0) return errors;
+    }
 
-    const onSignedIn = async (expiresIn?: number) => {
-      setIsSignedIn(true);
-      // Fetch and save user info
-      const info = await drive.getUserInfo();
-      setUserInfo(info);
-      if (expiresIn) {
-        drive.saveAuth(drive.getAccessToken()!, expiresIn, info);
+    // Sequential integer _rowId (max existing + 1)
+    const completeRow: Row = {};
+    const maxId = Math.max(0, ...rows.map(r => Number(r[INTERNAL_ROW_ID]) || 0));
+    const rowId = String(maxId + 1);
+    completeRow[INTERNAL_ROW_ID] = rowId;
+    for (const col of schema.columns) {
+      completeRow[col.name] = row[col.name] ?? '';
+    }
+
+    rows.push(completeRow);
+    undoStackRef.current.push({ type: 'insert', tableId, rowId, row: { ...completeRow } });
+    log('insertRow:', tableId, rowId);
+
+    // Async server write
+    if (activeBookId) {
+      const bookId = activeBookId;
+      api.insertRow(bookId, tableId, completeRow).catch(err => {
+        console.error('Server insert failed, removing row:', err);
+        const currentRows = rowsRef.current.get(tableId);
+        if (currentRows) {
+          const idx = currentRows.findIndex(r => r[INTERNAL_ROW_ID] === rowId);
+          if (idx >= 0) currentRows.splice(idx, 1);
+          bump();
+        }
+      });
+    }
+
+    bump();
+    return [];
+  }, [activeBookId, bump]);
+
+  const doDeleteRow = useCallback((tableId: string, rowIndex: number): ValidationError[] => {
+    const schema = schemasRef.current.get(tableId);
+    const rows = rowsRef.current.get(tableId);
+    if (!schema || !rows || rowIndex < 0 || rowIndex >= rows.length) {
+      return [{ message: 'Row not found', rowIndex }];
+    }
+
+    const rowId = rows[rowIndex][INTERNAL_ROW_ID];
+
+    // Check references from other tables
+    for (const [otherName, otherSchema] of schemasRef.current) {
+      for (const col of otherSchema.columns) {
+        if (col.type === 'reference' && col.refTable === tableId) {
+          const otherRows = rowsRef.current.get(otherName);
+          if (otherRows?.some(r => r[col.name] === rowId)) {
+            return [{ message: `Cannot delete: row referenced by "${otherName}"`, rowIndex }];
+          }
+        }
       }
-      // Auto-connect to sheetable folder
-      try {
-        await connectToFolder();
-      } catch (err) {
-        console.error('Failed to connect to sheetable folder:', err);
-      }
-    };
+    }
 
-    await drive.initTokenClient(async (expiresIn: number) => {
-      await onSignedIn(expiresIn);
+    const deletedRow = { ...rows[rowIndex] };
+
+    if (!activeBookId) {
+      rows.splice(rowIndex, 1);
+      undoStackRef.current.push({ type: 'delete', tableId, rowId, row: deletedRow });
+      bump();
+      return [];
+    }
+
+    // Awaited delete — perform server call, remove on success
+    const bookId = activeBookId;
+    api.deleteRow(bookId, tableId, rowId).then(() => {
+      const currentRows = rowsRef.current.get(tableId);
+      if (currentRows) {
+        const idx = currentRows.findIndex(r => r[INTERNAL_ROW_ID] === rowId);
+        if (idx >= 0) currentRows.splice(idx, 1);
+      }
+      undoStackRef.current.push({ type: 'delete', tableId, rowId, row: deletedRow });
+      bump();
+    }).catch(err => {
+      console.error('Server delete failed:', err);
     });
 
-    // Try restoring a cached token
-    const restored = drive.tryRestoreToken();
-    if (restored) {
-      setUserInfo(restored.userInfo);
-      await onSignedIn();
-    }
+    // Return empty to indicate no client error — the actual removal happens async
+    return [];
+  }, [activeBookId, bump]);
 
-    setDriveReady(true);
-  }, [connectToFolder]);
+  // ---- Undo ----
+  const canUndo = undoStackRef.current.length > 0;
 
-  const signIn = useCallback(() => {
-    if (!isSignedIn && folderId && folderId.startsWith('local-')) {
-      snapshotLocalWorkbook(folderId, folderName ?? 'Untitled');
-    }
-    drive.requestAccessToken();
-  }, [folderId, folderName, isSignedIn, snapshotLocalWorkbook]);
+  const doUndo = useCallback((): ValidationError[] => {
+    const entry = undoStackRef.current.pop();
+    if (!entry) return [];
 
-  const signOutHandler = useCallback(() => {
-    drive.signOut();
-    setIsSignedIn(false);
-    rootFolderIdRef.current = null;
-    booksConfigFileIdRef.current = null;
-    const localList = Array.from(localWorkbooksRef.current.entries()).map(([id, snap]) => ({ id, name: snap.name }));
-    setWorkbooks(localList.length > 0 ? localList : [LOCAL_DEFAULT_WORKBOOK]);
-    setUserInfo(null);
-    setLastSaved(null);
-    setIsSaving(false);
+    const rows = rowsRef.current.get(entry.tableId);
+    if (!rows) return [];
 
-    const targetId = localActiveWorkbookIdRef.current;
-    const target = localWorkbooksRef.current.get(targetId);
-    loadLocalWorkbook(targetId, target?.name ?? 'Untitled');
-  }, [loadLocalWorkbook]);
-
-  const createWorkbook = useCallback(async (name: string): Promise<string | null> => {
-    if (!isSignedIn) {
-      const trimmed = name.trim();
-      if (!trimmed) return null;
-      const currentLocalId = localActiveWorkbookIdRef.current;
-      const currentLocalName = localWorkbooksRef.current.get(currentLocalId)?.name ?? 'Untitled';
-      snapshotLocalWorkbook(currentLocalId, currentLocalName);
-      const workbookId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      localWorkbooksRef.current.set(workbookId, {
-        name: trimmed,
-        tables: [],
-        tableOrder: [],
-        activeTableId: null,
-      });
-      const next = Array.from(localWorkbooksRef.current.entries()).map(([id, snap]) => ({ id, name: snap.name }));
-      setWorkbooks(next);
-      loadLocalWorkbook(workbookId, trimmed);
-      return workbookId;
-    }
-
-    const rootId = rootFolderIdRef.current;
-    if (!rootId) return null;
-    const workbookId = await drive.findOrCreateSubfolder(name, rootId);
-    const existingById = workbooks.find(w => w.id === workbookId);
-    const created = existingById ?? { id: workbookId, name: name.trim() };
-    const next = existingById ? workbooks : [...workbooks, created];
-    setWorkbooks(next);
-    await persistDriveBooksConfig(next);
-    await loadWorkbook(created.id, created.name);
-    return created.id;
-  }, [isSignedIn, loadLocalWorkbook, loadWorkbook, persistDriveBooksConfig, workbooks]);
-
-  const renameWorkbook = useCallback(async (workbookId: string, name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-
-    if (!isSignedIn) {
-      const snapshot = localWorkbooksRef.current.get(workbookId);
-      if (!snapshot) return;
-      localWorkbooksRef.current.set(workbookId, {
-        ...snapshot,
-        name: trimmed,
-      });
-      const next = Array.from(localWorkbooksRef.current.entries()).map(([id, snap]) => ({ id, name: snap.name }));
-      setWorkbooks(next);
-      if (folderId === workbookId) {
-        setFolderName(trimmed);
-      }
-      bump();
-      return;
-    }
-
-    await drive.renameFile(workbookId, trimmed);
-    const next = workbooks.map(w => w.id === workbookId ? { ...w, name: trimmed } : w);
-    setWorkbooks(next);
-    await persistDriveBooksConfig(next);
-    if (folderId === workbookId) {
-      setFolderName(trimmed);
-    }
-  }, [bump, folderId, isSignedIn, persistDriveBooksConfig, workbooks]);
-
-  const deleteWorkbook = useCallback(async (workbookId: string): Promise<string | null> => {
-    if (!isSignedIn) {
-      const currentLocalId = localActiveWorkbookIdRef.current;
-      const currentLocalName = localWorkbooksRef.current.get(currentLocalId)?.name ?? folderName ?? 'Untitled';
-      snapshotLocalWorkbook(currentLocalId, currentLocalName);
-
-      localWorkbooksRef.current.delete(workbookId);
-
-      if (localWorkbooksRef.current.size === 0) {
-        localWorkbooksRef.current.set(LOCAL_DEFAULT_WORKBOOK.id, {
-          name: LOCAL_DEFAULT_WORKBOOK.name,
-          tables: [],
-          tableOrder: [],
-          activeTableId: null,
-        });
-      }
-
-      const next = Array.from(localWorkbooksRef.current.entries()).map(([id, snap]) => ({ id, name: snap.name }));
-      setWorkbooks(next);
-
-      const nextId = workbookId === currentLocalId ? next[0].id : currentLocalId;
-      const nextBook = localWorkbooksRef.current.get(nextId);
-      loadLocalWorkbook(nextId, nextBook?.name ?? 'Untitled');
-      persistLocalBooks();
-      return nextBook?.name ?? 'Untitled';
-    }
-
-    await drive.deleteFile(workbookId);
-    let next = workbooks.filter(w => w.id !== workbookId);
-    if (next.length === 0) {
-      const rootId = rootFolderIdRef.current;
-      if (rootId) {
-        const defaultId = await drive.findOrCreateSubfolder('Untitled', rootId);
-        next = [{ id: defaultId, name: 'Untitled' }];
-      }
-    }
-
-    setWorkbooks(next);
-    await persistDriveBooksConfig(next);
-
-    if (next.length === 0) return null;
-    const target = next.find(w => w.id === folderId && w.id !== workbookId) ?? next[0];
-    if (!target) return null;
-    await loadWorkbook(target.id, target.name);
-    return target.name;
-  }, [folderId, folderName, isSignedIn, loadLocalWorkbook, loadWorkbook, persistDriveBooksConfig, persistLocalBooks, snapshotLocalWorkbook, workbooks]);
-
-  const switchWorkbook = useCallback(async (workbookId: string) => {
-    if (!isSignedIn) {
-      const currentLocalId = localActiveWorkbookIdRef.current;
-      const currentLocalName = localWorkbooksRef.current.get(currentLocalId)?.name ?? 'Untitled';
-      snapshotLocalWorkbook(currentLocalId, currentLocalName);
-
-      const target = workbooks.find(w => w.id === workbookId);
-      if (!target) return;
-      loadLocalWorkbook(target.id, target.name);
-      return;
-    }
-
-    const target = workbooks.find(w => w.id === workbookId);
-    if (!target) return;
-    await loadWorkbook(target.id, target.name);
-  }, [isSignedIn, loadLocalWorkbook, loadWorkbook, snapshotLocalWorkbook, workbooks]);
-
-  const shareWorkbook = useCallback(async (workbookId: string, emailAddress: string, role: 'reader' | 'writer' = 'writer') => {
-    if (!isSignedIn || !workbookId) return;
-    await drive.shareFolderWithEmail(workbookId, emailAddress, role);
-  }, [isSignedIn]);
-
-  const createWorkbookInviteLink = useCallback(async (workbookId: string, emailAddress: string, role: 'reader' | 'writer' = 'writer') => {
-    if (!isSignedIn || !workbookId) {
-      throw new Error('Sign in is required to create a share invite.');
-    }
-
-    const trimmedEmail = emailAddress.trim().toLowerCase();
-    if (!trimmedEmail) {
-      throw new Error('Invite email is required.');
-    }
-
-    const workbook = workbooks.find(w => w.id === workbookId);
-    if (!workbook) {
-      throw new Error('Workbook not found.');
-    }
-
-    await shareWorkbook(workbookId, trimmedEmail, role);
-
-    const token = encodeInvitePayload({
-      workbookId,
-      workbookName: workbook.name,
-      emailAddress: trimmedEmail,
-      role,
-    });
-
-    const url = new URL(window.location.href);
-    url.hash = `/accept?invite=${encodeURIComponent(token)}`;
-    return url.toString();
-  }, [isSignedIn, shareWorkbook, workbooks]);
-
-  const acceptWorkbookInvite = useCallback(async (token: string): Promise<WorkbookInfo> => {
-    if (!isSignedIn) {
-      throw new Error('Sign in is required to accept invites.');
-    }
-
-    const invite = decodeInvitePayload(token);
-    let signedInEmail = userInfo?.email?.trim().toLowerCase();
-    if (!signedInEmail) {
-      const freshInfo = await drive.getUserInfo();
-      if (freshInfo) {
-        setUserInfo(freshInfo);
-        signedInEmail = freshInfo.email?.trim().toLowerCase();
-      }
-    }
-    if (!signedInEmail) {
-      throw new Error('Unable to verify signed-in email. Please sign out and sign in again to grant email access.');
-    }
-    if (signedInEmail !== invite.emailAddress.trim().toLowerCase()) {
-      throw new Error(`This invite is for ${invite.emailAddress}. Signed in as ${signedInEmail}.`);
-    }
-
-    let rootId = rootFolderIdRef.current;
-    if (!rootId) {
-      const rootFolder = await drive.findOrCreateFolder();
-      rootId = rootFolder.id;
-      rootFolderIdRef.current = rootId;
-    }
-
-    let workbookName = invite.workbookName?.trim() || 'Shared Book';
-    try {
-      const sharedMeta = await drive.getFileMeta(invite.workbookId);
-      if (sharedMeta.name?.trim()) {
-        workbookName = sharedMeta.name.trim();
-      }
-    } catch (err: any) {
-      // Enhanced error reporting for missing or inaccessible Drive file
-      let reason = '';
-      if (err && typeof err === 'object') {
-        if (err.status === 404 || (err.result && err.result.error && err.result.error.code === 404)) {
-          reason = 'The shared Drive folder could not be found. It may have been deleted or you may not have access.';
-        } else if (err.status === 403 || (err.result && err.result.error && err.result.error.code === 403)) {
-          reason = 'You do not have permission to access the shared Drive folder. Make sure the owner shared it with your email.';
-        } else if (err.result && err.result.error && err.result.error.message) {
-          reason = err.result.error.message;
+    if (entry.type === 'update' && entry.column && entry.oldValue !== undefined) {
+      const row = rows.find(r => r[INTERNAL_ROW_ID] === entry.rowId);
+      if (row) {
+        row[entry.column] = entry.oldValue;
+        if (activeBookId) {
+          enqueueWrite(entry.rowId, () =>
+            api.updateRow(activeBookId, entry.tableId, entry.rowId, { [entry.column!]: entry.oldValue! })
+          );
         }
       }
-      if (!reason) reason = 'Unknown error accessing shared Drive folder.';
-      throw new Error(reason);
-    }
-
-    try {
-      await drive.ensureShortcutInFolder(rootId, invite.workbookId, workbookName);
-    } catch (err) {
-      throw new Error(`Could not add shared book shortcut. ${toErrorMessage(err)}`);
-    }
-
-    const existing = workbooks.find(w => w.id === invite.workbookId);
-    const nextWorkbook: WorkbookInfo = existing ?? { id: invite.workbookId, name: workbookName };
-    const nextBooks = existing ? workbooks : [...workbooks, nextWorkbook];
-
-    setWorkbooks(nextBooks);
-    await persistDriveBooksConfig(nextBooks);
-    try {
-      await loadWorkbook(nextWorkbook.id, nextWorkbook.name);
-    } catch (err) {
-      throw new Error(`Shared book was added, but opening it failed. ${toErrorMessage(err)}`);
-    }
-
-    return nextWorkbook;
-  }, [isSignedIn, loadWorkbook, persistDriveBooksConfig, userInfo?.email, workbooks]);
-
-
-
-  const saveAll = useCallback(async () => {
-    if (!folderId) return;
-    setIsSaving(true);
-
-    // Capture the revision at the start of save to detect concurrent changes
-    const savedRevision = revisionRef.current;
-
-    try {
-      const existingIds = model.getTableIds();
-      const orderedInConfig = tableOrder.filter(id => existingIds.includes(id));
-      const missingInOrder = existingIds.filter(id => !orderedInConfig.includes(id));
-      const tableIds = [...orderedInConfig, ...missingInOrder];
-      const schemas: TableSchema[] = [];
-
-      const filesInFolder = await drive.listFilesInFolder(folderId);
-      const fileByName = new Map(filesInFolder.map(f => [f.name, f.id]));
-      const fileById = new Set(filesInFolder.map(f => f.id));
-
-      const persistedTables = await Promise.all(tableIds.map(async (tableId) => {
-        const table = model.getTable(tableId);
-        if (!table) return null;
-
-        const csv = rowsToCSV(table.schema, table.rows);
-        const csvFileName = table.schema.csvFileName?.trim() || `${tableId}.csv`;
-        const schemaFileId = table.schema.csvFileId?.trim();
-        const mappedFileId = fileIdsRef.current.get(tableId);
-        const namedFileId = fileByName.get(csvFileName);
-        const existingFileId = schemaFileId && fileById.has(schemaFileId)
-          ? schemaFileId
-          : (mappedFileId && fileById.has(mappedFileId) ? mappedFileId : namedFileId);
-
-        let persistedFileId = existingFileId;
-        if (existingFileId) {
-          await drive.updateFile(existingFileId, csv);
-        } else {
-          persistedFileId = await drive.createFile(csvFileName, csv, folderId);
+    } else if (entry.type === 'insert') {
+      const idx = rows.findIndex(r => r[INTERNAL_ROW_ID] === entry.rowId);
+      if (idx >= 0) {
+        rows.splice(idx, 1);
+        if (activeBookId) {
+          api.deleteRow(activeBookId, entry.tableId, entry.rowId).catch(console.error);
         }
-
-        if (!persistedFileId) {
-          throw new Error(`Failed to persist CSV file for table ${tableId}`);
-        }
-
-        fileIdsRef.current.set(tableId, persistedFileId);
-
-        const { csvFileName: _legacyCsvFileName, ...restSchema } = table.schema;
-        return {
-          tableId,
-          schema: {
-            ...restSchema,
-            csvFileId: persistedFileId,
-          } as TableSchema,
-        };
-      }));
-
-      for (const persistedTable of persistedTables) {
-        if (!persistedTable) continue;
-        schemas.push(persistedTable.schema);
-        model.markSaved(persistedTable.tableId);
       }
-
-      // Save config (including chart sheets)
-      const chartSheets = chartSheetOrder
-        .map(name => chartSheetsRef.current.get(name))
-        .filter((cs): cs is ChartSheet => !!cs);
-      const config: ProjectConfig = { tables: schemas, chartSheets: chartSheets.length > 0 ? chartSheets : undefined };
-      const configText = serializeConfig(config);
-
-      if (configFileIdRef.current) {
-        await drive.updateFile(configFileIdRef.current, configText, 'application/json');
-      } else {
-        configFileIdRef.current = await drive.createFile('sheetable.json', configText, folderId, 'application/json');
+    } else if (entry.type === 'delete' && entry.row) {
+      rows.push(entry.row);
+      if (activeBookId) {
+        api.insertRow(activeBookId, entry.tableId, entry.row).catch(console.error);
       }
-
-      setLastSaved(new Date());
-      // Only clear configDirty if no changes happened during save
-      if (revisionRef.current === savedRevision) {
-        configDirtyRef.current = false;
-      }
-      bump();
-    } finally {
-      setIsSaving(false);
     }
-  }, [folderId, model, bump, tableOrder]);
 
-  const tableIds = useMemo(() => {
-    const existingIds = model.getTableIds();
-    const ordered = tableOrder.filter(id => existingIds.includes(id));
-    const remainder = existingIds.filter(id => !ordered.includes(id));
-    return [...ordered, ...remainder];
-  }, [model, revision, tableOrder]);
+    bump();
+    return [];
+  }, [activeBookId, bump]);
 
-  // Auto-save: debounce 2 seconds after any change
-  useEffect(() => {
-    if (!folderId || !isSignedIn) return;
-    // Check if anything is actually dirty
-    const dirty = model.getTableIds().some(id => model.isDirty(id)) || configDirtyRef.current;
-    if (!dirty) return;
+  // ---- Chart sheets ----
+  const getChartSheet = useCallback((id: string) => chartSheetsRef.current.get(id), []);
 
-    const timer = setTimeout(() => {
-      saveAll();
-    }, 2000);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revision, folderId, isSignedIn]);
+  const doCreateChartSheet = useCallback(async (name: string) => {
+    if (!activeBookId) return;
+    await api.createChart(activeBookId, name);
+    chartSheetsRef.current.set(name, { name, charts: [] });
+    setChartSheetOrder(prev => [...prev, name]);
+    bump();
+  }, [activeBookId, bump]);
 
-  // Restore local books on first mount (signed-out mode default)
-  useEffect(() => {
-    if (initializedLocalRef.current) return;
-    initializedLocalRef.current = true;
+  const doDeleteChartSheet = useCallback(async (name: string) => {
+    if (!activeBookId) return;
+    await api.deleteChart(activeBookId, name);
+    chartSheetsRef.current.delete(name);
+    setChartSheetOrder(prev => prev.filter(id => id !== name));
+    bump();
+  }, [activeBookId, bump]);
 
-    const stored = loadLocalBooksStorage();
-    if (!stored) return;
+  const doRenameChartSheet = useCallback(async (oldName: string, newName: string) => {
+    if (!activeBookId) return;
+    await api.updateChart(activeBookId, oldName, { name: newName });
+    const chart = chartSheetsRef.current.get(oldName);
+    if (chart) {
+      chart.name = newName;
+      chartSheetsRef.current.delete(oldName);
+      chartSheetsRef.current.set(newName, chart);
+    }
+    setChartSheetOrder(prev => prev.map(id => id === oldName ? newName : id));
+    bump();
+  }, [activeBookId, bump]);
 
-    const entries = Object.entries(stored.workbooks ?? {});
-    if (entries.length === 0) return;
+  const doUpdateChartSheet = useCallback(async (name: string, charts: unknown[]) => {
+    if (!activeBookId) return;
+    const chart = chartSheetsRef.current.get(name);
+    if (chart) chart.charts = charts;
+    await api.updateChart(activeBookId, name, { charts });
+  }, [activeBookId]);
 
-    localWorkbooksRef.current = new Map(entries);
-    const list = entries.map(([id, snap]) => ({ id, name: snap.name }));
-    setWorkbooks(list);
+  const doSetChartSheetTable = useCallback(async (name: string, tableName: string) => {
+    if (!activeBookId) return;
+    const chart = chartSheetsRef.current.get(name);
+    if (chart) chart.tableName = tableName;
+    await api.updateChart(activeBookId, name, { tableName });
+    bump();
+  }, [activeBookId, bump]);
 
-    const targetId = stored.activeWorkbookId && localWorkbooksRef.current.has(stored.activeWorkbookId)
-      ? stored.activeWorkbookId
-      : list[0].id;
-    localActiveWorkbookIdRef.current = targetId;
-    const target = localWorkbooksRef.current.get(targetId);
-    loadLocalWorkbook(targetId, target?.name ?? 'Untitled');
-  }, [loadLocalWorkbook]);
-
-  // Persist local books whenever local state changes
-  useEffect(() => {
-    if (isSignedIn) return;
-    const currentLocalId = localActiveWorkbookIdRef.current;
-    const currentLocalName = localWorkbooksRef.current.get(currentLocalId)?.name ?? folderName ?? 'Untitled';
-    snapshotLocalWorkbook(currentLocalId, currentLocalName);
-    persistLocalBooks();
-  }, [folderName, isSignedIn, persistLocalBooks, revision, snapshotLocalWorkbook]);
-
-  // Warn before unload if there are unsaved changes
-  useEffect(() => {
-    const dirty = model.getTableIds().some(id => model.isDirty(id)) || configDirtyRef.current;
-    if (!dirty) return;
-
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [revision, model]);
+  const doSetChartSheetMode = useCallback(async (name: string, mode: 'edit' | 'display') => {
+    if (!activeBookId) return;
+    const chart = chartSheetsRef.current.get(name);
+    if (chart) chart.mode = mode;
+    await api.updateChart(activeBookId, name, { mode });
+    bump();
+  }, [activeBookId, bump]);
 
   return {
-    model,
-    tableIds,
+    user,
+    isLoading,
+    signIn,
+    signOut,
+
+    books,
+    activeBookId,
+    activeBookName,
+    switchBook,
+    refreshBooks,
+    createBook,
+    renameBook,
+    deleteBook: doDeleteBook,
+
+    tableIds: tableOrder,
     activeTableId,
     setActiveTableId,
-    createTable,
-    deleteTable,
-    renameTable,
-    renameColumn,
-    reorderTables,
-    updateSchema,
-    getRows,
     getSchema,
-    listWorkbookCsvFiles,
-    loadTableFromCsvFile,
-    renameTableCsvFile,
+    getRows,
+    setRows: (tableId: string, rows: Row[]) => { rowsRef.current.set(tableId, rows); bump(); },
+    createTable: doCreateTable,
+    deleteTable: doDeleteTable,
+    renameTable: doRenameTable,
+    renameColumn: doRenameColumn,
+    reorderTables: doReorderTables,
+    updateSchema: doUpdateSchema,
+
     applyEdit,
-    insertRow,
-    deleteRow,
-    undo,
-    canUndo: undoStackRef.current.length > 0,
-    isDirty,
-    isAnyDirty,
-    isSignedIn,
-    folderId,
-    folderName,
-    workbooks,
-    createWorkbook,
-    renameWorkbook,
-    deleteWorkbook,
-    switchWorkbook,
-    shareWorkbook,
-    createWorkbookInviteLink,
-    acceptWorkbookInvite,
-    signIn,
-    signOut: signOutHandler,
-    isSaving,
-    lastSaved,
-    initializeDrive,
-    driveReady,
-    isConnecting,
-    userInfo,
-    chartSheetIds,
+    insertRow: doInsertRow,
+    deleteRow: doDeleteRow,
+
+    undo: doUndo,
+    canUndo,
+
+    chartSheetIds: chartSheetOrder,
     getChartSheet,
-    createChartSheet,
-    deleteChartSheet,
-    renameChartSheet,
-    updateChartSheet,
-    setChartSheetTable,
-    setChartSheetMode,
+    createChartSheet: doCreateChartSheet,
+    deleteChartSheet: doDeleteChartSheet,
+    renameChartSheet: doRenameChartSheet,
+    updateChartSheet: doUpdateChartSheet,
+    setChartSheetTable: doSetChartSheetTable,
+    setChartSheetMode: doSetChartSheetMode,
+
+    getReferencedRow,
+    getReferenceRows,
+    resolveColumnPath,
+    resolveColumnPathLabel,
+    getColumnPaths,
+
     revision,
   };
+}
+
+function rewritePath(path: string, oldName: string, newName: string): string {
+  return path.split('.').map(p => p === oldName ? newName : p).join('.');
 }

@@ -12,7 +12,7 @@ import type { ColDef, ValueSetterParams, CellClickedEvent } from 'ag-grid-commun
 import type { CustomCellEditorProps } from 'ag-grid-react';
 import { previewMigration, applyMigration, previewExtract } from './typeMigration';
 import type { MigrationPreview } from './typeMigration';
-import * as drive from './drive';
+import * as api from './api';
 
 const typeOptions: { value: ColumnType; label: string }[] = [
   { value: 'text', label: 'Text' },
@@ -129,10 +129,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   const toBookPath = (suffix: string) => `${bookBase}${suffix}`;
 
   const [tableName, setTableName] = useState(schema?.name ?? '');
-  const [csvFileName, setCsvFileName] = useState('');
-  const [csvFileId, setCsvFileId] = useState(schema?.csvFileId ?? '');
-  const [availableCsvFiles, setAvailableCsvFiles] = useState<Array<{ id: string; name: string }>>([]);
-  const [pickingCsv, setPickingCsv] = useState(false);
   const [columns, setColumns] = useState<ColumnDef[]>(
     () => schema?.columns.map(c => ({ ...c })) ?? [
       { name: '', type: 'text' as ColumnType },
@@ -150,13 +146,11 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: 'success' | 'info'; message: string } | null>(null);
 
-  // Sync local state when schema loads asynchronously (e.g. Drive reload)
+  // Sync local state when schema loads asynchronously
   const [schemaLoaded, setSchemaLoaded] = useState(!!schema);
   useEffect(() => {
     if (schema && !schemaLoaded) {
       setTableName(schema.name ?? '');
-      setCsvFileId(schema.csvFileId ?? '');
-      setCsvFileName(schema.csvFileName ?? '');
       setColumns(schema.columns.map(c => ({ ...c })));
       setUniqueKeys(schema.uniqueKeys ?? []);
       setDefaultSort(schema.defaultSort ?? []);
@@ -164,27 +158,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       setSchemaLoaded(true);
     }
   }, [schema, schemaLoaded]);
-
-  useEffect(() => {
-    let cancelled = false;
-    state.listWorkbookCsvFiles()
-      .then(files => {
-        if (cancelled) return;
-        setAvailableCsvFiles(files);
-        if (csvFileId) {
-          const matched = files.find(f => f.id === csvFileId);
-          if (matched) {
-            setCsvFileName(matched.name);
-          }
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setAvailableCsvFiles([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [csvFileId, state.folderId, state.listWorkbookCsvFiles]);
 
   // Type migration preview (for existing tables only)
   const [migrationPreview, setMigrationPreview] = useState<{
@@ -255,12 +228,12 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   }, [state]);
 
   const resolveRefPathValue = useCallback((tableId: string, row: Row, path: string): string => {
-    return state.model.resolveColumnPath(tableId, row, path);
-  }, [state.model]);
+    return state.resolveColumnPath(tableId, row, path);
+  }, [state.resolveColumnPath]);
 
   const getRefTableColumnPaths = useCallback((refTableId: string): { path: string; label: string }[] => {
-    return state.model.getColumnPaths(refTableId);
-  }, [state.model]);
+    return state.getColumnPaths(refTableId);
+  }, [state.getColumnPaths]);
 
   // Reference config dialog
   const openRefConfigDialog = useCallback(async (colIndex: number) => {
@@ -471,7 +444,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         name: c.name.trim(),
         displayName: c.displayName?.trim() || undefined,
       })),
-      csvFileId: csvFileId.trim() || undefined,
       uniqueKeys: uniqueKeys.filter(uk => colNames.includes(uk)),
       defaultSort: defaultSort.filter(s => colNames.includes(s.column)),
       draftRowPosition,
@@ -481,12 +453,12 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   // Immediately apply a type migration and save the schema
   const applyMigrationNow = (colIndex: number, newType: ColumnType, refUpdates: Partial<ColumnDef>, dateFormat?: string) => {
     if (!tableId) return;
-    const table = state.model.getTable(tableId);
-    if (!table) return;
+    const rows = state.getRows(tableId);
+    if (!rows.length && !state.getSchema(tableId)) return;
     const colName = columns[colIndex].name.trim();
     const oldType = columns[colIndex].type;
     // Migrate data in-place
-    applyMigration(table.rows, colName, oldType, newType, dateFormat);
+    applyMigration(rows, colName, oldType, newType, dateFormat);
     // Update local column state
     const newColumns = columns.map((c, i) => i === colIndex ? { ...c, ...refUpdates } : c);
     setColumns(newColumns);
@@ -501,10 +473,10 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     pairs: { sourceColumn: string; refColumn: string }[],
   ) => {
     if (!tableId) return;
-    const table = state.model.getTable(tableId);
-    if (!table) return;
-    const refTable = state.model.getTable(refTableId);
-    if (!refTable) return;
+    const tableRows = state.getRows(tableId);
+    if (!state.getSchema(tableId)) return;
+    const refRows = state.getRows(refTableId);
+    if (!state.getSchema(refTableId)) return;
 
     const colName = resultColName.trim();
     if (!colName) return;
@@ -513,15 +485,15 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
 
     let matched = 0;
     let unmatched = 0;
-    for (const row of table.rows) {
+    for (const row of tableRows) {
       const sourceValues = pairs.map(p => String(row[p.sourceColumn] ?? '').trim());
       let refValue = '';
 
       if (!sourceValues.every(v => v === '')) {
-        const refMatch = refTable.rows.find(refRow =>
+        const refMatch = refRows.find(refRow =>
           pairs.every((p, i) => {
             const left = sourceValues[i].toLowerCase();
-            const right = String(state.model.resolveColumnPath(refTableId, refRow, p.refColumn) ?? '').trim().toLowerCase();
+            const right = String(state.resolveColumnPath(refTableId, refRow, p.refColumn) ?? '').trim().toLowerCase();
             return left === right;
           })
         );
@@ -538,6 +510,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       for (const sc of sourceColumns) delete row[sc];
       row[colName] = refValue;
     }
+    // Note: rows are mutated in-place from state.getRows()
 
     const uniqueRefColumns = Array.from(new Set(pairs.map(p => p.refColumn))).filter(Boolean);
 
@@ -581,10 +554,10 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
 
   const applyTrimNormalizationNow = (columnNames: string[]) => {
     if (!tableId) return;
-    const table = state.model.getTable(tableId);
-    if (!table) return;
+    if (!state.getSchema(tableId)) return;
+    const trimRows = state.getRows(tableId);
     let trimmed = 0;
-    for (const row of table.rows) {
+    for (const row of trimRows) {
       for (const colName of columnNames) {
         const v = row[colName];
         if (typeof v === 'string') {
@@ -605,16 +578,16 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   };
 
   // Extract unique tuples from selected columns into a new reference table
-  const applyExtractNow = (selectedColIndices: number[], resultColumnNames: string[], newTableName: string, refColName: string) => {
+  const applyExtractNow = async (selectedColIndices: number[], resultColumnNames: string[], newTableName: string, refColName: string) => {
     if (!tableId) return;
-    const table = state.model.getTable(tableId);
-    if (!table) return;
+    if (!state.getSchema(tableId)) return;
+    const extractRows = state.getRows(tableId);
     const sourceColNames = selectedColIndices.map(i => columns[i].name.trim());
 
     // Collect unique tuples
     const seen = new Set<string>();
     const tuples: string[][] = [];
-    for (const row of table.rows) {
+    for (const row of extractRows) {
       const values = sourceColNames.map(cn => row[cn] ?? '');
       if (values.every(v => v === '')) continue;
       const key = JSON.stringify(values);
@@ -635,20 +608,20 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       resultColumnNames.forEach((name, i) => { row[name] = tuple[i]; });
       return row;
     });
-    state.createTable(newSchema, newRows);
+    await state.createTable(newSchema, newRows);
 
     // Build a map from tuple → _rowId in the new table
-    const newTable = state.model.getTable(newTableName);
-    if (!newTable) return;
+    const newTableRows = state.getRows(newTableName);
+    if (!newTableRows.length && !state.getSchema(newTableName)) return;
     const tupleToRowId = new Map<string, string>();
-    for (const row of newTable.rows) {
+    for (const row of newTableRows) {
       const values = resultColumnNames.map(cn => row[cn] ?? '');
       tupleToRowId.set(JSON.stringify(values), row[INTERNAL_ROW_ID]);
     }
 
     // Migrate source rows: remove extracted columns, then set the new reference value.
     // The order matters when refColName matches one of the extracted source column names.
-    for (const row of table.rows) {
+    for (const row of extractRows) {
       const values = sourceColNames.map(cn => row[cn] ?? '');
       const key = JSON.stringify(values);
       const refValue = values.every(v => v === '') ? '' : (tupleToRowId.get(key) ?? '');
@@ -679,8 +652,22 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     setUniqueKeys(prev => prev.filter(k => !removedNames.has(k)));
     setDefaultSort(prev => prev.filter(s => !removedNames.has(s.column)));
 
-    // Save schema immediately
-    state.updateSchema(tableId, buildSchema(newColumns));
+    // Save schema immediately (adds reference column, drops extracted columns on server)
+    await state.updateSchema(tableId, buildSchema(newColumns));
+
+    // Persist reference column values to the server via bulk update
+    if (state.activeBookId) {
+      const bulkOps = extractRows
+        .filter(row => row[INTERNAL_ROW_ID] && row[refColName] !== undefined)
+        .map(row => ({
+          type: 'update' as const,
+          rowId: row[INTERNAL_ROW_ID],
+          data: { [refColName]: String(row[refColName] ?? '') },
+        }));
+      if (bulkOps.length > 0) {
+        await api.bulkRowOps(state.activeBookId, tableId, bulkOps);
+      }
+    }
   };
 
   const addColumn = () => {
@@ -751,7 +738,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     // Build schema
     const newSchema: TableSchema = {
       name: trimmedName,
-      csvFileId: csvFileId.trim() || undefined,
       columns: columns.map(c => ({
         ...c,
         name: c.name.trim(),
@@ -782,40 +768,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       // Apply schema update
       state.updateSchema(tableId!, newSchema);
 
-      if (
-        trimmedName !== tableId &&
-        state.isSignedIn &&
-        state.folderId &&
-        !state.folderId.startsWith('local-') &&
-        !!(schema?.csvFileId || csvFileId)
-      ) {
-        const suggestedFileName = `${trimmedName}.csv`;
-        const currentFileName = csvFileName || '(selected CSV)';
-        const shouldRenameCsv = await showDialog({
-          title: 'Rename Drive CSV?',
-          message: `Rename the bound Drive CSV from "${currentFileName}" to "${suggestedFileName}"?`,
-          buttons: [
-            { label: 'Keep Current CSV Name', value: 'keep', variant: 'secondary' },
-            { label: 'Rename CSV', value: 'rename', variant: 'primary' },
-          ],
-        });
-
-        if (shouldRenameCsv === 'rename') {
-          try {
-            await state.renameTableCsvFile(tableId!, suggestedFileName);
-            setCsvFileName(suggestedFileName);
-            setNotice({ kind: 'success', message: `Renamed CSV to ${suggestedFileName}.` });
-          } catch (err) {
-            setNotice({
-              kind: 'info',
-              message: err instanceof Error
-                ? `Table renamed, but CSV rename failed: ${err.message}`
-                : 'Table renamed, but CSV rename failed.',
-            });
-          }
-        }
-      }
-
       // Rename table if name changed
       if (trimmedName !== tableId) {
         state.renameTable(tableId!, trimmedName);
@@ -832,50 +784,14 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       { label: 'Cancel', value: 'cancel', variant: 'secondary' as const },
       { label: 'Delete Table', value: 'delete', variant: 'danger' as const },
     ];
-    if (state.folderId) {
-      buttons.push({ label: 'Delete Table & CSV', value: 'delete-drive', variant: 'danger' as const });
-    }
     const result = await showDialog({
       title: 'Delete Table',
       message: `Delete table "${tableId}"? This cannot be undone.`,
       buttons,
     });
-    if (result === 'delete' || result === 'delete-drive') {
-      state.deleteTable(tableId, result === 'delete-drive');
+    if (result === 'delete') {
+      state.deleteTable(tableId);
       navigate(bookBase || '/');
-    }
-  };
-
-  const handlePickCsvFromDrive = async () => {
-    if (!state.isSignedIn || !state.folderId || state.folderId.startsWith('local-')) {
-      setError('Sign in and open a Drive-backed book to use Drive Picker.');
-      return;
-    }
-
-    setError(null);
-    setPickingCsv(true);
-    try {
-      const picked = await drive.pickCsvFileInFolder(state.folderId);
-      if (!picked) return;
-      if (!picked.name.toLowerCase().endsWith('.csv')) {
-        setError('Please choose a .csv file.');
-        return;
-      }
-      setCsvFileId(picked.id);
-      setCsvFileName(picked.name);
-      setAvailableCsvFiles(prev => prev.some(f => f.id === picked.id)
-        ? prev
-        : [...prev, { id: picked.id, name: picked.name }].sort((a, b) => a.name.localeCompare(b.name)));
-
-      if (!isCreate && tableId) {
-        await state.loadTableFromCsvFile(tableId, picked.id);
-        const rowCount = state.getRows(tableId).length;
-        setNotice({ kind: 'info', message: `Loaded ${rowCount} row${rowCount === 1 ? '' : 's'} from ${picked.name}.` });
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to open Drive Picker.');
-    } finally {
-      setPickingCsv(false);
     }
   };
 
@@ -900,44 +816,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             onChange={e => setTableName(e.target.value)}
             className="edit-table-input"
           />
-        </div>
-
-        <div className="edit-table-field">
-          <label>CSV File</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              type="text"
-              value={csvFileName}
-              className="edit-table-input"
-              placeholder="Pick a CSV file"
-              list="csv-file-options"
-              style={{ flex: 1 }}
-              readOnly
-            />
-            <button
-              className="btn-secondary"
-              onClick={() => { void handlePickCsvFromDrive(); }}
-              disabled={pickingCsv || !state.isSignedIn || !state.folderId || state.folderId.startsWith('local-')}
-              title="Pick a CSV file from the current book folder"
-            >
-              {pickingCsv ? 'Opening...' : 'Pick from Drive'}
-            </button>
-          </div>
-          <datalist id="csv-file-options">
-            {availableCsvFiles.map(file => (
-              <option key={file.id || file.name} value={file.name} />
-            ))}
-          </datalist>
-          {csvFileId && (
-            <div className="book-settings-note" style={{ marginTop: 6 }}>
-              File ID: {csvFileId}
-            </div>
-          )}
-          {state.isSignedIn && state.folderId && !state.folderId.startsWith('local-') && (
-            <div className="book-settings-note" style={{ marginTop: 6 }}>
-              Picker opens directly in this book folder.
-            </div>
-          )}
         </div>
 
         {/* New Row Position */}
@@ -1040,8 +918,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               setMigrationPreview(prev => {
                 if (!prev) return prev;
                 // Recompute preview with new dateFormat
-                const table = tableId ? state.model.getTable(tableId) : undefined;
-                const rows = table ? table.rows : [];
+                const rows = tableId ? state.getRows(tableId) : [];
                 const colName = columns[prev.colIndex].name.trim();
                 const oldType = columns[prev.colIndex].type;
                 const preview = previewMigration(rows, colName, oldType, prev.newType, fmt);
