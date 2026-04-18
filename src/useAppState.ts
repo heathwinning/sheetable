@@ -15,6 +15,7 @@ export interface UseAppStateReturn {
   books: BookInfo[];
   activeBookId: string | null;
   activeBookName: string | null;
+  activeBookRole: 'owner' | 'editor' | 'viewer' | null;
   switchBook: (bookId: string) => Promise<void>;
   refreshBooks: () => Promise<void>;
   createBook: (name: string) => Promise<string | null>;
@@ -33,6 +34,7 @@ export interface UseAppStateReturn {
   renameTable: (oldName: string, newName: string) => Promise<void>;
   renameColumn: (tableId: string, oldName: string, newName: string) => void;
   reorderTables: (fromIndex: number, toIndex: number) => void;
+  reorderCharts: (fromIndex: number, toIndex: number) => void;
   updateSchema: (tableId: string, schema: TableSchema) => Promise<void>;
 
   // Row operations
@@ -230,6 +232,10 @@ export function useAppState(): UseAppStateReturn {
 
   const activeBookName = useMemo(() => {
     return books.find(b => b.id === activeBookId)?.name ?? null;
+  }, [books, activeBookId]);
+
+  const activeBookRole = useMemo(() => {
+    return (books.find(b => b.id === activeBookId)?.role ?? null) as 'owner' | 'editor' | 'viewer' | null;
   }, [books, activeBookId]);
 
   // ---- Auth ----
@@ -475,9 +481,24 @@ export function useAppState(): UseAppStateReturn {
       const next = [...prev];
       const [moved] = next.splice(fromIndex, 1);
       next.splice(toIndex, 0, moved);
+      if (activeBookId) {
+        api.reorderSheets(activeBookId, next).catch(console.error);
+      }
       return next;
     });
-  }, []);
+  }, [activeBookId]);
+
+  const doReorderCharts = useCallback((fromIndex: number, toIndex: number) => {
+    setChartSheetOrder(prev => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      if (activeBookId) {
+        api.reorderSheets(activeBookId, undefined, next).catch(console.error);
+      }
+      return next;
+    });
+  }, [activeBookId]);
 
   const doUpdateSchema = useCallback(async (tableId: string, schema: TableSchema) => {
     if (!activeBookId) return;
@@ -756,8 +777,11 @@ export function useAppState(): UseAppStateReturn {
   const doSetChartSheetTable = useCallback(async (name: string, tableName: string) => {
     if (!activeBookId) return;
     const chart = chartSheetsRef.current.get(name);
-    if (chart) chart.tableName = tableName;
-    await api.updateChart(activeBookId, name, { tableName });
+    if (chart) {
+      chart.tableName = tableName;
+      chart.charts = [];
+    }
+    await api.updateChart(activeBookId, name, { tableName, charts: [] });
     bump();
   }, [activeBookId, bump]);
 
@@ -778,6 +802,7 @@ export function useAppState(): UseAppStateReturn {
     books,
     activeBookId,
     activeBookName,
+    activeBookRole,
     switchBook,
     refreshBooks,
     createBook,
@@ -795,6 +820,7 @@ export function useAppState(): UseAppStateReturn {
     renameTable: doRenameTable,
     renameColumn: doRenameColumn,
     reorderTables: doReorderTables,
+    reorderCharts: doReorderCharts,
     updateSchema: doUpdateSchema,
 
     applyEdit,

@@ -49,6 +49,13 @@ export async function deleteBook(bookId: string): Promise<void> {
   await request(`/books/${bookId}`, { method: 'DELETE' });
 }
 
+export async function reorderSheets(bookId: string, tableOrder?: string[], chartOrder?: string[]): Promise<void> {
+  await request(`/books/${bookId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ tableOrder, chartOrder }),
+  });
+}
+
 // ---- Members ----
 
 export async function listMembers(bookId: string): Promise<{ members: BookMember[]; invites: BookInvite[] }> {

@@ -159,6 +159,7 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             key={tableId}
             schema={activeSchema}
             rows={activeRows}
+            readOnly={state.activeBookRole === 'viewer'}
             onEdit={(rowIndex, columnName, newValue) =>
               state.applyEdit(tableId, rowIndex, columnName, newValue)
             }
@@ -602,6 +603,8 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
     navigate('/', { replace: true });
   };
 
+  const isOwner = !createMode && currentBook?.role === 'owner';
+
   return (
     <div className="book-settings-page">
       <div className="book-settings-card">
@@ -612,6 +615,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
           </button>
         </div>
 
+        {(createMode || isOwner) && (
         <div className="book-settings-section">
           <label className="book-settings-label">Book Name</label>
           <div className="book-settings-row">
@@ -627,6 +631,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
             </button>
           </div>
         </div>
+        )}
 
         <div className="book-settings-section">
           <label className="book-settings-label">Members</label>
@@ -637,7 +642,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
                 <span className="member-role">
                   {m.role === 'owner' ? (
                     <span className="text-text-muted">owner</span>
-                  ) : (
+                  ) : isOwner ? (
                     <select
                       className="workbook-toolbar-select"
                       value={m.role}
@@ -647,16 +652,18 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
                       <option value="editor">Editor</option>
                       <option value="viewer">Viewer</option>
                     </select>
+                  ) : (
+                    <span className="text-text-muted">{m.role}</span>
                   )}
                 </span>
                 <span className="member-actions">
-                  {m.role !== 'owner' && (
+                  {m.role !== 'owner' && isOwner && (
                     <button className="btn-ghost btn-sm" onClick={() => { void removeMember(m.userId); }}>Remove</button>
                   )}
                 </span>
               </div>
             ))}
-            {invites.map(inv => (
+            {isOwner && invites.map(inv => (
               <div key={inv.email} className="member-row">
                 <span className="member-name">{inv.email} <span className="text-text-muted">(invited)</span></span>
                 <span className="member-role">
@@ -676,6 +683,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
                 </span>
               </div>
             ))}
+            {(createMode || isOwner) && (
             <div className="member-row member-add-row">
               <input
                 className="edit-table-input"
@@ -702,12 +710,13 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
                 </button>
               </span>
             </div>
+            )}
           </div>
           {createMode && <div className="book-settings-note">Create this book first, then add members.</div>}
           {!createMode && !state.user && <div className="book-settings-note">Sign in to manage members.</div>}
         </div>
 
-        {!createMode && currentBook && (
+        {!createMode && currentBook && isOwner && (
           <div className="book-settings-section">
             <label className="book-settings-label">Danger Zone</label>
             <div className="book-settings-row">
@@ -814,6 +823,7 @@ const App: React.FC = () => {
   const state = useAppState();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
+  const [draggingChartId, setDraggingChartId] = useState<string | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -897,6 +907,18 @@ const App: React.FC = () => {
     setDraggingTableId(null);
   };
 
+  const handleChartTabDrop = (targetId: string) => {
+    if (!draggingChartId || draggingChartId === targetId) return;
+    const fromIndex = state.chartSheetIds.indexOf(draggingChartId);
+    const toIndex = state.chartSheetIds.indexOf(targetId);
+    if (fromIndex >= 0 && toIndex >= 0) {
+      state.reorderCharts(fromIndex, toIndex);
+    }
+    setDraggingChartId(null);
+  };
+
+  const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
+
   const showAlert = useAlert();
   const runUndo = () => {
     const errors = state.undo();
@@ -941,6 +963,9 @@ const App: React.FC = () => {
               {headerBookId}
             </Link>
           )}
+          {state.activeBookRole && state.activeBookRole !== 'owner' && (
+            <span className="header-role-badge">{state.activeBookRole}</span>
+          )}
         </div>
         {isOnSheetRoute && (state.tableIds.length > 0 || state.chartSheetIds.length > 0) && (
           <div className="header-tabs">
@@ -976,8 +1001,23 @@ const App: React.FC = () => {
               return (
                 <Link
                   key={`chart-${id}`}
-                  className={`table-tab chart-tab ${isActive ? 'active' : ''}`}
+                  className={`table-tab chart-tab ${isActive ? 'active' : ''} ${id === draggingChartId ? 'dragging' : ''}`}
                   to={withBook(headerBookId, `/chart/${encodeURIComponent(id)}`)}
+                  draggable
+                  onDragStart={(e) => {
+                    setDraggingChartId(id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', id);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    handleChartTabDrop(id);
+                  }}
+                  onDragEnd={() => setDraggingChartId(null)}
                 >
                   📈 {id}
                 </Link>
@@ -987,26 +1027,30 @@ const App: React.FC = () => {
               <span className="table-tab add-tab disabled" title="Loading…" style={{ opacity: 0.5, cursor: 'default' }}>
                 <span className="drive-status-dot connecting" style={{ position: 'static', border: 'none' }} />
               </span>
-            ) : (
+            ) : canEdit ? (
               <AddSheetMenu state={state} bookId={headerBookId} />
-            )}
+            ) : null}
           </div>
         )}
         <div className="header-right">
           {isTableView && headerTableId && (
             <div className="header-actions">
-              <button
-                className="header-action-btn"
-                onClick={runUndo}
-                disabled={!state.canUndo}
-                title="Undo (Ctrl/Cmd+Z)"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'block',margin:'0 auto'}}>
-                  <path d="M3 12h13a5 5 0 1 1 0 10h-1" />
-                  <polyline points="8 17 3 12 8 7" />
-                </svg>
-              </button>
-              <ImportMenu bookId={headerBookId} tableId={headerTableId} />
+              {canEdit && (
+                <>
+                  <button
+                    className="header-action-btn"
+                    onClick={runUndo}
+                    disabled={!state.canUndo}
+                    title="Undo (Ctrl/Cmd+Z)"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'block',margin:'0 auto'}}>
+                      <path d="M3 12h13a5 5 0 1 1 0 10h-1" />
+                      <polyline points="8 17 3 12 8 7" />
+                    </svg>
+                  </button>
+                  <ImportMenu bookId={headerBookId} tableId={headerTableId} />
+                </>
+              )}
               <button
                 className="header-action-btn"
                 onClick={exportCSV}
@@ -1015,14 +1059,16 @@ const App: React.FC = () => {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 <span className="header-action-label">Export</span>
               </button>
-              <Link
-                className="header-action-btn"
-                to={withBook(headerBookId, `/table/${encodeURIComponent(headerTableId)}/edit`)}
-                title="Edit table schema"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                <span className="header-action-label">Edit</span>
-              </Link>
+              {canEdit && (
+                <Link
+                  className="header-action-btn"
+                  to={withBook(headerBookId, `/table/${encodeURIComponent(headerTableId)}/edit`)}
+                  title="Edit table schema"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  <span className="header-action-label">Edit</span>
+                </Link>
+              )}
             </div>
           )}
           <UserButton state={state} />

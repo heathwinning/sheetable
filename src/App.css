@@ -119,6 +119,12 @@ body {
 }
 .header-book-name:hover { @apply text-text bg-surface-2; }
 
+.header-role-badge {
+  @apply text-[11px] font-medium px-1.5 py-0.5 rounded-full uppercase tracking-wide;
+  color: var(--text-muted);
+  background: var(--surface-2);
+}
+
 .app-shell {
   @apply flex min-h-0 flex-1;
 }

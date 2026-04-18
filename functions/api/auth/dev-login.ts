@@ -1,15 +1,17 @@
 import type { Env, RequestData } from '../../lib';
 import { signSession, setSessionCookie, error } from '../../lib';
 
-// GET /api/auth/dev-login?key=<SESSION_SECRET> → create test user + sign in
+// GET /api/auth/dev-login?key=<DEV_LOGIN_KEY> → create test user + sign in
 export const onRequestGet: PagesFunction<Env, string, RequestData> = async (context) => {
   const url = new URL(context.request.url);
 
-  // Allow on localhost without key, otherwise require DEV_LOGIN_KEY
+  // Only allow on localhost; in non-local environments require DEV_LOGIN_KEY
   const isLocal = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
-  const key = url.searchParams.get('key');
-  if (!isLocal && (!context.env.DEV_LOGIN_KEY || key !== context.env.DEV_LOGIN_KEY)) {
-    return error('Forbidden', 403);
+  if (!isLocal) {
+    const key = url.searchParams.get('key');
+    if (!context.env.DEV_LOGIN_KEY || key !== context.env.DEV_LOGIN_KEY) {
+      return error('Forbidden', 403);
+    }
   }
 
   const testUser = {

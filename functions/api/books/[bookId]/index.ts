@@ -1,18 +1,47 @@
 import type { Env, RequestData } from '../../../lib';
-import { json, error, requireUser, requireOwner } from '../../../lib';
+import { json, error, requireUser, requireOwner, requireEditor } from '../../../lib';
 
-// PATCH /api/books/:bookId → rename book
+// PATCH /api/books/:bookId → rename book or reorder tables/charts
 export const onRequestPatch: PagesFunction<Env, 'bookId', RequestData> = async (context) => {
   requireUser(context.data);
-  requireOwner(context.data);
 
   const bookId = context.params.bookId as string;
-  const body = await context.request.json() as { name?: string };
-  if (!body.name?.trim()) return error('name is required');
+  const body = await context.request.json() as {
+    name?: string;
+    tableOrder?: string[];
+    chartOrder?: string[];
+  };
 
-  await context.env.DB.prepare(
-    'UPDATE books SET name = ? WHERE id = ?'
-  ).bind(body.name.trim(), bookId).run();
+  // Renaming requires owner
+  if (body.name !== undefined) {
+    requireOwner(context.data);
+    if (!body.name.trim()) return error('name is required');
+    await context.env.DB.prepare(
+      'UPDATE books SET name = ? WHERE id = ?'
+    ).bind(body.name.trim(), bookId).run();
+  }
+
+  // Reordering tables requires editor
+  if (body.tableOrder) {
+    requireEditor(context.data);
+    const stmts = body.tableOrder.map((name, i) =>
+      context.env.DB.prepare(
+        'UPDATE _tables SET display_order = ? WHERE book_id = ? AND name = ?'
+      ).bind(i, bookId, name)
+    );
+    if (stmts.length > 0) await context.env.DB.batch(stmts);
+  }
+
+  // Reordering charts requires editor
+  if (body.chartOrder) {
+    requireEditor(context.data);
+    const stmts = body.chartOrder.map((name, i) =>
+      context.env.DB.prepare(
+        'UPDATE _chart_sheets SET display_order = ? WHERE book_id = ? AND name = ?'
+      ).bind(i, bookId, name)
+    );
+    if (stmts.length > 0) await context.env.DB.batch(stmts);
+  }
 
   return json({ ok: true });
 };

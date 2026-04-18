@@ -339,6 +339,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
       <div className="chart-sheet-container">
         {mode === 'edit' ? (
           <GraphicWalker
+            key={selectedTableName}
             storeRef={storeRef}
             fields={fields}
             rawFields={fields}
@@ -348,6 +349,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           />
         ) : (
           <GraphicRenderer
+            key={selectedTableName}
             fields={fields}
             rawFields={fields}
             data={data}

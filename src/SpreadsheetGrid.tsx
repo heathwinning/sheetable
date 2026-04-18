@@ -29,6 +29,7 @@ interface SpreadsheetGridProps {
   onColumnWidthChange?: (columnWidths: Record<string, number>) => void;
   revision: number;
   bookId: string | null;
+  readOnly?: boolean;
   // Reference helpers (from useAppState)
   getReferencedRow: (refTable: string, rowId: string) => Row | undefined;
   getReferenceRows: (refTable: string) => Row[];
@@ -55,6 +56,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   onColumnWidthChange,
   revision,
   bookId,
+  readOnly,
   getReferencedRow,
   getReferenceRows,
   resolveColumnPath,
@@ -89,6 +91,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   const draftPosition = schema.draftRowPosition ?? 'bottom';
 
   const rowData = useMemo(() => {
+    if (readOnly) return [...rows];
     const draft = filterActive ? null : makeDraftRow();
     if (!draft) return [...rows];
     return draftPosition === 'top' ? [draft, ...rows] : [...rows, draft];
@@ -229,7 +232,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       const def: ColDef = {
         field: col.name,
         headerName: col.displayName || col.name,
-        editable: true,
+        editable: !readOnly,
         minWidth: 80,
         ...(col.width ? { width: col.width } : {}),
         resizable: true,
@@ -535,7 +538,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         </div>
       )}
 
-      {selectedRowIds.size > 0 && (
+      {selectedRowIds.size > 0 && !readOnly && (
         <div className="bulk-edit-bar">
           <span className="bulk-edit-count">{selectedRowIds.size} row{selectedRowIds.size > 1 ? 's' : ''} selected</span>
           <select
