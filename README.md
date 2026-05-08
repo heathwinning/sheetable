@@ -71,3 +71,19 @@ export default defineConfig([
   },
 ])
 ```
+
+## Automatic Deploys On Push
+
+This repo now includes a GitHub Actions workflow that builds and deploys to Cloudflare Pages on every push to `main`.
+
+Workflow file:
+
+- `.github/workflows/deploy-pages.yml`
+
+Add these repository secrets in GitHub before the workflow runs:
+
+- `CLOUDFLARE_API_TOKEN` (token with Cloudflare Pages edit permission)
+- `CLOUDFLARE_ACCOUNT_ID` (your Cloudflare account ID)
+- `CLOUDFLARE_PAGES_PROJECT` (your Pages project name)
+
+After these secrets are set, every commit pushed to `main` will trigger a deploy automatically.
