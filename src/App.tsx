@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Routes, Route, useNavigate, useParams, Link, useLocation, Navigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Routes, Route, useNavigate, useParams, Link, useLocation, Navigate, useSearchParams } from 'react-router-dom';
 import { useAppState } from './useAppState';
 import { SpreadsheetGrid } from './SpreadsheetGrid';
 import { EditTablePage } from './EditTablePage';
@@ -10,6 +10,10 @@ import { rowsToCSV } from './csv';
 import * as api from './api';
 import type { UseAppStateReturn } from './useAppState';
 import type { BookMember, BookInvite } from './types';
+import CalendarView from './CalendarView';
+import ScheduleView from './ScheduleView';
+
+type ViewType = 'grid' | 'calendar' | 'schedule';
 import './App.css';
 
 const bookPrefix = (bookName?: string) => (bookName ? `/book/${encodeURIComponent(bookName)}` : '');
@@ -59,21 +63,48 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({
       </button>
       {open && (
         <div className="add-sheet-dropdown" ref={menuRef} style={{ top: pos.top, left: pos.left }}>
-          <Link
-            className="add-sheet-option"
-            to={withBook(bookId, '/table/new')}
-            onClick={() => setOpen(false)}
-          >
+          <Link className="add-sheet-option" to={withBook(bookId, '/table/new')} onClick={() => setOpen(false)}>
             <span className="add-sheet-icon">📊</span> Spreadsheet
           </Link>
           <button className="add-sheet-option" onClick={addChart}>
             <span className="add-sheet-icon">📈</span> Chart
           </button>
+          {state.tableIds.length > 0 && (
+            <>
+              <button className="add-sheet-option" onClick={() => { void addView('calendar'); }}>
+                <span className="add-sheet-icon">📅</span> Calendar View
+              </button>
+              <button className="add-sheet-option" onClick={() => { void addView('schedule'); }}>
+                <span className="add-sheet-icon">🗓️</span> Schedule View
+              </button>
+            </>
+          )}
         </div>
       )}
     </>
   );
 };
+  const addView = async (viewType: 'calendar' | 'schedule') => {
+    setOpen(false);
+    const tableIds = state.tableIds;
+    if (tableIds.length === 0) return;
+    const label = viewType === 'calendar' ? 'Calendar' : 'Schedule';
+    const name = await promptInput(
+      `Enter a name for the ${label} view:`,
+      `${tableIds[0]} ${label}`,
+      'View name',
+    );
+    if (!name?.trim()) return;
+    const tableName =
+      tableIds.find(id => state.getSchema(id)?.columns.some(c => c.type === 'date' || c.type === 'datetime'))
+      ?? tableIds[0];
+    await state.createViewSheet(name.trim(), tableName, viewType);
+    navigate(withBook(bookId, `/view/${encodeURIComponent(name.trim())}`));
+  };
+
+  return (
+    <>
+      <button ref={btnRef} className="table-tab add-tab" onClick={toggle} title="Add sheet">
 
 // --- Import Menu (dropdown combining import options) ---
 const ImportMenu: React.FC<{ bookId?: string; tableId: string }> = ({ bookId, tableId }) => {
@@ -117,6 +148,33 @@ const ImportMenu: React.FC<{ bookId?: string; tableId: string }> = ({ bookId, ta
 const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { tableId, bookId } = useParams<{ tableId: string; bookId?: string }>();
   const showAlert = useAlert();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const viewType = (searchParams.get('view') ?? 'grid') as ViewType;
+
+  const viewStorageKey = `sheetable-view-${state.activeBookId}-${tableId}`;
+
+  // On mount / table change: restore saved view if URL has no ?view param
+  useEffect(() => {
+    if (!searchParams.has('view')) {
+      const saved = localStorage.getItem(viewStorageKey);
+      if (saved && saved !== 'grid') {
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.set('view', saved);
+          return next;
+        }, { replace: true });
+      }
+    }
+  }, [tableId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist view whenever it changes
+  useEffect(() => {
+    if (viewType === 'grid') {
+      localStorage.removeItem(viewStorageKey);
+    } else {
+      localStorage.setItem(viewStorageKey, viewType);
+    }
+  }, [viewType, viewStorageKey]);
 
   // Sync URL param to active table
   useEffect(() => {
@@ -127,6 +185,24 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
   const activeSchema = tableId ? state.getSchema(tableId) : null;
   const activeRows = tableId ? state.getRows(tableId) : [];
+
+  // Date column selection for calendar/schedule views
+  const dateColumns = useMemo(
+    () => activeSchema?.columns.filter(c => c.type === 'date' || c.type === 'datetime') ?? [],
+    [activeSchema],
+  );
+  const storageKey = `sheetable-date-col-${state.activeBookId}-${tableId}`;
+  const [dateColumnOverride, setDateColumnOverride] = useState<string | null>(
+    () => localStorage.getItem(storageKey),
+  );
+  const dateColumn =
+    (dateColumnOverride && dateColumns.some(c => c.name === dateColumnOverride))
+      ? dateColumnOverride
+      : (dateColumns[0]?.name ?? null);
+  const handleDateColumnChange = (col: string) => {
+    setDateColumnOverride(col);
+    localStorage.setItem(storageKey, col);
+  };
 
   const runUndo = () => {
     const errors = state.undo();
@@ -150,11 +226,32 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [state]);
 
+  // Decide effective view — fall back to grid if schema has no date columns
+  const effectiveView: ViewType =
+    (viewType === 'calendar' || viewType === 'schedule') && !dateColumn
+      ? 'grid'
+      : viewType;
+
   return (
     <div className="app-body">
       {/* Main content */}
       <div className="main-content">
         {tableId && activeSchema ? (
+          effectiveView === 'calendar' && dateColumn ? (
+            <CalendarView
+              schema={activeSchema}
+              rows={activeRows}
+              dateColumn={dateColumn}
+              onDateColumnChange={handleDateColumnChange}
+            />
+          ) : effectiveView === 'schedule' && dateColumn ? (
+            <ScheduleView
+              schema={activeSchema}
+              rows={activeRows}
+              dateColumn={dateColumn}
+              onDateColumnChange={handleDateColumnChange}
+            />
+          ) : (
           <SpreadsheetGrid
             key={tableId}
             schema={activeSchema}
@@ -196,6 +293,7 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             resolveColumnPath={state.resolveColumnPath}
             resolveColumnPathLabel={state.resolveColumnPathLabel}
           />
+          )
         ) : (
           <div className="empty-state-main">
             <h2>No table selected</h2>
@@ -418,6 +516,178 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn; onMinimize: () => void }
 };
 
 const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolean }> = ({ state, createMode = false }) => {
+  // --- View Sheet Page ---
+  const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
+    const { viewId, bookId } = useParams<{ viewId: string; bookId?: string }>();
+    const navigate = useNavigate();
+    const showAlert = useAlert();
+    const confirm = useConfirm();
+    const promptInput = usePromptInput();
+
+    const viewSheet = viewId ? state.getViewSheet(viewId) : undefined;
+
+    // Config editors
+    const [editOpen, setEditOpen] = useState(false);
+    const [editTable, setEditTable] = useState('');
+    const [editViewType, setEditViewType] = useState<'grid' | 'calendar' | 'schedule'>('calendar');
+    const [editDateCol, setEditDateCol] = useState('');
+
+    useEffect(() => {
+      if (!viewSheet) return;
+      setEditTable(viewSheet.tableName);
+      setEditViewType(viewSheet.viewType);
+      setEditDateCol(viewSheet.dateColumn ?? '');
+    }, [viewSheet?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const dateColumnsForTable = useMemo(
+      () => state.getSchema(editTable)?.columns.filter(c => c.type === 'date' || c.type === 'datetime') ?? [],
+      [editTable, state.revision], // eslint-disable-line react-hooks/exhaustive-deps
+    );
+
+    const saveConfig = async () => {
+      if (!viewId || !viewSheet) return;
+      await state.updateViewSheet(viewId, {
+        tableName: editTable,
+        viewType: editViewType,
+        dateColumn: editDateCol || undefined,
+      });
+      setEditOpen(false);
+    };
+
+    const doRename = async () => {
+      if (!viewId) return;
+      const name = await promptInput('Rename view:', viewId, 'View name');
+      if (!name?.trim() || name.trim() === viewId) return;
+      await state.renameViewSheet(viewId, name.trim());
+      navigate(withBook(bookId, `/view/${encodeURIComponent(name.trim())}`), { replace: true });
+    };
+
+    const doDelete = async () => {
+      if (!viewId) return;
+      const confirmed = await confirm(`Delete view "${viewId}"?`, 'Delete View');
+      if (!confirmed) return;
+      await state.deleteViewSheet(viewId);
+      const first = state.tableIds[0];
+      navigate(first ? withBook(bookId, `/table/${encodeURIComponent(first)}`) : withBook(bookId, ''), { replace: true });
+    };
+
+    if (!viewSheet) {
+      return (
+        <div className="app-body">
+          <div className="main-content">
+            <div className="empty-state-main">
+              <h2>View not found</h2>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const schema = state.getSchema(viewSheet.tableName);
+    const rows = state.getRows(viewSheet.tableName);
+    const dateColumns = schema?.columns.filter(c => c.type === 'date' || c.type === 'datetime') ?? [];
+    const dateColumn = (viewSheet.dateColumn && dateColumns.some(c => c.name === viewSheet.dateColumn))
+      ? viewSheet.dateColumn
+      : (dateColumns[0]?.name ?? null);
+
+    const handleDateColumnChange = (col: string) => {
+      void state.updateViewSheet(viewSheet.name, { dateColumn: col });
+    };
+
+    const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
+
+    return (
+      <div className="app-body">
+        {/* Config bar */}
+        {canEdit && (
+          <div className="view-sheet-bar">
+            <span className="view-sheet-bar-label">
+              Showing <strong>{viewSheet.tableName}</strong> as{' '}
+              <strong>{viewSheet.viewType}</strong>
+            </span>
+            <button className="header-action-btn" onClick={() => setEditOpen(o => !o)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+              Configure
+            </button>
+            <button className="header-action-btn" onClick={() => { void doRename(); }}>
+              Rename
+            </button>
+            <button className="header-action-btn" style={{ color: 'var(--color-danger)' }} onClick={() => { void doDelete(); }}>
+              Delete
+            </button>
+          </div>
+        )}
+
+        {/* Config panel */}
+        {editOpen && (
+          <div className="view-sheet-config">
+            <label className="view-sheet-config-label">Table</label>
+            <select className="calendar-col-select" value={editTable} onChange={e => { setEditTable(e.target.value); setEditDateCol(''); }}>
+              {state.tableIds.map(id => <option key={id} value={id}>{id}</option>)}
+            </select>
+            <label className="view-sheet-config-label">View type</label>
+            <select className="calendar-col-select" value={editViewType} onChange={e => setEditViewType(e.target.value as 'grid' | 'calendar' | 'schedule')}>
+              <option value="grid">Grid</option>
+              <option value="calendar">Calendar</option>
+              <option value="schedule">Schedule</option>
+            </select>
+            {(editViewType === 'calendar' || editViewType === 'schedule') && dateColumnsForTable.length > 0 && (
+              <>
+                <label className="view-sheet-config-label">Date column</label>
+                <select className="calendar-col-select" value={editDateCol || dateColumnsForTable[0]?.name} onChange={e => setEditDateCol(e.target.value)}>
+                  {dateColumnsForTable.map(c => <option key={c.name} value={c.name}>{c.displayName ?? c.name}</option>)}
+                </select>
+              </>
+            )}
+            <button className="btn-primary" style={{ marginLeft: 8 }} onClick={() => { void saveConfig(); }}>Save</button>
+            <button className="btn-secondary" style={{ marginLeft: 4 }} onClick={() => setEditOpen(false)}>Cancel</button>
+          </div>
+        )}
+
+        {/* View content */}
+        <div className="main-content">
+          {!schema ? (
+            <div className="empty-state-main">
+              <h2>Table &ldquo;{viewSheet.tableName}&rdquo; not found</h2>
+              {canEdit && <p>Open Configure to pick a different table.</p>}
+            </div>
+          ) : viewSheet.viewType === 'calendar' && dateColumn ? (
+            <CalendarView
+              schema={schema}
+              rows={rows}
+              dateColumn={dateColumn}
+              onDateColumnChange={handleDateColumnChange}
+            />
+          ) : viewSheet.viewType === 'schedule' && dateColumn ? (
+            <ScheduleView
+              schema={schema}
+              rows={rows}
+              dateColumn={dateColumn}
+              onDateColumnChange={handleDateColumnChange}
+            />
+          ) : (
+            <SpreadsheetGrid
+              key={viewSheet.tableName}
+              schema={schema}
+              rows={rows}
+              readOnly={true}
+              onEdit={() => []}
+              onInsert={() => []}
+              onDeleteRow={() => []}
+              revision={state.revision}
+              bookId={state.activeBookId ?? null}
+              getReferencedRow={state.getReferencedRow}
+              getReferenceRows={state.getReferenceRows}
+              resolveColumnPath={state.resolveColumnPath}
+              resolveColumnPathLabel={state.resolveColumnPathLabel}
+            />
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolean }> = ({ state, createMode = false }) => {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
   const confirm = useConfirm();
@@ -822,6 +1092,8 @@ const InviteAcceptPage: React.FC<{ state: ReturnType<typeof useAppState> }> = ({
 const App: React.FC = () => {
   const state = useAppState();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentView = (searchParams.get('view') ?? 'grid') as ViewType;
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
   const [draggingChartId, setDraggingChartId] = useState<string | null>(null);
   const location = useLocation();
@@ -890,12 +1162,28 @@ const App: React.FC = () => {
   // Derive current book route for header tabs
   const headerBookMatch = location.pathname.match(/^\/book\/([^/]+)/);
   const headerBookId = headerBookMatch ? decodeURIComponent(headerBookMatch[1]) : undefined;
-  const isOnSheetRoute = /\/(table|chart)\//.test(location.pathname) || location.pathname.match(/^\/book\/[^/]+$/);
+  const isOnSheetRoute = /\/(table|chart|view)\//.test(location.pathname) || location.pathname.match(/^\/book\/[^/]+$/);
 
   // Derive active table ID for header actions
   const tableMatch = location.pathname.match(/\/table\/([^/]+)$/);
   const headerTableId = tableMatch ? decodeURIComponent(tableMatch[1]) : null;
   const isTableView = !!headerTableId && !location.pathname.includes('/edit') && !location.pathname.includes('/import');
+
+  // Determine if the current table has date/datetime columns (for view switcher visibility)
+  const headerTableHasDates = useMemo(() => {
+    if (!headerTableId) return false;
+    const schema = state.getSchema(headerTableId);
+    return schema?.columns.some(c => c.type === 'date' || c.type === 'datetime') ?? false;
+  }, [headerTableId, state.revision]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setView = (v: ViewType) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (v === 'grid') next.delete('view');
+      else next.set('view', v);
+      return next;
+    }, { replace: true });
+  };
 
   const handleTabDrop = (targetId: string) => {
     if (!draggingTableId || draggingTableId === targetId) return;
@@ -967,7 +1255,7 @@ const App: React.FC = () => {
             <span className="header-role-badge">{state.activeBookRole}</span>
           )}
         </div>
-        {isOnSheetRoute && (state.tableIds.length > 0 || state.chartSheetIds.length > 0) && (
+        {isOnSheetRoute && (state.tableIds.length > 0 || state.chartSheetIds.length > 0 || state.viewSheetIds.length > 0) && (
           <div className="header-tabs">
             {state.tableIds.map(id => {
               const isActive = location.pathname.includes(`/table/${encodeURIComponent(id)}`);
@@ -1023,6 +1311,20 @@ const App: React.FC = () => {
                 </Link>
               );
             })}
+            {state.viewSheetIds.map(id => {
+              const isActive = location.pathname.includes(`/view/${encodeURIComponent(id)}`);
+              const vs = state.getViewSheet(id);
+              const icon = vs?.viewType === 'calendar' ? '📅' : vs?.viewType === 'schedule' ? '🗓️' : '📋';
+              return (
+                <Link
+                  key={`view-${id}`}
+                  className={`table-tab view-tab ${isActive ? 'active' : ''}`}
+                  to={withBook(headerBookId, `/view/${encodeURIComponent(id)}`)}
+                >
+                  {icon} {id}
+                </Link>
+              );
+            })}
             {state.isLoading ? (
               <span className="table-tab add-tab disabled" title="Loading…" style={{ opacity: 0.5, cursor: 'default' }}>
                 <span className="drive-status-dot connecting" style={{ position: 'static', border: 'none' }} />
@@ -1033,6 +1335,41 @@ const App: React.FC = () => {
           </div>
         )}
         <div className="header-right">
+          {isTableView && headerTableId && headerTableHasDates && (
+            <div className="view-switcher">
+              <button
+                className={`view-switch-btn${currentView === 'grid' ? ' active' : ''}`}
+                onClick={() => setView('grid')}
+                title="Grid view"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                  <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+                </svg>
+              </button>
+              <button
+                className={`view-switch-btn${currentView === 'calendar' ? ' active' : ''}`}
+                onClick={() => setView('calendar')}
+                title="Calendar view"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+                  <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
+              </button>
+              <button
+                className={`view-switch-btn${currentView === 'schedule' ? ' active' : ''}`}
+                onClick={() => setView('schedule')}
+                title="Schedule view"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+                  <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
+                  <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          )}
           {isTableView && headerTableId && (
             <div className="header-actions">
               {canEdit && (
@@ -1092,6 +1429,7 @@ const App: React.FC = () => {
             <Route path="/book/:bookId/table/:tableId" element={<TableViewPage state={state} />} />
             <Route path="/book/:bookId/chart/:chartId" element={<ChartSheetPage state={state} />} />
             <Route path="/book/:bookId/settings" element={<BookSettingsPage state={state} />} />
+                        <Route path="/book/:bookId/view/:viewId" element={<ViewSheetPage state={state} />} />
             <Route path="/book/:bookId/table/:tableId/edit" element={<EditTablePage state={state} />} />
             <Route path="/book/:bookId/table/:tableId/import" element={<ImportPage state={state} />} />
             <Route path="/book/:bookId/import" element={<ImportPage state={state} />} />
@@ -1102,6 +1440,7 @@ const App: React.FC = () => {
             <Route path="/import" element={<ImportPage state={state} />} />
             <Route path="/chart/:chartId" element={<ChartSheetPage state={state} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
+                      <Route path="/view/:viewId" element={<ViewSheetPage state={state} />} />
           </Routes>
         </div>
       </div>

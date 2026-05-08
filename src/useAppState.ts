@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import type { TableSchema, Row, ValidationError, ChartSheet, UndoEntry, SessionUser, BookInfo } from './types';
+import type { TableSchema, Row, ValidationError, ChartSheet, ViewSheet, UndoEntry, SessionUser, BookInfo } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import * as api from './api';
 import { log } from './DebugLogger';
@@ -55,6 +55,14 @@ export interface UseAppStateReturn {
   updateChartSheet: (name: string, charts: unknown[]) => Promise<void>;
   setChartSheetTable: (name: string, tableName: string) => Promise<void>;
   setChartSheetMode: (name: string, mode: 'edit' | 'display') => Promise<void>;
+
+  // View sheets
+  viewSheetIds: string[];
+  getViewSheet: (id: string) => ViewSheet | undefined;
+  createViewSheet: (name: string, tableName: string, viewType: ViewSheet['viewType'], dateColumn?: string) => Promise<void>;
+  deleteViewSheet: (name: string) => Promise<void>;
+  renameViewSheet: (oldName: string, newName: string) => Promise<void>;
+  updateViewSheet: (name: string, updates: Partial<Pick<ViewSheet, 'tableName' | 'viewType' | 'dateColumn'>>) => Promise<void>;
 
   // Reference helpers (replacement for DataModel methods)
   getReferencedRow: (refTable: string, rowId: string) => Row | undefined;
@@ -143,11 +151,13 @@ export function useAppState(): UseAppStateReturn {
   const [activeTableId, setActiveTableId] = useState<string | null>(null);
   const [tableOrder, setTableOrder] = useState<string[]>([]);
   const [chartSheetOrder, setChartSheetOrder] = useState<string[]>([]);
+  const [viewSheetOrder, setViewSheetOrder] = useState<string[]>([]);
 
   // In-memory data store (replaces DataModel)
   const schemasRef = useRef<Map<string, TableSchema>>(new Map());
   const rowsRef = useRef<Map<string, Row[]>>(new Map());
   const chartSheetsRef = useRef<Map<string, ChartSheet>>(new Map());
+    const viewSheetsRef = useRef<Map<string, ViewSheet>>(new Map());
   const undoStackRef = useRef<UndoEntry[]>([]);
 
   const bump = useCallback(() => setRevision(r => r + 1), []);
@@ -174,8 +184,10 @@ export function useAppState(): UseAppStateReturn {
       schemasRef.current.clear();
       rowsRef.current.clear();
       chartSheetsRef.current.clear();
+      viewSheetsRef.current.clear();
       setTableOrder([]);
       setChartSheetOrder([]);
+      setViewSheetOrder([]);
       setActiveTableId(null);
       bump();
       return;
@@ -185,9 +197,10 @@ export function useAppState(): UseAppStateReturn {
 
     (async () => {
       try {
-        const [schemas, charts] = await Promise.all([
+        const [schemas, charts, views] = await Promise.all([
           api.listTables(activeBookId),
           api.listCharts(activeBookId),
+          api.listViews(activeBookId),
         ]);
 
         if (cancelled) return;
@@ -209,6 +222,14 @@ export function useAppState(): UseAppStateReturn {
           chartOrder.push(chart.name);
         }
         setChartSheetOrder(chartOrder);
+
+        viewSheetsRef.current.clear();
+        const viewOrder: string[] = [];
+        for (const view of views) {
+          viewSheetsRef.current.set(view.name, view);
+          viewOrder.push(view.name);
+        }
+        setViewSheetOrder(viewOrder);
 
         // Load all row data in parallel
         const rowPromises = schemas.map(async (schema) => {
@@ -790,6 +811,58 @@ export function useAppState(): UseAppStateReturn {
     const chart = chartSheetsRef.current.get(name);
     if (chart) chart.mode = mode;
     await api.updateChart(activeBookId, name, { mode });
+
+      // ---- View sheets ----
+      const getViewSheet = useCallback((id: string) => viewSheetsRef.current.get(id), []);
+
+      const doCreateViewSheet = useCallback(async (
+        name: string,
+        tableName: string,
+        viewType: ViewSheet['viewType'],
+        dateColumn?: string,
+      ) => {
+        if (!activeBookId) return;
+        await api.createView(activeBookId, name, tableName, viewType, dateColumn);
+        viewSheetsRef.current.set(name, { name, tableName, viewType, dateColumn });
+        setViewSheetOrder(prev => [...prev, name]);
+        bump();
+      }, [activeBookId, bump]);
+
+      const doDeleteViewSheet = useCallback(async (name: string) => {
+        if (!activeBookId) return;
+        await api.deleteView(activeBookId, name);
+        viewSheetsRef.current.delete(name);
+        setViewSheetOrder(prev => prev.filter(id => id !== name));
+        bump();
+      }, [activeBookId, bump]);
+
+      const doRenameViewSheet = useCallback(async (oldName: string, newName: string) => {
+        if (!activeBookId) return;
+        await api.updateView(activeBookId, oldName, { name: newName });
+        const view = viewSheetsRef.current.get(oldName);
+        if (view) {
+          view.name = newName;
+          viewSheetsRef.current.delete(oldName);
+          viewSheetsRef.current.set(newName, view);
+        }
+        setViewSheetOrder(prev => prev.map(id => id === oldName ? newName : id));
+        bump();
+      }, [activeBookId, bump]);
+
+      const doUpdateViewSheet = useCallback(async (
+        name: string,
+        updates: Partial<Pick<ViewSheet, 'tableName' | 'viewType' | 'dateColumn'>>,
+      ) => {
+        if (!activeBookId) return;
+        const view = viewSheetsRef.current.get(name);
+        if (view) Object.assign(view, updates);
+        await api.updateView(activeBookId, name, {
+          ...(updates.tableName !== undefined ? { tableName: updates.tableName } : {}),
+          ...(updates.viewType !== undefined ? { viewType: updates.viewType } : {}),
+          ...('dateColumn' in updates ? { dateColumn: updates.dateColumn ?? null } : {}),
+        });
+        bump();
+      }, [activeBookId, bump]);
     bump();
   }, [activeBookId, bump]);
 
@@ -838,6 +911,13 @@ export function useAppState(): UseAppStateReturn {
     updateChartSheet: doUpdateChartSheet,
     setChartSheetTable: doSetChartSheetTable,
     setChartSheetMode: doSetChartSheetMode,
+
+  viewSheetIds: viewSheetOrder,
+  getViewSheet,
+  createViewSheet: doCreateViewSheet,
+  deleteViewSheet: doDeleteViewSheet,
+  renameViewSheet: doRenameViewSheet,
+  updateViewSheet: doUpdateViewSheet,
 
     getReferencedRow,
     getReferenceRows,

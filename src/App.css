@@ -364,7 +364,7 @@ body {
 .grid-row-count { white-space: nowrap; }
 .grid-status-spacer { flex: 1; }
 
-.grid-zoom-bar { @apply flex items-center gap-0.5 py-0.5 px-2 justify-end shrink-0; }
+.grid-zoom-bar { @apply flex items-center gap-0.5; }
 .grid-zoom-btn {
   @apply w-6 h-[22px] border border-border bg-surface text-text rounded cursor-pointer
          text-sm font-semibold inline-flex items-center justify-center leading-none;
@@ -990,4 +990,145 @@ body {
 
   .setup-screen h1 { @apply text-3xl; }
   .setup-card { @apply p-4 rounded-lg; }
+}
+
+/* ============================================================
+   View Switcher
+   ============================================================ */
+.view-switcher {
+  @apply flex items-center gap-0.5 border-r border-border pr-2 mr-0.5;
+}
+
+.view-switch-btn {
+  @apply inline-flex items-center justify-center w-7 h-7 rounded-md border-none
+         bg-transparent text-text-muted cursor-pointer transition-colors;
+}
+.view-switch-btn:hover { @apply bg-surface-2 text-text; }
+.view-switch-btn.active {
+  @apply bg-cell-selected text-primary;
+}
+.view-switch-btn svg { @apply block; }
+
+/* ============================================================
+   Calendar View
+   ============================================================ */
+.calendar-view {
+  @apply flex flex-col h-full min-h-0;
+  padding: 16px;
+}
+
+.calendar-nav {
+  @apply flex items-center gap-3 mb-4 shrink-0;
+}
+
+.calendar-nav-btn {
+  @apply inline-flex items-center justify-center w-8 h-8 rounded-md bor  @apply inline-flex items-center justify-center w-8 h-8 ror-p  @apply inline-flex items-center justify-center w-8 h-8 roundg-surface-2 text-te  @apply inline-flex items-center justify-center w-8 h-8 roundd text-text min-w-[160  @apply inline-flex items-center justify-center w-8 h-8 rounded-mder gap-  @apply inlin-xs t  @apply inline-flex items-center justify-center w-8 h-8 rounded-md bor  @apcale  @apply inline-flex items-center justify-center w-8 h-8 rounded-md bourface  @apply inline-flex items-center justify-center w-8d flex  @apply inline-flex itlate-columns: repeat(7, 1fr);
+  grid-template-rows: 28px;
+  grid-auto-rows: 1fr;
+  gap: 1px;
+  background: var(--color-border);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.calendar-dow-header {
+  @apply flex items-center justify-center text-xs font-medium text-text-muted bg-surface-2;
+}
+
+.calendar-cell {
+  @apply flex flex-col bg-surface p-1 overflow-hidden min-h-[80px];
+}
+.calendar-cell-blank {
+  @apply bg-surface-2 opacity-50;
+}
+.calendar-cell-today {
+  @apply bg-cell-editing;
+}
+
+.calendar-day-num {
+  @apply text-xs font-medium text-text-muted mb-0.5 leading-none w-5 h-5 flex items-center justify-center rounded-full shrink-0;
+}
+.calendar-day-num.is-today {
+  @apply bg-primary text-white;
+}
+
+.calendar-event-list {
+  @apply flex flex-col gap-0.5 overflow-hidden;
+}
+
+.calendar-event-chip {
+  @apply text-[11px] leading-tight bg-primary/10 text-primary px-1.5 py-0.5 rounded
+         truncate cursor-default;
+}
+.calendar-event-chip:hover { @apply bg-primary/20; }
+
+.calendar-event-overflow {
+  @apply text-[10px] text-text-muted px  @appl/* =========================  @apply text-[10px] text-text-mu==  @apply text-[10px] text-tex==================================================== */
+.schedule-view {
+  @apply flex flex-col h-full min-h-0;
+}
+
+.schedule-month-bar {
+  @apply flex items-center gap-1 flex-wrap shrink-0 border-b border-border bg-surface
+         px-4 py-2;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.schedule-month-btn {
+  @apply px-2.5 py-1 text-xs rounded-md border border-border bg-surface text-text-muted
+         cursor-pointer transition-colors whitespace-nowrap;
+}
+.schedule-month-btn:hover { @apply bg-surface-2 text-text; }.schedule-month-btn:hover {ly.schedule-month-btn:hover { @ang: 1.schedule-month-btn:le-.schedule-month-btn:hover { @apply bg-surfac2 mb-4 .schedule-month-btnuted.schedule-month-btn:hover { @apply bg-surface-2 text-text; }.schedule-month-btn
+  @apply flex flex-col items-center justify-center gap-2 py-16 text-text-muted text-sm;
+}
+.schedule-empty-hint { @apply t.schedule-empty-hint { @apply t.schedule-empty-hint { @apply t.schedule-empty-hint { @apply t.schedule-empty-hint { @apply t.schedule-empty-hint { @apply t.schedule-empty-hint { @apply t.scply mt-0; }
+
+.schedule.schedule.schedule.schedule.sche.schedule-date-header {
+  @apply text-sm font-semibold text-text-muted mb-2;
+}
+
+.schedule-cards {
+  @apply flex flex-col gap-2 pl-2;
+}
+
+.schedule-card {
+  @apply bg-surface border border-border rounded-lg p-3 flex flex-col gap-1.5
+         shadow-sm max-w-xl;
+}
+
+.schedule-card-field {
+  @apply flex gap-2 text-sm items-baseline;
+}
+.schedule-card-label {
+  @apply text-xs font-medium text-text-muted whitespace-nowrap shrink-0 w-28;
+}
+.schedule-card-value {
+  @apply text-text flex-1;
+}
+.schedule-card-empty {
+  @apply text-xs text-text-muted italic;
+}
+
+/* ============================================================
+   View Sheet bar / config
+   ============================================================ */
+.view-sheet-bar {
+  @apply flex items-center gap-2 shrink-0 border-b border-border bg-surface px-4 py-1.5;
+}
+.view-sheet-bar-label {
+  @apply text-xs text-text-muted mr-auto;
+}
+
+.view-sheet-config {
+  @apply flex flex-wrap items-center gap-2 shrink-0 border-b border-border bg-surface-2 px-4 py-2 text-xs;
+}
+.view-sheet-config-label {
+  @apply text-text-muted font-medium whitespace-nowrap;
+}
+
+.view-tab {
+  @apply text-primary/80;
 }

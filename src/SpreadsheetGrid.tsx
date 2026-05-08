@@ -38,11 +38,11 @@ interface SpreadsheetGridProps {
 }
 
 const gridTheme = themeQuartz.withParams({
-  cellHorizontalPaddingScale: 0.8,
+  cellHorizontalPaddingScale: 0.5,
   headerFontSize: 12,
   fontSize: 13,
-  rowHeight: 28,
-  headerHeight: 32,
+  rowHeight: 26,
+  headerHeight: 28,
   columnBorder: true,
 });
 
@@ -515,11 +515,64 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     const stored = localStorage.getItem(ZOOM_KEY);
     return stored ? Math.max(0.25, Math.min(2, Number(stored) || 1)) : 1;
   });
+  const zoomRef = useRef(zoom);
+  React.useEffect(() => { zoomRef.current = zoom; }, [zoom]);
   const changeZoom = useCallback((next: number) => {
     const clamped = Math.max(0.25, Math.min(2, Math.round(next * 100) / 100));
     setZoom(clamped);
     localStorage.setItem(ZOOM_KEY, String(clamped));
   }, []);
+
+  // Pinch-to-zoom via Pointer Events
+  const gridWrapperRef = useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const el = gridWrapperRef.current;
+    if (!el) return;
+    const pointers = new Map<number, { x: number; y: number }>();
+    let startDist = 0;
+    let startZoom = 1;
+    const dist = () => {
+      const [a, b] = Array.from(pointers.values());
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    };
+    const onDown = (e: PointerEvent) => {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) {
+        startDist = dist();
+        startZoom = zoomRef.current;
+      }
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2 && startDist > 0) {
+        changeZoom(startZoom * (dist() / startDist));
+      }
+    };
+    const onUp = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) startDist = 0;
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      // deltaY is negative when scrolling up (zoom in), positive when down (zoom out)
+      const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.001);
+      changeZoom(zoomRef.current * (1 + delta));
+    };
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onUp);
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [changeZoom]);
 
   return (
     <div className="spreadsheet-container" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -577,15 +630,13 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           {rows.length} row{rows.length !== 1 ? 's' : ''}{displayedRowCount !== null ? ` (${displayedRowCount} shown)` : ''}
         </span>
         <span className="grid-status-spacer" />
-      </div>
-      {zoom !== 1 && (
         <div className="grid-zoom-bar">
           <button className="grid-zoom-btn" onClick={() => changeZoom(zoom - 0.1)} disabled={zoom <= 0.25} title="Zoom out">−</button>
           <button className="grid-zoom-label" onClick={() => changeZoom(1)} title="Reset zoom">{Math.round(zoom * 100)}%</button>
           <button className="grid-zoom-btn" onClick={() => changeZoom(zoom + 0.1)} disabled={zoom >= 2} title="Zoom in">+</button>
         </div>
-      )}
-      <div style={{ flex: 1, minHeight: 0, zoom }}>
+      </div>
+      <div ref={gridWrapperRef} style={{ flex: 1, minHeight: 0, zoom, touchAction: 'pan-x pan-y' }}>
         <AgGridReact
           ref={gridRef}
           modules={[AllCommunityModule]}

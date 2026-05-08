@@ -1,4 +1,4 @@
-import type { SessionUser, BookInfo, BookMember, BookInvite, TableSchema, Row, ChartSheet } from './types';
+import type { SessionUser, BookInfo, BookMember, BookInvite, TableSchema, Row, ChartSheet, ViewSheet } from './types';
 
 const BASE = '/api';
 
@@ -245,6 +245,40 @@ export async function updateChart(
 
 export async function deleteChart(bookId: string, name: string): Promise<void> {
   await request(`/books/${bookId}/charts/${encodeURIComponent(name)}`, { method: 'DELETE' });
+}
+
+// ---- View sheets ----
+
+export async function listViews(bookId: string): Promise<ViewSheet[]> {
+  return request(`/books/${bookId}/views`);
+}
+
+export async function createView(
+  bookId: string,
+  name: string,
+  tableName: string,
+  viewType: ViewSheet['viewType'],
+  dateColumn?: string,
+): Promise<void> {
+  await request(`/books/${bookId}/views`, {
+    method: 'POST',
+    body: JSON.stringify({ name, tableName, viewType, dateColumn }),
+  });
+}
+
+export async function updateView(
+  bookId: string,
+  name: string,
+  updates: Partial<{ name: string; tableName: string; viewType: string; dateColumn: string | null }>,
+): Promise<void> {
+  await request(`/books/${bookId}/views/${encodeURIComponent(name)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteView(bookId: string, name: string): Promise<void> {
+  await request(`/books/${bookId}/views/${encodeURIComponent(name)}`, { method: 'DELETE' });
 }
 
 // ---- Images ----

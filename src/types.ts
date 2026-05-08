@@ -41,6 +41,14 @@ export interface ChartSheet {
   tableName?: string;
   mode?: 'edit' | 'display';
   charts: unknown[];
+
+// View sheet — a named tab that shows a table in a specific view type
+export interface ViewSheet {
+  name: string;
+  tableName: string;
+  viewType: 'grid' | 'calendar' | 'schedule';
+  dateColumn?: string;
+}
 }
 
 // User session from API
