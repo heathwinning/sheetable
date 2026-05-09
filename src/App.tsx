@@ -559,6 +559,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const [editDateCol, setEditDateCol] = useState('');
   const [editDisplayCols, setEditDisplayCols] = useState<string[]>([]);
   const [viewDisplayCols, setViewDisplayCols] = useState<string[]>([]);
+  const [hideSourceTableTab, setHideSourceTableTab] = useState(false);
 
   const getCalColsStorageKey = (tableName: string) => `sheetable-cal-cols-${state.activeBookId}-${tableName}`;
 
@@ -579,6 +580,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
     const cols = loadStoredDisplayCols(viewSheet.tableName);
     setEditDisplayCols(cols);
     setViewDisplayCols(cols);
+    setHideSourceTableTab(viewSheet.hideSourceTableTab ?? false);
   }, [viewSheet?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -609,6 +611,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
       tableName: editTable,
       viewType: editViewType,
       dateColumn: editDateCol || undefined,
+      hideSourceTableTab: hideSourceTableTab || undefined,
     });
 
     if (editTable !== viewSheet.tableName) {
@@ -721,6 +724,17 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
                     </div>
                   )}
                 </div>
+              )}
+              {editViewType === 'calendar' && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', cursor: 'pointer', fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={hideSourceTableTab}
+                    onChange={(e) => setHideSourceTableTab(e.target.checked)}
+                    style={{ accentColor: 'var(--color-primary)' }}
+                  />
+                  <span>Hide spreadsheet tab for this table</span>
+                </label>
               )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
@@ -1359,6 +1373,13 @@ const App: React.FC = () => {
         {isOnSheetRoute && (state.tableIds.length > 0 || state.chartSheetIds.length > 0 || state.viewSheetIds.length > 0) && (
           <div className="header-tabs">
             {state.tableIds.map(id => {
+              // Check if any view with hideSourceTableTab is for this table
+              const shouldHide = state.viewSheetIds.some(viewId => {
+                const view = state.getViewSheet(viewId);
+                return view?.tableName === id && view?.hideSourceTableTab === true;
+              });
+              if (shouldHide) return null;
+              
               const isActive = location.pathname.includes(`/table/${encodeURIComponent(id)}`);
               return (
                 <Link

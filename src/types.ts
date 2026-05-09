@@ -36,7 +36,10 @@ export interface ValidationError {
 }
 
 // Chart types
-export type ChartType = 'bar' | 'line' | 'area' | 'pie' | 'scatter';
+export type ChartType = 'bar' | 'line' | 'area' | 'pie' | 'scatter' | 'table';
+export type DateFeature = 'year' | 'quarter' | 'month' | 'monthnum' | 'week' | 'dayofweek' | 'day' | 'hour';
+// Column expression encoding: plain column name, or "colname:datefeature" for date/datetime columns
+// e.g. "sale_date:year", "created_at:month"
 export type AggregateFunc = 'sum' | 'count' | 'avg' | 'min' | 'max' | 'none';
 
 export interface ChartConfig {
@@ -71,6 +74,7 @@ export interface ViewSheet {
   tableName: string;
   viewType: 'grid' | 'calendar' | 'schedule';
   dateColumn?: string;
+  hideSourceTableTab?: boolean;
 }
 
 // User session from API

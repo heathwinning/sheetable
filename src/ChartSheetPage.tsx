@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import type { UseAppStateReturn } from './useAppState';
-import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, ColumnDef } from './types';
+import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, ColumnDef, DateFeature } from './types';
 import { useConfirm } from './DialogProvider';
 
 const RGL = WidthProvider(GridLayout);
@@ -47,8 +47,18 @@ function aggregateData(
 ): { data: Record<string, unknown>[]; seriesKeys: string[] } {
   if (!xCol) return { data: [], seriesKeys: [] };
 
-  // Build ref resolvers for columns that are references
-  const makeResolver = (colName: string) => {
+  // Parse "colname:feature" expressions
+  const parseExpr = (expr: string): { col: string; feature: DateFeature | null } => {
+    const colon = expr.indexOf(':');
+    if (colon < 0) return { col: expr, feature: null };
+    return { col: expr.slice(0, colon), feature: expr.slice(colon + 1) as DateFeature };
+  };
+
+  const xExpr = parseExpr(xCol);
+  const gExpr = groupBy ? parseExpr(groupBy) : null;
+
+  // Build ref resolvers for plain (non-date-feature) reference columns
+  const makeRefResolver = (colName: string) => {
     const colDef = schema.find(c => c.name === colName);
     if (colDef?.type !== 'reference' || !colDef.refTable) return null;
     const refRows = getRows(colDef.refTable);
@@ -61,8 +71,32 @@ function aggregateData(
     }
     return (id: string) => map.get(id) ?? id;
   };
-  const resolveX = makeResolver(xCol);
-  const resolveG = groupBy ? makeResolver(groupBy) : null;
+
+  const resolveX = xExpr.feature ? null : makeRefResolver(xExpr.col);
+  const resolveG = gExpr && !gExpr.feature ? makeRefResolver(gExpr.col) : null;
+
+  const extractValue = (row: Row, expr: { col: string; feature: DateFeature | null }, resolver: ((id: string) => string) | null): string => {
+    const raw = String(row[expr.col] ?? '');
+    if (!raw) return '';
+    if (!expr.feature) return resolver ? resolver(raw) : raw;
+    // Extract date feature
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return raw;
+    switch (expr.feature) {
+      case 'year': return String(d.getFullYear());
+      case 'quarter': return `Q${Math.ceil((d.getMonth() + 1) / 3)}`;
+      case 'month': return d.toLocaleString('default', { month: 'long' });
+      case 'monthnum': return String(d.getMonth() + 1).padStart(2, '0');
+      case 'week': {
+        const jan1 = new Date(d.getFullYear(), 0, 1);
+        return String(Math.ceil(((d.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7)).padStart(2, '0');
+      }
+      case 'dayofweek': return d.toLocaleString('default', { weekday: 'long' });
+      case 'day': return String(d.getDate()).padStart(2, '0');
+      case 'hour': return String(d.getHours()).padStart(2, '0') + ':00';
+      default: return raw;
+    }
+  };
 
   if (groupBy) {
     const xOrder: string[] = [];
@@ -70,8 +104,8 @@ function aggregateData(
     const seenG = new Set<string>();
     const groups = new Map<string, Map<string, number[]>>();
     for (const row of rows) {
-      const x = resolveX ? resolveX(String(row[xCol] ?? '')) : String(row[xCol] ?? '');
-      const g = resolveG ? resolveG(String(row[groupBy] ?? '')) : String(row[groupBy] ?? '');
+      const x = extractValue(row, xExpr, resolveX);
+      const g = extractValue(row, gExpr!, resolveG);
       if (!seenX.has(x)) { xOrder.push(x); seenX.add(x); }
       seenG.add(g);
       if (!groups.has(x)) groups.set(x, new Map());
@@ -93,13 +127,14 @@ function aggregateData(
   const seenX = new Set<string>();
   const groups = new Map<string, number[]>();
   for (const row of rows) {
-    const x = resolveX ? resolveX(String(row[xCol] ?? '')) : String(row[xCol] ?? '');
+    const x = extractValue(row, xExpr, resolveX);
     if (!seenX.has(x)) { xOrder.push(x); seenX.add(x); }
     if (!groups.has(x)) groups.set(x, []);
     groups.get(x)!.push(agg === 'count' ? 1 : toNum(row[yCol]));
   }
-  const data = xOrder.map(x => ({ x, [yCol]: applyAgg(groups.get(x) ?? [], agg) }));
-  return { data, seriesKeys: [yCol] };
+  const seriesKey = yCol || 'value';
+  const data = xOrder.map(x => ({ x, [seriesKey]: applyAgg(groups.get(x) ?? [], agg) }));
+  return { data, seriesKeys: [seriesKey] };
 }
 
 // ── Chart renderer ───────────────────────────────────────────────────────────
@@ -117,6 +152,45 @@ const ChartRenderer: React.FC<{
     );
   }
   const margin = { top: 4, right: 16, bottom: 4, left: 0 };
+
+  if (config.type === 'table') {
+    const valueCol = seriesKeys[0] ?? 'value';
+    const isGrouped = seriesKeys.length > 1;
+    return (
+      <div style={{ overflow: 'auto', height: '100%', fontSize: 12 }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 160 }}>
+          <thead>
+            <tr>
+              <th style={{ padding: '4px 10px', borderBottom: '2px solid var(--color-border)', textAlign: 'left', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                {config.xColumn.includes(':') ? config.xColumn.replace(':', ' › ') : config.xColumn}
+              </th>
+              {isGrouped
+                ? seriesKeys.map(k => (
+                  <th key={k} style={{ padding: '4px 10px', borderBottom: '2px solid var(--color-border)', textAlign: 'right', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{k}</th>
+                ))
+                : <th style={{ padding: '4px 10px', borderBottom: '2px solid var(--color-border)', textAlign: 'right', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                    {config.aggregate === 'count' ? 'Count' : `${config.aggregate}(${valueCol})`}
+                  </th>
+              }
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row, i) => (
+              <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
+                <td style={{ padding: '3px 10px', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}>{String(row.x ?? '')}</td>
+                {isGrouped
+                  ? seriesKeys.map(k => (
+                    <td key={k} style={{ padding: '3px 10px', borderBottom: '1px solid var(--color-border)', textAlign: 'right', tabularNums: true } as React.CSSProperties}>{String(row[k] ?? '')}</td>
+                  ))
+                  : <td style={{ padding: '3px 10px', borderBottom: '1px solid var(--color-border)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{String(row[valueCol] ?? '')}</td>
+                }
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
 
   if (config.type === 'pie') {
     const pieData = data.map((d, i) => ({
@@ -222,9 +296,33 @@ const ChartConfigModal: React.FC<{
   const [draft, setDraft] = useState<ChartConfig>(config);
   const cols = getColumns(draft.table);
   const numericCols = cols.filter(c => c.type !== 'reference' && c.type !== 'image' && c.type !== 'bool');
-  const hasGroupBy = draft.type === 'bar' || draft.type === 'line' || draft.type === 'area';
-  const needsYCol = draft.aggregate !== 'count';
+  const hasGroupBy = draft.type === 'bar' || draft.type === 'line' || draft.type === 'area' || draft.type === 'table';
+  const needsYCol = draft.aggregate !== 'count' && draft.type !== 'table';
   const canSave = !!draft.xColumn && (!needsYCol || !!draft.yColumn);
+
+  // Build expanded column options — date/datetime columns get date-feature sub-options
+  const DATE_FEATURES: { value: DateFeature; label: string }[] = [
+    { value: 'year', label: 'Year' },
+    { value: 'quarter', label: 'Quarter' },
+    { value: 'month', label: 'Month name' },
+    { value: 'monthnum', label: 'Month #' },
+    { value: 'week', label: 'Week of year' },
+    { value: 'dayofweek', label: 'Day of week' },
+    { value: 'day', label: 'Day of month' },
+    { value: 'hour', label: 'Hour' },
+  ];
+  const colOptions: { value: string; label: string }[] = [];
+  for (const c of cols) {
+    colOptions.push({ value: c.name, label: c.name });
+    if (c.type === 'date' || c.type === 'datetime') {
+      const features = c.type === 'date'
+        ? DATE_FEATURES.filter(f => f.value !== 'hour')
+        : DATE_FEATURES;
+      for (const f of features) {
+        colOptions.push({ value: `${c.name}:${f.value}`, label: `${c.name} › ${f.label}` });
+      }
+    }
+  }
 
   const set = <K extends keyof ChartConfig>(key: K, val: ChartConfig[K]) =>
     setDraft(d => ({ ...d, [key]: val }));
@@ -259,6 +357,7 @@ const ChartConfigModal: React.FC<{
                 <option value="area">Area</option>
                 <option value="pie">Pie</option>
                 <option value="scatter">Scatter</option>
+                <option value="table">Table</option>
               </select>
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -274,7 +373,7 @@ const ChartConfigModal: React.FC<{
               <label style={{ fontWeight: 500, fontSize: 13 }}>X column</label>
               <select className="calendar-col-select" value={draft.xColumn} onChange={e => set('xColumn', e.target.value)}>
                 <option value="">— select —</option>
-                {cols.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -307,7 +406,7 @@ const ChartConfigModal: React.FC<{
               </label>
               <select className="calendar-col-select" value={draft.groupBy ?? ''} onChange={e => set('groupBy', e.target.value || undefined)}>
                 <option value="">— none —</option>
-                {cols.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           )}
