@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import Select from 'react-select';
 import { dialogSelectStyles } from './selectStyles';
 import { DATE_FORMATS } from './dateFormatsList';
@@ -91,13 +91,16 @@ interface EditTablePageProps {
 export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   const { tableId, bookId } = useParams<{ tableId: string; bookId?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const locationState = location.state as { pendingView?: { name: string; type: string }; tableName?: string } | null;
+  const pendingView = locationState?.pendingView;
   const { showDialog } = useDialog();
   const isCreate = !tableId;
   const schema = tableId ? state.getSchema(tableId) : undefined;
   const bookBase = bookId ? `/book/${encodeURIComponent(bookId)}` : '';
   const toBookPath = (suffix: string) => `${bookBase}${suffix}`;
 
-  const [tableName, setTableName] = useState(schema?.name ?? '');
+  const [tableName, setTableName] = useState(schema?.name ?? locationState?.tableName ?? '');
   const [columns, setColumns] = useState<ColumnDef[]>(
     () => schema?.columns.map(c => ({ ...c })) ?? [
       { name: '', type: 'text' as ColumnType },
@@ -723,8 +726,14 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     };
 
     if (isCreate) {
-      state.createTable(newSchema);
-      navigate(toBookPath(`/table/${encodeURIComponent(trimmedName)}`), { replace: true });
+      if (pendingView) {
+        await state.createTable(newSchema);
+        await state.createViewSheet(pendingView.name, trimmedName, pendingView.type as 'calendar');
+        navigate(toBookPath(`/view/${encodeURIComponent(pendingView.name)}`), { replace: true });
+      } else {
+        state.createTable(newSchema);
+        navigate(toBookPath(`/table/${encodeURIComponent(trimmedName)}`), { replace: true });
+      }
     } else {
       // Propagate simple index-based column renames before applying the schema.
       if (schema && tableId) {
