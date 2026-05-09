@@ -9,8 +9,6 @@ import { isSameMonth } from 'date-fns/isSameMonth';
 import { isToday } from 'date-fns/isToday';
 import { isBefore } from 'date-fns/isBefore';
 import { format } from 'date-fns/format';
-import { getYear } from 'date-fns/getYear';
-import { getMonth } from 'date-fns/getMonth';
 import { parseISO } from 'date-fns/parseISO';
 
 export interface ScrollEvent {
@@ -29,7 +27,6 @@ interface CalendarScrollViewProps {
   onSelectEvent?: (event: ScrollEvent) => void;
 }
 
-const MONTH_ABBREVS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 function getMonthDays(monthStart: Date): Date[] {
@@ -224,7 +221,6 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
 
   const thisMonth = useMemo(() => startOfMonth(new Date()), []);
   const [activeMonthKey, setActiveMonthKey] = useState(() => format(thisMonth, 'yyyy-MM'));
-  const [selectedYear, setSelectedYear] = useState(() => getYear(thisMonth));
 
   const months = useMemo(() => {
     const result: Date[] = [];
@@ -246,7 +242,6 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
           const key = (visible[0].target as HTMLDivElement).dataset.monthKey;
           if (key) {
             setActiveMonthKey(key);
-            setSelectedYear(parseInt(key.slice(0, 4), 10));
           }
         }
       },
@@ -264,77 +259,64 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
     }
   }, []);
 
-  const scrollToMonth = useCallback((year: number, month: number) => {
-    const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+const scrollToMonth = useCallback((key: string) => {
     const el = monthRefsMap.current.get(key);
     if (el && scrollRef.current) {
-      const top = el.offsetTop;
-      scrollRef.current.scrollTop = Math.max(0, top - 120);
+      scrollRef.current.scrollTop = Math.max(0, el.offsetTop - 80);
     }
   }, []);
-
-  const activeMonth = activeMonthKey ? parseInt(activeMonthKey.slice(5, 7), 10) - 1 : getMonth(thisMonth);
-
-  const yearHasMonths = useCallback((year: number) =>
-    months.some(m => getYear(m) === year), [months]);
-
-  const firstYear = getYear(months[0]);
-  const lastYear = getYear(months[months.length - 1]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, background: 'var(--color-surface)' }}>
 
-      {/* ── Sticky year/month nav ── */}
+      {/* ── Sticky nav ── */}
       <div style={{
         flexShrink: 0,
         borderBottom: '1px solid var(--color-border)',
         background: 'var(--color-surface)',
-        padding: '8px 12px 6px',
-        position: 'sticky',
-        top: 0,
-        zIndex: 10,
+        padding: '6px 12px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
       }}>
-        {/* Year row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
-          <button
-            onClick={() => { const y = selectedYear - 1; if (y >= firstYear) { setSelectedYear(y); scrollToMonth(y, 0); } }}
-            disabled={selectedYear <= firstYear}
-            style={yearNavBtn}
-            aria-label="Previous year"
-          >‹</button>
-          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text)', minWidth: 48, textAlign: 'center' }}>
-            {selectedYear}
-          </span>
-          <button
-            onClick={() => { const y = selectedYear + 1; if (y <= lastYear) { setSelectedYear(y); scrollToMonth(y, 0); } }}
-            disabled={selectedYear >= lastYear}
-            style={yearNavBtn}
-            aria-label="Next year"
-          >›</button>
-        </div>
-        {/* Month pills */}
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {MONTH_ABBREVS.map((abbr, m) => {
-            const isActive = parseInt(activeMonthKey.slice(0, 4), 10) === selectedYear && activeMonth === m;
-            const exists = yearHasMonths(selectedYear);
-            return (
-              <button
-                key={m}
-                onClick={() => { setSelectedYear(selectedYear); scrollToMonth(selectedYear, m); }}
-                disabled={!exists}
-                style={{
-                  ...monthPill,
-                  background: isActive ? 'var(--color-primary)' : 'transparent',
-                  color: isActive ? '#fff' : 'var(--color-text)',
-                  borderColor: isActive ? 'var(--color-primary)' : 'var(--color-border)',
-                  fontWeight: isActive ? 600 : 400,
-                }}
-              >
-                {abbr}
-              </button>
-            );
-          })}
-        </div>
+        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Jump to</label>
+        <input
+          type="month"
+          value={activeMonthKey}
+          min={format(months[0], 'yyyy-MM')}
+          max={format(months[months.length - 1], 'yyyy-MM')}
+          onChange={e => {
+            const key = e.target.value;
+            if (!key) return;
+            setActiveMonthKey(key);
+            scrollToMonth(key);
+          }}
+          style={{
+            fontSize: 13,
+            padding: '3px 8px',
+            borderRadius: 6,
+            border: '1px solid var(--color-border)',
+            background: 'var(--color-surface)',
+            color: 'var(--color-text)',
+            cursor: 'pointer',
+          }}
+        />
+        <button
+          onClick={() => {
+            const key = format(thisMonth, 'yyyy-MM');
+            setActiveMonthKey(key);
+            scrollToMonth(key);
+          }}
+          style={{
+            fontSize: 12,
+            padding: '3px 10px',
+            borderRadius: 6,
+            border: '1px solid var(--color-border)',
+            background: 'transparent',
+            color: 'var(--color-text)',
+            cursor: 'pointer',
+          }}
+        >Today</button>
       </div>
 
       {/* ── Scrollable content ── */}
@@ -386,30 +368,6 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
 
 // ---- Styles -----------------------------------------------------------------
 
-const yearNavBtn: React.CSSProperties = {
-  background: 'none',
-  border: '1px solid var(--color-border)',
-  borderRadius: 4,
-  width: 26,
-  height: 26,
-  cursor: 'pointer',
-  color: 'var(--color-text)',
-  fontSize: 16,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 0,
-  lineHeight: 1,
-};
 
-const monthPill: React.CSSProperties = {
-  padding: '2px 8px',
-  borderRadius: 4,
-  border: '1px solid var(--color-border)',
-  fontSize: 12,
-  cursor: 'pointer',
-  transition: 'background 0.1s, color 0.1s',
-  lineHeight: '20px',
-};
 
 
