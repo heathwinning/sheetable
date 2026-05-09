@@ -691,7 +691,10 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             dateColumn={dateColumn}
             onDateColumnChange={handleDateColumnChange}
             resolveColumnPath={(row, path) => state.resolveColumnPath(viewSheet.tableName, row, path)}
-            readOnly={true}
+            onCreateRow={canEdit ? (row) => state.insertRow(viewSheet.tableName, row) : undefined}
+            onUpdateField={canEdit ? (rowIndex, col, val) => state.applyEdit(viewSheet.tableName, rowIndex, col, val) : undefined}
+            getReferenceRows={(refTable) => state.getReferenceRows(refTable)}
+            readOnly={!canEdit}
             bookId={state.activeBookId}
             configKey={`${state.activeBookId}-${viewSheet.tableName}`}
           />

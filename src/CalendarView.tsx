@@ -353,7 +353,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           onClose={() => setDialog(d => ({ ...d, open: false }))}
           getReferenceRows={getReferenceRows ?? (() => [])}
           bookId={bookId}
-          readOnly={readOnly && dialog.rowIndex !== undefined}
+          readOnly={dialog.rowIndex !== undefined ? (readOnly || !onUpdateField) : (readOnly || !onCreateRow)}
         />
       )}
     </div>
