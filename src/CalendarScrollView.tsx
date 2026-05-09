@@ -192,6 +192,14 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
   const todayRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const monthRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
+  const pendingPrependHeightRef = useRef<number | null>(null);
+  const loadingPrevRef = useRef(false);
+  const loadingNextRef = useRef(false);
+
+  const [loadedYearRange, setLoadedYearRange] = useState<{ start: number; end: number }>(() => ({
+    start: year - 1,
+    end: year + 1,
+  }));
 
   const thisMonth = useMemo(() => startOfMonth(new Date()), []);
   const initialMonth = useMemo(
@@ -203,9 +211,22 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
 
   const months = useMemo(() => {
     const result: Date[] = [];
-    const yearStart = startOfYear(new Date(year, 0, 1));
-    for (let i = 0; i < 12; i++) result.push(addMonths(yearStart, i));
+    for (let y = loadedYearRange.start; y <= loadedYearRange.end; y++) {
+      const yearStart = startOfYear(new Date(y, 0, 1));
+      for (let i = 0; i < 12; i++) result.push(addMonths(yearStart, i));
+    }
     return result;
+  }, [loadedYearRange]);
+
+  // Ensure explicit year jumps remain in loaded range
+  useEffect(() => {
+    setLoadedYearRange(prev => {
+      let start = prev.start;
+      let end = prev.end;
+      if (year <= start) start = year - 1;
+      if (year >= end) end = year + 1;
+      return (start === prev.start && end === prev.end) ? prev : { start, end };
+    });
   }, [year]);
 
   // IntersectionObserver — track which month is at the top of the viewport
@@ -249,6 +270,40 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
     }
   }, [initialMonth]);
 
+  // Keep viewport stable when prepending months above the current scroll position.
+  useEffect(() => {
+    if (!scrollRef.current || pendingPrependHeightRef.current == null) return;
+    const container = scrollRef.current;
+    const delta = container.scrollHeight - pendingPrependHeightRef.current;
+    container.scrollTop += Math.max(0, delta);
+    pendingPrependHeightRef.current = null;
+    loadingPrevRef.current = false;
+  }, [months.length]);
+
+  useEffect(() => {
+    loadingNextRef.current = false;
+  }, [months.length]);
+
+  const handleScroll = useCallback(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    const edgeThreshold = 260;
+    const nearTop = container.scrollTop <= edgeThreshold;
+    const nearBottom = (container.scrollHeight - (container.scrollTop + container.clientHeight)) <= edgeThreshold;
+
+    if (nearTop && !loadingPrevRef.current) {
+      loadingPrevRef.current = true;
+      pendingPrependHeightRef.current = container.scrollHeight;
+      setLoadedYearRange(prev => ({ start: prev.start - 1, end: prev.end }));
+    }
+
+    if (nearBottom && !loadingNextRef.current) {
+      loadingNextRef.current = true;
+      setLoadedYearRange(prev => ({ start: prev.start, end: prev.end + 1 }));
+    }
+  }, []);
+
 const _scrollToMonth = useCallback((key: string) => {
     const el = monthRefsMap.current.get(key);
     if (el && scrollRef.current) {
@@ -262,6 +317,7 @@ const _scrollToMonth = useCallback((key: string) => {
       {/* ── Scrollable content ── */}
       <div
         ref={scrollRef}
+        onScroll={handleScroll}
         style={{
           flex: 1,
           overflowY: 'auto',
