@@ -1046,7 +1046,7 @@ body {
 }
 
 .calendar-toolbar-group-right {
-  @apply ml-auto pl-2 border-l border-border;
+  @apply ml-auto;
 }
 
 .calendar-toolbar-segmented {
