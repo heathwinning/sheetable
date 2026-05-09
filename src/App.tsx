@@ -1408,21 +1408,19 @@ const App: React.FC = () => {
                   }}
                   onDragEnd={() => setDraggingChartId(null)}
                 >
-                  📈 {id}
+                  {id}
                 </Link>
               );
             })}
             {state.viewSheetIds.map(id => {
               const isActive = location.pathname.includes(`/view/${encodeURIComponent(id)}`);
-              const vs = state.getViewSheet(id);
-              const icon = vs?.viewType === 'calendar' ? '📅' : '📋';
               return (
                 <Link
                   key={`view-${id}`}
                   className={`table-tab view-tab ${isActive ? 'active' : ''}`}
                   to={withBook(headerBookId, `/view/${encodeURIComponent(id)}`)}
                 >
-                  {icon} {id}
+                  {id}
                 </Link>
               );
             })}
