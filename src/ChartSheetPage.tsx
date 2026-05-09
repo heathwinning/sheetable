@@ -73,7 +73,7 @@ function aggregateData(
     switch (expr.feature) {
       case 'year': return String(d.getFullYear());
       case 'quarter': return `Q${Math.ceil((d.getMonth() + 1) / 3)}`;
-      case 'yearmonth': return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      case 'yearmonth': return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
       case 'month': return d.toLocaleString('default', { month: 'long' });
       case 'monthnum': return String(d.getMonth() + 1).padStart(2, '0');
       case 'week': {
@@ -148,6 +148,10 @@ const ChartRenderer: React.FC<{
     bottom: xLabel ? 28 : 4,
     left: yLabel ? 16 : 0,
   };
+  const xIsYearMonth = config.xColumn?.endsWith(':yearmonth') ?? false;
+  const xTickFormatter = xIsYearMonth
+    ? (v: string) => { const d = new Date(v); return isNaN(d.getTime()) ? v : d.toLocaleString('default', { month: 'short', year: 'numeric' }); }
+    : undefined;
   const xAxisLabel = xLabel ? { value: xLabel, position: 'insideBottom' as const, offset: -8, fontSize: 11, fill: 'var(--color-text-muted)' } : undefined;
   const yAxisLabel = yLabel ? { value: yLabel, angle: -90, position: 'insideLeft' as const, offset: 8, fontSize: 11, fill: 'var(--color-text-muted)' } : undefined;
 
@@ -214,7 +218,7 @@ const ChartRenderer: React.FC<{
       <ResponsiveContainer width="100%" height="100%">
         <ScatterChart margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-          <XAxis dataKey="x" name={config.xColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} />
+          <XAxis dataKey="x" name={config.xColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
           <YAxis dataKey={seriesKeys[0]} name={config.yColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} />
           <Tooltip cursor={{ strokeDasharray: '3 3' }} />
           <Scatter data={data} fill={CHART_COLORS[0]} />
@@ -228,7 +232,7 @@ const ChartRenderer: React.FC<{
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-          <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} />
+          <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
           <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} />
           <Tooltip />
           {seriesKeys.length > 1 && <Legend />}
@@ -245,7 +249,7 @@ const ChartRenderer: React.FC<{
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-          <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} />
+          <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
           <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} />
           <Tooltip />
           {seriesKeys.length > 1 && <Legend />}
@@ -262,7 +266,7 @@ const ChartRenderer: React.FC<{
     <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data} margin={margin}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-        <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} />
+        <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
         <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} />
         <Tooltip />
         {seriesKeys.length > 1 && <Legend />}
@@ -325,9 +329,7 @@ const ChartConfigModal: React.FC<{
   const DATE_FEATURES: { value: DateFeature; label: string }[] = [
     { value: 'year', label: 'Year' },
     { value: 'quarter', label: 'Quarter' },
-    { value: 'yearmonth', label: 'Year-Month' },
-    { value: 'month', label: 'Month name' },
-    { value: 'monthnum', label: 'Month #' },
+    { value: 'yearmonth', label: 'Month' },
     { value: 'week', label: 'Week of year' },
     { value: 'dayofweek', label: 'Day of week' },
     { value: 'day', label: 'Day of month' },
@@ -416,6 +418,7 @@ const ChartConfigModal: React.FC<{
                 value={CHART_TYPE_OPTIONS.find(o => o.value === draft.type) ?? null}
                 options={CHART_TYPE_OPTIONS}
                 onChange={opt => set('type', (opt?.value ?? 'bar') as ChartType)}
+                menuPortalTarget={document.body}
                 menuPlacement="auto"
               />
             </div>
@@ -427,6 +430,7 @@ const ChartConfigModal: React.FC<{
                 value={draft.table ? { value: draft.table, label: draft.table } : null}
                 options={tableIds.map(id => ({ value: id, label: id }))}
                 onChange={opt => { set('table', opt?.value ?? ''); set('xColumn', ''); set('yColumn', ''); }}
+                menuPortalTarget={document.body}
                 menuPlacement="auto"
               />
             </div>
@@ -441,6 +445,7 @@ const ChartConfigModal: React.FC<{
                 onChange={opt => set('xColumn', opt?.value ?? '')}
                 placeholder="— select —"
                 isClearable
+                menuPortalTarget={document.body}
                 menuPlacement="auto"
               />
             </div>
@@ -452,6 +457,7 @@ const ChartConfigModal: React.FC<{
                 value={AGGREGATE_OPTIONS.find(o => o.value === draft.aggregate) ?? null}
                 options={AGGREGATE_OPTIONS}
                 onChange={opt => set('aggregate', (opt?.value ?? 'count') as AggregateFunc)}
+                menuPortalTarget={document.body}
                 menuPlacement="auto"
               />
             </div>
@@ -466,6 +472,7 @@ const ChartConfigModal: React.FC<{
                 onChange={opt => set('yColumn', opt?.value ?? '')}
                 placeholder="— select —"
                 isClearable
+                menuPortalTarget={document.body}
                 menuPlacement="auto"
               />
             </div>
@@ -482,6 +489,7 @@ const ChartConfigModal: React.FC<{
                 onChange={opt => set('groupBy', opt?.value || undefined)}
                 placeholder="— none —"
                 isClearable
+                menuPortalTarget={document.body}
                 menuPlacement="auto"
               />
             </div>
