@@ -1306,8 +1306,6 @@ const App: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
   const currentView = (searchParams.get('view') ?? 'grid') as ViewType;
-  const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
-  const [draggingChartId, setDraggingChartId] = useState<string | null>(null);
   const [tabOrderOpen, setTabOrderOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -1403,26 +1401,6 @@ const App: React.FC = () => {
     }, { replace: true });
   };
 
-  const handleTabDrop = (targetId: string) => {
-    if (!draggingTableId || draggingTableId === targetId) return;
-    const fromIndex = state.tableIds.indexOf(draggingTableId);
-    const toIndex = state.tableIds.indexOf(targetId);
-    if (fromIndex >= 0 && toIndex >= 0) {
-      state.reorderTables(fromIndex, toIndex);
-    }
-    setDraggingTableId(null);
-  };
-
-  const handleChartTabDrop = (targetId: string) => {
-    if (!draggingChartId || draggingChartId === targetId) return;
-    const fromIndex = state.chartSheetIds.indexOf(draggingChartId);
-    const toIndex = state.chartSheetIds.indexOf(targetId);
-    if (fromIndex >= 0 && toIndex >= 0) {
-      state.reorderCharts(fromIndex, toIndex);
-    }
-    setDraggingChartId(null);
-  };
-
   const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
 
   const showAlert = useAlert();
@@ -1488,23 +1466,8 @@ const App: React.FC = () => {
               return (
                 <Link
                   key={id}
-                  className={`table-tab ${isActive ? 'active' : ''} ${id === draggingTableId ? 'dragging' : ''}`}
+                  className={`table-tab ${isActive ? 'active' : ''}`}
                   to={withBook(headerBookId, `/table/${encodeURIComponent(id)}`)}
-                  draggable
-                  onDragStart={(e) => {
-                    setDraggingTableId(id);
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', id);
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    handleTabDrop(id);
-                  }}
-                  onDragEnd={() => setDraggingTableId(null)}
                 >
                   {id}
                 </Link>
@@ -1515,23 +1478,8 @@ const App: React.FC = () => {
               return (
                 <Link
                   key={`chart-${id}`}
-                  className={`table-tab chart-tab ${isActive ? 'active' : ''} ${id === draggingChartId ? 'dragging' : ''}`}
+                  className={`table-tab chart-tab ${isActive ? 'active' : ''}`}
                   to={withBook(headerBookId, `/chart/${encodeURIComponent(id)}`)}
-                  draggable
-                  onDragStart={(e) => {
-                    setDraggingChartId(id);
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', id);
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    handleChartTabDrop(id);
-                  }}
-                  onDragEnd={() => setDraggingChartId(null)}
                 >
                   {id}
                 </Link>
