@@ -643,26 +643,43 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
       {/* Config panel */}
       {editOpen && (
-        <div className="view-sheet-config">
-          <label className="view-sheet-config-label">Table</label>
-          <select className="calendar-col-select" value={editTable} onChange={e => { setEditTable(e.target.value); setEditDateCol(''); }}>
-            {state.tableIds.map(id => <option key={id} value={id}>{id}</option>)}
-          </select>
-          <label className="view-sheet-config-label">View type</label>
-          <select className="calendar-col-select" value={editViewType} onChange={e => setEditViewType(e.target.value as 'grid' | 'calendar')}>
-            <option value="grid">Grid</option>
-            <option value="calendar">Calendar</option>
-          </select>
-          {editViewType === 'calendar' && dateColumnsForTable.length > 0 && (
-            <>
-              <label className="view-sheet-config-label">Date column</label>
-              <select className="calendar-col-select" value={editDateCol || dateColumnsForTable[0]?.name} onChange={e => setEditDateCol(e.target.value)}>
-                {dateColumnsForTable.map(c => <option key={c.name} value={c.name}>{c.displayName ?? c.name}</option>)}
-              </select>
-            </>
-          )}
-          <button className="btn-primary" style={{ marginLeft: 8 }} onClick={() => { void saveConfig(); }}>Save</button>
-          <button className="btn-secondary" style={{ marginLeft: 4 }} onClick={() => setEditOpen(false)}>Cancel</button>
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }}
+          onMouseDown={e => { if (e.target === e.currentTarget) setEditOpen(false); }}
+        >
+          <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, width: 'min(400px, 94vw)', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 40px rgba(0,0,0,0.22)', color: 'var(--color-text)', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--color-border)' }}>
+              <span style={{ fontWeight: 600, fontSize: 15 }}>Configure View</span>
+              <button onClick={() => setEditOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 18, lineHeight: 1, padding: '2px 4px' }} aria-label="Close">×</button>
+            </div>
+            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontWeight: 500, fontSize: 13 }}>Table</label>
+                <select className="calendar-col-select" value={editTable} onChange={e => { setEditTable(e.target.value); setEditDateCol(''); }}>
+                  {state.tableIds.map(id => <option key={id} value={id}>{id}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontWeight: 500, fontSize: 13 }}>View type</label>
+                <select className="calendar-col-select" value={editViewType} onChange={e => setEditViewType(e.target.value as 'grid' | 'calendar')}>
+                  <option value="grid">Grid</option>
+                  <option value="calendar">Calendar</option>
+                </select>
+              </div>
+              {editViewType === 'calendar' && dateColumnsForTable.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontWeight: 500, fontSize: 13 }}>Date column</label>
+                  <select className="calendar-col-select" value={editDateCol || dateColumnsForTable[0]?.name} onChange={e => setEditDateCol(e.target.value)}>
+                    {dateColumnsForTable.map(c => <option key={c.name} value={c.name}>{c.displayName ?? c.name}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
+              <button className="btn-secondary" onClick={() => setEditOpen(false)}>Cancel</button>
+              <button className="btn-primary" onClick={() => { void saveConfig(); }}>Save</button>
+            </div>
+          </div>
         </div>
       )}
 

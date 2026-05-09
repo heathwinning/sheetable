@@ -289,8 +289,8 @@ const scrollToMonth = useCallback((key: string) => {
           }}
           style={{
             fontSize: 13,
-            padding: '3px 8px',
-            borderRadius: 6,
+            padding: '2px 6px',
+            borderRadius: 4,
             border: '1px solid var(--color-border)',
             background: 'var(--color-surface)',
             color: 'var(--color-text)',
