@@ -1,27 +1,21 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { Calendar as BigCalendar, dateFnsLocalizer, type Event as RBCEvent, type View, type SlotInfo } from 'react-big-calendar';
-import { format } from 'date-fns/format';
-import { parse } from 'date-fns/parse';
-import { startOfWeek } from 'date-fns/startOfWeek';
-import { getDay } from 'date-fns/getDay';
-import { enUS } from 'date-fns/locale/en-US';
 import type { TableSchema, Row, ValidationError } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { parseTemporalUnknown } from './dateFormat';
+import { format } from 'date-fns/format';
 import { CalendarScrollView, AgendaView } from './CalendarScrollView';
 import { RecordCard } from './RecordCard';
-import 'react-big-calendar/lib/css/react-big-calendar.css';
 
 const DEFAULT_RESOLVE = (_row: Row, _path: string) => '';
 
-const locales = { 'en-US': enUS };
-const localizer = dateFnsLocalizer({
-  format,
-  parse,
-  startOfWeek: () => startOfWeek(new Date(), { weekStartsOn: 0 }),
-  getDay,
-  locales,
-});
+// Simplified event type (no BigCalendar dependency)
+interface CalEvent {
+  id: unknown;
+  title: string;
+  start: Date;
+  allDay: boolean;
+  resource: Row;
+}
 
 interface CalendarViewProps {
   schema: TableSchema;
@@ -53,9 +47,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   bookId,
   configKey,
 }) => {
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [currentView, setCurrentView] = useState<View>('month');
-  const [viewMode, setViewMode] = useState<'grid' | 'scroll' | 'agenda'>('grid');
+  const [viewMode, setViewModeRaw] = useState<'calendar' | 'agenda'>(() => {
+    if (!configKey) return 'calendar';
+    const saved = localStorage.getItem(`sheetable-cal-mode-${configKey}`);
+    return saved === 'agenda' ? 'agenda' : 'calendar';
+  });
+  const setViewMode = (mode: 'calendar' | 'agenda') => {
+    setViewModeRaw(mode);
+    if (configKey) localStorage.setItem(`sheetable-cal-mode-${configKey}`, mode);
+  };
   const [dialog, setDialog] = useState<DialogState>({ open: false, title: '', initialValues: {} });
   const [colPickerOpen, setColPickerOpen] = useState(false);
   const colPickerRef = useRef<HTMLDivElement>(null);
@@ -110,20 +110,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     [schema.columns],
   );
 
-  // Whether the active date column is date-only (no time component)
+  // Whether the active date column is date-only
   const isDateOnly = useMemo(
     () => schema.columns.find(c => c.name === dateColumn)?.type === 'date',
     [schema.columns, dateColumn],
   );
-
-  // Date-only data: restrict to month + agenda (no hourly time grids)
-  const availableViews: View[] = useMemo(
-    () => isDateOnly ? ['month', 'agenda'] : ['month', 'week', 'day', 'agenda'],
-    [isDateOnly],
-  );
-
-  // If the current view is not available (e.g. switched from datetime → date col), reset to month
-  const safeView: View = availableViews.includes(currentView) ? currentView : 'month';
 
   const events = useMemo(() => rows.map(row => {
     const raw = row[dateColumn];
@@ -146,11 +137,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       allDay: isDateOnly,
       resource: row,
     };
-  }).filter(Boolean) as RBCEvent[], [rows, dateColumn, effectiveDisplayColumns, schema.columns, isDateOnly, resolveColumnPath]);
+  }).filter(Boolean) as CalEvent[], [rows, dateColumn, effectiveDisplayColumns, schema.columns, isDateOnly, resolveColumnPath]);
 
   const hasPicker = dateColumns.length > 1;
 
-  // Build a blank row pre-filled with the given date for the date column
+  // Build a blank row pre-filled with the given date
   const blankRowForDate = (date: Date): Row => {
     const isDateOnly = schema.columns.find(c => c.name === dateColumn)?.type === 'date';
     const dateValue = isDateOnly
@@ -164,32 +155,26 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     return row;
   };
 
-  const handleSelectSlot = (slotInfo: SlotInfo) => {
+  const handleSelectSlot = (date: Date) => {
     if (readOnly || !onCreateRow) return;
     setDialog({
       open: true,
       title: 'New Entry',
-      initialValues: blankRowForDate(slotInfo.start),
+      initialValues: blankRowForDate(date),
     });
   };
 
-  const handleSelectEvent = (event: RBCEvent) => {
-    const row = (event as RBCEvent & { resource: Row }).resource;
+  const handleSelectEvent = (ev: CalEvent) => {
+    const row = ev.resource;
     if (!row) return;
     const rowIndex = rows.findIndex(r => r[INTERNAL_ROW_ID] === row[INTERNAL_ROW_ID]);
     if (rowIndex < 0) return;
-    // Build initial values from the row (exclude _rowId)
     const initialValues: Row = {};
     for (const col of schema.columns) {
       if (col.name === INTERNAL_ROW_ID) continue;
       initialValues[col.name] = row[col.name] ?? '';
     }
-    setDialog({
-      open: true,
-      title: 'Edit Entry',
-      initialValues,
-      rowIndex,
-    });
+    setDialog({ open: true, title: 'Edit Entry', initialValues, rowIndex });
   };
 
   const handleDialogSave = (values: Row): ValidationError[] => {
@@ -246,8 +231,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           </>
         )}
         <div style={{ display: 'flex', gap: 4, marginLeft: hasPicker ? 0 : 'auto', alignItems: 'center' }}>
-          <button style={viewToggleStyle(viewMode === 'grid')} onClick={() => setViewMode('grid')}>Grid</button>
-          <button style={viewToggleStyle(viewMode === 'scroll')} onClick={() => setViewMode('scroll')}>Scroll</button>
+          <button style={viewToggleStyle(viewMode === 'calendar')} onClick={() => setViewMode('calendar')}>Calendar</button>
           <button style={viewToggleStyle(viewMode === 'agenda')} onClick={() => setViewMode('agenda')}>Agenda</button>
           {/* Column picker */}
           <div ref={colPickerRef} style={{ position: 'relative', marginLeft: 4 }}>
@@ -300,47 +284,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         </div>
       </div>
 
-      {viewMode === 'scroll' ? (
+      {viewMode === 'calendar' ? (
         <CalendarScrollView
-          events={events.map(e => ({ id: (e as RBCEvent & { id: unknown }).id, title: String(e!.title), start: e!.start as Date, allDay: !!e!.allDay, resource: (e as RBCEvent & { resource: Row }).resource }))}
-          onSelectDate={!readOnly && onCreateRow ? (date) => handleSelectSlot({ start: date, end: date, slots: [date], action: 'click' }) : undefined}
-          onSelectEvent={(scrollEv) => {
-            const row = (scrollEv as { resource?: Row }).resource;
-            if (!row) return;
-            const fakeEvent = events.find(e => (e as RBCEvent & { id: unknown }).id === scrollEv.id);
-            if (fakeEvent) handleSelectEvent(fakeEvent as RBCEvent);
-          }}
+          events={events}
+          onSelectDate={!readOnly && onCreateRow ? handleSelectSlot : undefined}
+          onSelectEvent={(scrollEv) => handleSelectEvent(scrollEv as CalEvent)}
         />
-      ) : viewMode === 'grid' ? (
-        <div style={{ flex: 1, minHeight: 0, padding: 8 }}>
-          <BigCalendar
-            localizer={localizer}
-            events={events}
-            startAccessor="start"
-            endAccessor="end"
-            style={{ height: '100%' }}
-            date={currentDate}
-            view={safeView}
-            onNavigate={date => setCurrentDate(date)}
-            onView={view => setCurrentView(view)}
-            popup
-            views={availableViews}
-            selectable={!readOnly && !!onCreateRow}
-            onSelectSlot={handleSelectSlot}
-            onSelectEvent={handleSelectEvent}
-          />
-        </div>
       ) : (
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 16px 24px', maxWidth: 720, margin: '0 auto', width: '100%', boxSizing: 'border-box', color: 'var(--color-text)' }}>
           <AgendaView
-            events={events.map(e => ({ id: (e as RBCEvent & { id: unknown }).id, title: String(e!.title), start: e!.start as Date, allDay: !!e!.allDay, resource: (e as RBCEvent & { resource: Row }).resource }))}
+            events={events}
             todayRef={{ current: null }}
-            onSelectEvent={(scrollEv) => {
-              const row = (scrollEv as { resource?: Row }).resource;
-              if (!row) return;
-              const fakeEvent = events.find(ev => (ev as RBCEvent & { id: unknown }).id === scrollEv.id);
-              if (fakeEvent) handleSelectEvent(fakeEvent as RBCEvent);
-            }}
+            onSelectEvent={(scrollEv) => handleSelectEvent(scrollEv as CalEvent)}
           />
         </div>
       )}

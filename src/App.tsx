@@ -11,9 +11,8 @@ import * as api from './api';
 import type { UseAppStateReturn } from './useAppState';
 import type { BookMember, BookInvite } from './types';
 import { CalendarView } from './CalendarView';
-import ScheduleView from './ScheduleView';
 
-type ViewType = 'grid' | 'calendar' | 'schedule';
+type ViewType = 'grid' | 'calendar';
 import './App.css';
 
 const bookPrefix = (bookName?: string) => (bookName ? `/book/${encodeURIComponent(bookName)}` : '');
@@ -57,10 +56,11 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({
   };
 
   const { showDialog } = useDialog();
-  const addView = async (viewType: 'calendar' | 'schedule') => {
+  const addView = async () => {
     setOpen(false);
     const tableIds = state.tableIds;
-    const label = viewType === 'calendar' ? 'Calendar' : 'Schedule';
+    const label = 'Calendar';
+    const viewType = 'calendar';
     // Build table options: existing tables + "New table" option
     const tableOptions = [
       ...tableIds.map(id => ({ label: id, value: id })),
@@ -121,11 +121,8 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({
           <button className="add-sheet-option" onClick={addChart}>
             <span className="add-sheet-icon">📈</span> Chart
           </button>
-          <button className="add-sheet-option" onClick={() => { void addView('calendar'); }}>
+          <button className="add-sheet-option" onClick={() => { void addView(); }}>
             📅 Calendar View
-          </button>
-          <button className="add-sheet-option" onClick={() => { void addView('schedule'); }}>
-            🗓️ Schedule View
           </button>
 
         </div>
@@ -256,7 +253,7 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
   // Decide effective view — fall back to grid if schema has no date columns
   const effectiveView: ViewType =
-    (viewType === 'calendar' || viewType === 'schedule') && !dateColumn
+    viewType === 'calendar' && !dateColumn
       ? 'grid'
       : viewType;
 
@@ -278,13 +275,6 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               bookId={state.activeBookId}
               readOnly={state.activeBookRole === 'viewer'}
               configKey={`${state.activeBookId}-${tableId}`}
-            />
-          ) : effectiveView === 'schedule' && dateColumn ? (
-            <ScheduleView
-              schema={activeSchema}
-              rows={activeRows}
-              dateColumn={dateColumn}
-              onDateColumnChange={handleDateColumnChange}
             />
           ) : (
           <SpreadsheetGrid
@@ -562,13 +552,13 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   // Config editors
   const [editOpen, setEditOpen] = useState(false);
   const [editTable, setEditTable] = useState('');
-  const [editViewType, setEditViewType] = useState<'grid' | 'calendar' | 'schedule'>('calendar');
+  const [editViewType, setEditViewType] = useState<'grid' | 'calendar'>('calendar');
   const [editDateCol, setEditDateCol] = useState('');
 
   useEffect(() => {
     if (!viewSheet) return;
     setEditTable(viewSheet.tableName);
-    setEditViewType(viewSheet.viewType);
+    setEditViewType(viewSheet.viewType === 'schedule' ? 'calendar' : viewSheet.viewType);
     setEditDateCol(viewSheet.dateColumn ?? '');
   }, [viewSheet?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -659,12 +649,11 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             {state.tableIds.map(id => <option key={id} value={id}>{id}</option>)}
           </select>
           <label className="view-sheet-config-label">View type</label>
-          <select className="calendar-col-select" value={editViewType} onChange={e => setEditViewType(e.target.value as 'grid' | 'calendar' | 'schedule')}>
+          <select className="calendar-col-select" value={editViewType} onChange={e => setEditViewType(e.target.value as 'grid' | 'calendar')}>
             <option value="grid">Grid</option>
             <option value="calendar">Calendar</option>
-            <option value="schedule">Schedule</option>
           </select>
-          {(editViewType === 'calendar' || editViewType === 'schedule') && dateColumnsForTable.length > 0 && (
+          {editViewType === 'calendar' && dateColumnsForTable.length > 0 && (
             <>
               <label className="view-sheet-config-label">Date column</label>
               <select className="calendar-col-select" value={editDateCol || dateColumnsForTable[0]?.name} onChange={e => setEditDateCol(e.target.value)}>
@@ -697,13 +686,6 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             readOnly={!canEdit}
             bookId={state.activeBookId}
             configKey={`${state.activeBookId}-${viewSheet.tableName}`}
-          />
-        ) : viewSheet.viewType === 'schedule' && dateColumn ? (
-          <ScheduleView
-            schema={schema}
-            rows={rows}
-            dateColumn={dateColumn}
-            onDateColumnChange={handleDateColumnChange}
           />
         ) : (
           <SpreadsheetGrid
@@ -1354,7 +1336,7 @@ const App: React.FC = () => {
             {state.viewSheetIds.map(id => {
               const isActive = location.pathname.includes(`/view/${encodeURIComponent(id)}`);
               const vs = state.getViewSheet(id);
-              const icon = vs?.viewType === 'calendar' ? '📅' : vs?.viewType === 'schedule' ? '🗓️' : '📋';
+              const icon = vs?.viewType === 'calendar' ? '📅' : '📋';
               return (
                 <Link
                   key={`view-${id}`}
@@ -1395,17 +1377,6 @@ const App: React.FC = () => {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
                   <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-                </svg>
-              </button>
-              <button
-                className={`view-switch-btn${currentView === 'schedule' ? ' active' : ''}`}
-                onClick={() => setView('schedule')}
-                title="Schedule view"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
-                  <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
-                  <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
                 </svg>
               </button>
             </div>
