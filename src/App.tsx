@@ -26,8 +26,7 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({
   const btnRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const promptInput = usePromptInput();
-  // pos variable removed - setPos is called but pos is never read
-  const [, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
   useEffect(() => {
     if (!open) return;
@@ -81,25 +80,28 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({
         +
       </button>
       {open && (
-        <div className="header-action-dropdown-wrap" ref={menuRef} onClick={() => setOpen(false)}>
-          <div className="header-action-dropdown">
-            <Link className="header-action-dropdown-item" to={withBook(bookId, '/table/new')} onClick={() => setOpen(false)}>
-              <span className="add-sheet-icon">📊</span> Spreadsheet
-            </Link>
-            <button className="header-action-dropdown-item" onClick={addChart}>
-              <span className="add-sheet-icon">📈</span> Chart
-            </button>
-            {state.tableIds.length > 0 && (
-              <>
-                <button className="header-action-dropdown-item" onClick={() => { void addView('calendar'); }}>
-                  📅 Calendar View
-                </button>
-                <button className="header-action-dropdown-item" onClick={() => { void addView('schedule'); }}>
-                  🗓️ Schedule View
-                </button>
-              </>
-            )}
-          </div>
+        <div
+          className="add-sheet-dropdown"
+          ref={menuRef}
+          style={{ top: pos.top, left: pos.left }}
+          onClick={() => setOpen(false)}
+        >
+          <Link className="add-sheet-option" to={withBook(bookId, '/table/new')} onClick={() => setOpen(false)}>
+            <span className="add-sheet-icon">📊</span> Spreadsheet
+          </Link>
+          <button className="add-sheet-option" onClick={addChart}>
+            <span className="add-sheet-icon">📈</span> Chart
+          </button>
+          {state.tableIds.length > 0 && (
+            <>
+              <button className="add-sheet-option" onClick={() => { void addView('calendar'); }}>
+                📅 Calendar View
+              </button>
+              <button className="add-sheet-option" onClick={() => { void addView('schedule'); }}>
+                🗓️ Schedule View
+              </button>
+            </>
+          )}
         </div>
       )}
     </>

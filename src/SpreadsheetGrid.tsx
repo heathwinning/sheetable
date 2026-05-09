@@ -635,7 +635,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         </span>
         <span className="grid-status-spacer" />
       </div>
-      <div ref={gridWrapperRef} style={{ flex: 1, minHeight: 0, zoom, touchAction: 'pan-x pan-y' }}>
+      <div className="grid-wrapper" ref={gridWrapperRef} style={{ flex: 1, minHeight: 0, zoom, touchAction: 'pan-x pan-y' }}>
         <AgGridReact
           ref={gridRef}
           modules={[AllCommunityModule]}

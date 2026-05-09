@@ -360,9 +360,18 @@ body {
 }
 .bulk-edit-input:disabled { @apply opacity-50; }
 
-.grid-status-bar { @apply flex items-center py-0.5 px-2 shrink-0 text-xs text-text-muted; }
+.grid-status-bar {
+  @apply flex items-center py-0.5 px-2 shrink-0 text-xs text-text-muted;
+  position: relative;
+  z-index: 0;
+}
 .grid-row-count { white-space: nowrap; }
 .grid-status-spacer { flex: 1; }
+
+.grid-wrapper {
+  position: relative;
+  z-index: 1;
+}
 
 /* AG Grid derived reference styling */
 .reference-derived-header {
