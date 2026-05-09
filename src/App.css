@@ -205,7 +205,6 @@ body {
 .table-tab:hover { @apply text-text bg-cell-bg; }
 .table-tab.active { @apply text-primary; border-bottom-color: var(--primary); }
 .table-tab .tab-dirty { @apply text-warning ml-1.5; }
-.chart-tab { @apply italic; }
 .add-tab { @apply text-primary text-base font-bold py-1.5 px-3; }
 
 .table-tabs-actions { @apply flex gap-1.5 items-center shrink-0; }
@@ -1036,11 +1035,6 @@ body {
 
 .view-sheet-config-label {
   @apply font-semibold text-sm whitespace-nowrap;
-}
-
-.view-tab {
-  @apply px-3 py-2 text-sm font-medium rounded-md transition-colors;
-  @apply border border-transparent bg-transparent text-text-muted hover:bg-cell-bg hover:text-text;
 }
 
 .calendar-toolbar {
