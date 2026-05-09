@@ -61,7 +61,7 @@ const MonthGrid: React.FC<{
       <div style={{
         fontSize: 16,
         fontWeight: 700,
-        color: '#111827',
+        color: 'var(--color-text)',
         marginBottom: 8,
         paddingLeft: 2,
         letterSpacing: '-0.01em',
@@ -75,7 +75,7 @@ const MonthGrid: React.FC<{
             textAlign: 'center',
             fontSize: 11,
             fontWeight: 600,
-            color: '#9ca3af',
+            color: 'var(--color-text-muted)',
             textTransform: 'uppercase',
             paddingBottom: 4,
           }}>{d}</div>
@@ -97,7 +97,7 @@ const MonthGrid: React.FC<{
                 padding: '4px 2px',
                 minHeight: 52,
                 opacity: inMonth ? 1 : 0.3,
-                borderTop: '1px solid #f3f4f6',
+                borderTop: '1px solid var(--color-border)',
               }}
             >
               <div style={{
@@ -114,16 +114,16 @@ const MonthGrid: React.FC<{
                   borderRadius: '50%',
                   fontSize: 13,
                   fontWeight: today ? 700 : 400,
-                  color: today ? '#fff' : '#374151',
-                  background: today ? '#4f46e5' : 'transparent',
+                  color: today ? '#fff' : 'var(--color-text)',
+                  background: today ? 'var(--color-primary)' : 'transparent',
                 }}>
                   {format(day, 'd')}
                 </span>
               </div>
               {dayEvents.slice(0, 3).map((ev, j) => (
                 <div key={j} style={{
-                  background: '#e0e7ff',
-                  color: '#3730a3',
+                  background: 'var(--color-cell-selected)',
+                  color: 'var(--color-primary)',
                   fontSize: 10,
                   fontWeight: 500,
                   borderRadius: 3,
@@ -137,7 +137,7 @@ const MonthGrid: React.FC<{
                 </div>
               ))}
               {dayEvents.length > 3 && (
-                <div style={{ fontSize: 10, color: '#6b7280', paddingLeft: 4 }}>
+                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', paddingLeft: 4 }}>
                   +{dayEvents.length - 3} more
                 </div>
               )}
@@ -187,6 +187,8 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
         margin: '0 auto',
         width: '100%',
         boxSizing: 'border-box',
+        background: 'var(--color-surface)',
+        color: 'var(--color-text)',
       }}
     >
       {months.map((m, i) => (

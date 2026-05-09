@@ -1077,3 +1077,224 @@ body {
 .schedule-empty-hint {
   @apply text-center text-text-muted text-sm py-8;
 }
+
+/* ============================================================
+   react-big-calendar — theme overrides
+   Replaces the library's hardcoded light-mode colors with
+   the app's CSS custom properties so all themes work.
+   ============================================================ */
+
+/* Base container */
+.rbc-calendar {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* Toolbar */
+.rbc-toolbar {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  padding: 6px 8px;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.rbc-toolbar .rbc-toolbar-label {
+  color: var(--color-text);
+  font-weight: 600;
+}
+.rbc-toolbar button {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+.rbc-toolbar button:hover,
+.rbc-toolbar button:focus {
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+  outline: none;
+  box-shadow: none;
+}
+.rbc-toolbar button.rbc-active {
+  color: #fff;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  box-shadow: none;
+}
+.rbc-toolbar button.rbc-active:hover,
+.rbc-toolbar button.rbc-active:focus {
+  color: #fff;
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+/* Month / week grid headers */
+.rbc-header {
+  background: var(--color-surface-2);
+  border-bottom-color: var(--color-border);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+.rbc-header + .rbc-header {
+  border-left-color: var(--color-border);
+}
+.rbc-month-header {
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Month view cells */
+.rbc-month-view {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+.rbc-month-row + .rbc-month-row {
+  border-top-color: var(--color-border);
+}
+.rbc-day-bg + .rbc-day-bg {
+  border-left-color: var(--color-border);
+}
+.rbc-day-bg {
+  background: var(--color-surface);
+}
+.rbc-day-bg.rbc-today {
+  background: var(--color-cell-selected);
+}
+.rbc-day-bg.rbc-off-range-bg {
+  background: var(--color-bg);
+}
+
+/* Date numbers */
+.rbc-date-cell {
+  color: var(--color-text);
+}
+.rbc-date-cell.rbc-off-range {
+  color: var(--color-text-muted);
+  opacity: 0.5;
+}
+.rbc-date-cell.rbc-now .rbc-button-link {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+/* Events */
+.rbc-event {
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: 3px;
+}
+.rbc-event:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-primary-hover);
+}
+.rbc-event.rbc-selected {
+  background: var(--color-primary-hover);
+}
+.rbc-event-label {
+  color: #fff;
+}
+.rbc-show-more {
+  color: var(--color-primary);
+  background: transparent;
+  font-weight: 500;
+}
+.rbc-show-more:hover {
+  color: var(--color-primary-hover);
+}
+
+/* Overlay popup ("+N more" expand) */
+.rbc-overlay {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+.rbc-overlay-header {
+  border-bottom-color: var(--color-border);
+  color: var(--color-text);
+}
+
+/* Row background for current day row */
+.rbc-current-time-indicator {
+  background: var(--color-danger);
+}
+
+/* Agenda view */
+.rbc-agenda-view {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.rbc-agenda-view table.rbc-agenda-table {
+  border-color: var(--color-border);
+}
+.rbc-agenda-view table.rbc-agenda-table thead > tr > th {
+  background: var(--color-surface-2);
+  border-bottom-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+.rbc-agenda-view table.rbc-agenda-table tbody > tr > td {
+  border-top-color: var(--color-border);
+  color: var(--color-text);
+}
+.rbc-agenda-view table.rbc-agenda-table tbody > tr + tr > td {
+  border-top-color: var(--color-border);
+}
+.rbc-agenda-view table.rbc-agenda-table tbody > tr:hover {
+  background: var(--color-surface-2);
+}
+.rbc-agenda-date-cell,
+.rbc-agenda-time-cell {
+  color: var(--color-text-muted);
+}
+.rbc-agenda-event-cell {
+  color: var(--color-text);
+}
+.rbc-agenda-empty {
+  color: var(--color-text-muted);
+}
+
+/* Time (week/day) views */
+.rbc-time-view {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+.rbc-time-header {
+  background: var(--color-surface);
+  border-bottom-color: var(--color-border);
+}
+.rbc-time-header-content {
+  border-left-color: var(--color-border);
+}
+.rbc-time-header-cell {
+  border-bottom-color: var(--color-border);
+}
+.rbc-time-header-cell.rbc-today {
+  background: var(--color-cell-selected);
+}
+.rbc-time-content {
+  background: var(--color-surface);
+  border-top-color: var(--color-border);
+}
+.rbc-time-content > * + * > * {
+  border-left-color: var(--color-border);
+}
+.rbc-timeslot-group {
+  border-bottom-color: var(--color-border);
+}
+.rbc-day-slot .rbc-time-slot {
+  border-top-color: var(--color-border);
+}
+.rbc-label {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+.rbc-day-slot .rbc-event {
+  border-color: var(--color-primary-hover);
+}
+.rbc-slot-selection {
+  background: var(--color-cell-selected);
+  color: var(--color-text);
+}
+.rbc-today {
+  background: var(--color-cell-selected);
+}
+.rbc-row-content-scroll-container { background: var(--color-surface); }

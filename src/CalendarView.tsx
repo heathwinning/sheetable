@@ -88,25 +88,25 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ schema, rows, dateCo
     padding: '3px 10px',
     fontSize: 13,
     fontWeight: active ? 600 : 400,
-    background: active ? '#4f46e5' : 'transparent',
-    color: active ? '#fff' : '#374151',
+    background: active ? 'var(--color-primary)' : 'transparent',
+    color: active ? '#fff' : 'var(--color-text)',
     border: '1px solid',
-    borderColor: active ? '#4f46e5' : '#d1d5db',
+    borderColor: active ? 'var(--color-primary)' : 'var(--color-border)',
     borderRadius: 4,
     cursor: 'pointer',
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'white' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--color-surface)' }}>
       {/* Toolbar row */}
-      <div style={{ padding: '6px 12px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <div style={{ padding: '6px 12px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: 'var(--color-surface)' }}>
         {hasPicker && (
           <>
-            <label style={{ fontWeight: 500, fontSize: 13 }}>Date field:</label>
+            <label style={{ fontWeight: 500, fontSize: 13, color: 'var(--color-text)' }}>Date field:</label>
             <select
               value={dateColumn}
               onChange={e => onDateColumnChange(e.target.value)}
-              style={{ fontSize: 13, padding: '2px 6px', borderRadius: 4, border: '1px solid #d1d5db', marginRight: 8 }}
+              style={{ fontSize: 13, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--color-border)', marginRight: 8, background: 'var(--color-surface)', color: 'var(--color-text)' }}
             >
               {dateColumns.map(c => (
                 <option key={c.name} value={c.name}>{c.displayName ?? c.name}</option>
