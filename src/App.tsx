@@ -550,7 +550,9 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const viewSheet = viewId ? state.getViewSheet(viewId) : undefined;
 
   // Config editors
-  const [editOpen, setEditOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const editOpen = searchParams.get('configure') === '1';
+  const setEditOpen = (open: boolean) => setSearchParams(prev => { const n = new URLSearchParams(prev); if (open) n.set('configure', '1'); else n.delete('configure'); return n; }, { replace: true });
   const [editTable, setEditTable] = useState('');
   const [editViewType, setEditViewType] = useState<'grid' | 'calendar'>('calendar');
   const [editDateCol, setEditDateCol] = useState('');
@@ -621,27 +623,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
   return (
     <div className="app-body">
-      {/* Config bar */}
-      {canEdit && (
-        <div className="view-sheet-bar">
-          <span className="view-sheet-bar-label">
-            Showing <strong>{viewSheet.tableName}</strong> as{' '}
-            <strong>{viewSheet.viewType}</strong>
-          </span>
-          <button className="header-action-btn" onClick={() => setEditOpen(o => !o)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-            Configure
-          </button>
-          <button className="header-action-btn" onClick={() => { void doRename(); }}>
-            Rename
-          </button>
-          <button className="header-action-btn" style={{ color: 'var(--color-danger)' }} onClick={() => { void doDelete(); }}>
-            Delete
-          </button>
-        </div>
-      )}
-
-      {/* Config panel */}
+      {/* Config modal */}
       {editOpen && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }}
@@ -675,9 +657,15 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
                 </div>
               )}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
-              <button className="btn-secondary" onClick={() => setEditOpen(false)}>Cancel</button>
-              <button className="btn-primary" onClick={() => { void saveConfig(); }}>Save</button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => { setEditOpen(false); void doRename(); }}>Rename</button>
+                <button className="btn-secondary" style={{ fontSize: 12, color: 'var(--color-danger)' }} onClick={() => { setEditOpen(false); void doDelete(); }}>Delete</button>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn-secondary" onClick={() => setEditOpen(false)}>Cancel</button>
+                <button className="btn-primary" onClick={() => { void saveConfig(); }}>Save</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1355,13 +1343,24 @@ const App: React.FC = () => {
               const vs = state.getViewSheet(id);
               const icon = vs?.viewType === 'calendar' ? '📅' : '📋';
               return (
-                <Link
-                  key={`view-${id}`}
-                  className={`table-tab view-tab ${isActive ? 'active' : ''}`}
-                  to={withBook(headerBookId, `/view/${encodeURIComponent(id)}`)}
-                >
-                  {icon} {id}
-                </Link>
+                <div key={`view-${id}`} style={{ display: 'flex', alignItems: 'stretch' }}>
+                  <Link
+                    className={`table-tab view-tab ${isActive ? 'active' : ''}`}
+                    to={withBook(headerBookId, `/view/${encodeURIComponent(id)}`)}
+                  >
+                    {icon} {id}
+                  </Link>
+                  {canEdit && (
+                    <Link
+                      className="book-sidebar-edit"
+                      to={withBook(headerBookId, `/view/${encodeURIComponent(id)}?configure=1`)}
+                      style={{ alignSelf: 'center', marginLeft: 2 }}
+                      title="Configure view"
+                    >
+                      Edit
+                    </Link>
+                  )}
+                </div>
               );
             })}
             {state.isLoading ? (
