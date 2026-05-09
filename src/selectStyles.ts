@@ -43,4 +43,13 @@ export const dialogSelectStyles = {
   input: (base: Base) => ({ ...base, color: 'var(--text)' }),
   placeholder: (base: Base) => ({ ...base, color: 'var(--text-muted)' }),
   indicatorSeparator: () => ({ display: 'none' }),
+  groupHeading: (base: Base) => ({
+    ...base,
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.06em',
+    color: 'var(--text-muted)',
+    padding: '4px 10px 2px',
+  }),
 };

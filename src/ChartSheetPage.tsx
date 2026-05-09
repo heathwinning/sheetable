@@ -311,7 +311,11 @@ const ChartConfigModal: React.FC<{
   const [draft, setDraft] = useState<ChartConfig>(config);
   const allPaths = getColumnPaths(draft.table);
   // Only leaf paths (no further ref children) or non-ref columns are valid Y columns
-  const numericPaths = allPaths.filter(p => !p.type || (p.type !== 'reference' && p.type !== 'image' && p.type !== 'bool'));
+  const numericPathSet = new Set(
+    allPaths
+      .filter(p => !p.type || (p.type !== 'reference' && p.type !== 'image' && p.type !== 'bool'))
+      .map(p => p.path)
+  );
   const hasGroupBy = draft.type === 'bar' || draft.type === 'line' || draft.type === 'area' || draft.type === 'table';
   const needsYCol = draft.aggregate !== 'count' && draft.type !== 'table';
   const canSave = !!draft.xColumn && (!needsYCol || !!draft.yColumn);
@@ -327,18 +331,55 @@ const ChartConfigModal: React.FC<{
     { value: 'day', label: 'Day of month' },
     { value: 'hour', label: 'Hour' },
   ];
-  const colOptions: { value: string; label: string }[] = [];
+  type ColOption = { value: string; label: string };
+  type ColGroup = { label: string; options: ColOption[] };
+
+  // Build grouped column options:
+  //   - direct columns (no dot in path, no colon feature) stay in a "Columns" group
+  //   - date columns and their feature sub-options form their own group
+  //   - ref columns and their dot-path children form a group per ref column
+  const colGroupsMap = new Map<string, ColGroup>();
+  const directGroup: ColGroup = { label: 'Columns', options: [] };
+
   for (const p of allPaths) {
-    colOptions.push({ value: p.path, label: p.label });
-    if (p.type === 'date' || p.type === 'datetime') {
+    const isDotPath = p.path.includes('.');
+    const groupKey = isDotPath ? p.path.split('.')[0] : null;
+
+    if (isDotPath && groupKey) {
+      // Ref child — add to ref group (group label = first segment)
+      if (!colGroupsMap.has(groupKey)) {
+        colGroupsMap.set(groupKey, { label: groupKey, options: [] });
+      }
+      // Label inside group: just the tail (after →)
+      const shortLabel = p.label.includes(' → ') ? p.label.split(' → ').slice(1).join(' → ') : p.label;
+      colGroupsMap.get(groupKey)!.options.push({ value: p.path, label: shortLabel });
+    } else if (p.type === 'date' || p.type === 'datetime') {
+      // Date column — its own group with feature sub-options
+      const dateGroup: ColGroup = { label: p.label, options: [{ value: p.path, label: 'Raw value' }] };
       const features = p.type === 'date'
         ? DATE_FEATURES.filter(f => f.value !== 'hour')
         : DATE_FEATURES;
       for (const f of features) {
-        colOptions.push({ value: `${p.path}:${f.value}`, label: `${p.label} › ${f.label}` });
+        dateGroup.options.push({ value: `${p.path}:${f.value}`, label: f.label });
       }
+      colGroupsMap.set(p.path, dateGroup);
+    } else {
+      directGroup.options.push({ value: p.path, label: p.label });
     }
   }
+
+  // Final grouped list: direct first, then ref/date groups
+  const colOptions: ColGroup[] = [];
+  if (directGroup.options.length > 0) colOptions.push(directGroup);
+  for (const g of colGroupsMap.values()) colOptions.push(g);
+
+  // Flat list for lookups (finding currently selected option)
+  const colOptionsFlat: ColOption[] = colOptions.flatMap(g => g.options);
+
+  // Filtered grouped options for Y column (exclude reference/image/bool when aggregating)
+  const yColOptions: ColGroup[] = draft.aggregate === 'none'
+    ? colOptions
+    : colOptions.map(g => ({ ...g, options: g.options.filter(o => numericPathSet.has(o.value)) })).filter(g => g.options.length > 0);
 
   const set = <K extends keyof ChartConfig>(key: K, val: ChartConfig[K]) =>
     setDraft(d => ({ ...d, [key]: val }));
@@ -393,7 +434,7 @@ const ChartConfigModal: React.FC<{
               <label className="app-dialog-label" style={{ marginBottom: 0 }}>X column</label>
               <Select
                 styles={dialogSelectStyles}
-                value={colOptions.find(o => o.value === draft.xColumn) ?? null}
+                value={colOptionsFlat.find(o => o.value === draft.xColumn) ?? null}
                 options={colOptions}
                 onChange={opt => set('xColumn', opt?.value ?? '')}
                 placeholder="— select —"
@@ -418,8 +459,8 @@ const ChartConfigModal: React.FC<{
               <label className="app-dialog-label" style={{ marginBottom: 0 }}>Y column</label>
               <Select
                 styles={dialogSelectStyles}
-                value={(draft.aggregate === 'none' ? allPaths : numericPaths).map(p => ({ value: p.path, label: p.label })).find(o => o.value === draft.yColumn) ?? null}
-                options={(draft.aggregate === 'none' ? allPaths : numericPaths).map(p => ({ value: p.path, label: p.label }))}
+                value={colOptionsFlat.find(o => o.value === draft.yColumn) ?? null}
+                options={yColOptions}
                 onChange={opt => set('yColumn', opt?.value ?? '')}
                 placeholder="— select —"
                 isClearable
@@ -434,7 +475,7 @@ const ChartConfigModal: React.FC<{
               </label>
               <Select
                 styles={dialogSelectStyles}
-                value={draft.groupBy ? colOptions.find(o => o.value === draft.groupBy) ?? null : null}
+                value={draft.groupBy ? colOptionsFlat.find(o => o.value === draft.groupBy) ?? null : null}
                 options={colOptions}
                 onChange={opt => set('groupBy', opt?.value || undefined)}
                 placeholder="— none —"
