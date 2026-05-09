@@ -151,7 +151,16 @@ const ChartRenderer: React.FC<{
       </div>
     );
   }
-  const margin = { top: 4, right: 16, bottom: 4, left: 0 };
+  const xLabel = config.xLabel;
+  const yLabel = config.yLabel;
+  const margin = {
+    top: 4,
+    right: 16,
+    bottom: xLabel ? 28 : 4,
+    left: yLabel ? 16 : 0,
+  };
+  const xAxisLabel = xLabel ? { value: xLabel, position: 'insideBottom' as const, offset: -8, fontSize: 11, fill: 'var(--color-text-muted)' } : undefined;
+  const yAxisLabel = yLabel ? { value: yLabel, angle: -90, position: 'insideLeft' as const, offset: 8, fontSize: 11, fill: 'var(--color-text-muted)' } : undefined;
 
   if (config.type === 'table') {
     const valueCol = seriesKeys[0] ?? 'value';
@@ -216,8 +225,8 @@ const ChartRenderer: React.FC<{
       <ResponsiveContainer width="100%" height="100%">
         <ScatterChart margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-          <XAxis dataKey="x" name={config.xColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" />
-          <YAxis dataKey={seriesKeys[0]} name={config.yColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} />
+          <XAxis dataKey="x" name={config.xColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} />
+          <YAxis dataKey={seriesKeys[0]} name={config.yColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} />
           <Tooltip cursor={{ strokeDasharray: '3 3' }} />
           <Scatter data={data} fill={CHART_COLORS[0]} />
         </ScatterChart>
@@ -230,8 +239,8 @@ const ChartRenderer: React.FC<{
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-          <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" />
-          <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} />
+          <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} />
+          <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} />
           <Tooltip />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
@@ -247,8 +256,8 @@ const ChartRenderer: React.FC<{
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-          <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" />
-          <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} />
+          <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} />
+          <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} />
           <Tooltip />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
@@ -264,8 +273,8 @@ const ChartRenderer: React.FC<{
     <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data} margin={margin}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-        <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" />
-        <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} />
+        <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} />
+        <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} />
         <Tooltip />
         {seriesKeys.length > 1 && <Legend />}
         {seriesKeys.map((k, i) => (
@@ -408,6 +417,34 @@ const ChartConfigModal: React.FC<{
                 <option value="">— none —</option>
                 {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
+            </div>
+          )}
+          {draft.type !== 'pie' && draft.type !== 'table' && (
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontWeight: 500, fontSize: 13 }}>
+                  X axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
+                </label>
+                <input
+                  className="calendar-col-select"
+                  style={{ padding: '6px 8px' }}
+                  value={draft.xLabel ?? ''}
+                  onChange={e => set('xLabel', e.target.value || undefined)}
+                  placeholder="X axis label"
+                />
+              </div>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontWeight: 500, fontSize: 13 }}>
+                  Y axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
+                </label>
+                <input
+                  className="calendar-col-select"
+                  style={{ padding: '6px 8px' }}
+                  value={draft.yLabel ?? ''}
+                  onChange={e => set('yLabel', e.target.value || undefined)}
+                  placeholder="Y axis label"
+                />
+              </div>
             </div>
           )}
         </div>

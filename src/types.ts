@@ -51,6 +51,8 @@ export interface ChartConfig {
   yColumn: string;
   groupBy?: string;
   aggregate: AggregateFunc;
+  xLabel?: string;
+  yLabel?: string;
 }
 
 export interface ChartLayoutItem {
