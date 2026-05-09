@@ -20,7 +20,7 @@ const bookPrefix = (bookName?: string) => (bookName ? `/book/${encodeURIComponen
 const withBook = (bookName: string | undefined, suffix: string) => `${bookPrefix(bookName)}${suffix}`;
 
 // --- Add Sheet Menu (dropdown for "+ Spreadsheet" / "+ Chart") ---
-const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({ state, bookId }) => {
+const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string; onOpenReorderTabs?: () => void }> = ({ state, bookId, onOpenReorderTabs }) => {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -125,10 +125,96 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({
           <button className="add-sheet-option" onClick={() => { void addView(); }}>
             📅 Calendar View
           </button>
+          <button
+            className="add-sheet-option"
+            onClick={() => {
+              setOpen(false);
+              onOpenReorderTabs?.();
+            }}
+          >
+            Reorder tabs
+          </button>
 
         </div>
       )}
     </>
+  );
+};
+
+const TabOrderModal: React.FC<{ open: boolean; onClose: () => void; state: UseAppStateReturn }> = ({ open, onClose, state }) => {
+  if (!open) return null;
+
+  const sections: Array<{
+    title: string;
+    ids: string[];
+    move: (fromIndex: number, toIndex: number) => void;
+  }> = [
+    { title: 'Spreadsheets', ids: state.tableIds, move: state.reorderTables },
+    { title: 'Charts', ids: state.chartSheetIds, move: state.reorderCharts },
+    { title: 'Views', ids: state.viewSheetIds, move: state.reorderViews },
+  ];
+
+  return (
+    <div
+      className="app-dialog-overlay"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="app-dialog" style={{ width: 'min(560px, 94vw)', display: 'flex', flexDirection: 'column', color: 'var(--color-text)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--color-border)' }}>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>Reorder Tabs</span>
+          <button onClick={onClose} className="app-dialog-close" aria-label="Close">×</button>
+        </div>
+        <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '70vh', overflowY: 'auto' }}>
+          {sections.map((section) => (
+            <div key={section.title} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="app-dialog-label" style={{ marginBottom: 0 }}>{section.title}</div>
+              {section.ids.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>No {section.title.toLowerCase()}.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {section.ids.map((id, index) => (
+                    <div
+                      key={id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr auto auto',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '8px 10px',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 8,
+                        background: 'var(--color-surface)',
+                      }}
+                    >
+                      <span style={{ fontSize: 13 }}>{id}</span>
+                      <button
+                        className="app-dialog-btn app-dialog-btn-secondary"
+                        onClick={() => section.move(index, index - 1)}
+                        disabled={index === 0}
+                        title="Move up"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        className="app-dialog-btn app-dialog-btn-secondary"
+                        onClick={() => section.move(index, index + 1)}
+                        disabled={index === section.ids.length - 1}
+                        title="Move down"
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
+          <button className="app-dialog-btn app-dialog-btn-primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -1222,6 +1308,7 @@ const App: React.FC = () => {
   const currentView = (searchParams.get('view') ?? 'grid') as ViewType;
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
   const [draggingChartId, setDraggingChartId] = useState<string | null>(null);
+  const [tabOrderOpen, setTabOrderOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -1363,6 +1450,7 @@ const App: React.FC = () => {
 
   return (
     <div className="app">
+      <TabOrderModal open={tabOrderOpen} onClose={() => setTabOrderOpen(false)} state={state} />
       {/* Top bar */}
       <header className="app-header">
         <div className="header-left">
@@ -1466,7 +1554,7 @@ const App: React.FC = () => {
                 <span className="drive-status-dot connecting" style={{ position: 'static', border: 'none' }} />
               </span>
             ) : canEdit ? (
-              <AddSheetMenu state={state} bookId={headerBookId} />
+              <AddSheetMenu state={state} bookId={headerBookId} onOpenReorderTabs={() => setTabOrderOpen(true)} />
             ) : null}
           </div>
         )}

@@ -35,6 +35,7 @@ export interface UseAppStateReturn {
   renameColumn: (tableId: string, oldName: string, newName: string) => void;
   reorderTables: (fromIndex: number, toIndex: number) => void;
   reorderCharts: (fromIndex: number, toIndex: number) => void;
+  reorderViews: (fromIndex: number, toIndex: number) => void;
   updateSchema: (tableId: string, schema: TableSchema) => Promise<void>;
 
   // Row operations
@@ -527,6 +528,18 @@ export function useAppState(): UseAppStateReturn {
     });
   }, [activeBookId]);
 
+  const doReorderViews = useCallback((fromIndex: number, toIndex: number) => {
+    setViewSheetOrder(prev => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      if (activeBookId) {
+        Promise.all(next.map((name, i) => api.updateView(activeBookId, name, { displayOrder: i }))).catch(console.error);
+      }
+      return next;
+    });
+  }, [activeBookId]);
+
   const doUpdateSchema = useCallback(async (tableId: string, schema: TableSchema) => {
     if (!activeBookId) return;
 
@@ -883,6 +896,7 @@ export function useAppState(): UseAppStateReturn {
     renameColumn: doRenameColumn,
     reorderTables: doReorderTables,
     reorderCharts: doReorderCharts,
+    reorderViews: doReorderViews,
     updateSchema: doUpdateSchema,
 
     applyEdit,
