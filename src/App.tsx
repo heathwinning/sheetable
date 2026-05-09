@@ -77,6 +77,7 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string; onOpen
       selectOptions: tableOptions,
       selectDefault: defaultTable,
       inputPlaceholder: 'View name',
+      inputDefault: label,
       buttons: [
         { label: 'Cancel', value: 'cancel', variant: 'secondary' },
         { label: 'Create', value: 'ok', variant: 'primary' },
@@ -94,9 +95,27 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string; onOpen
     }
     if (!viewName) return;
     if (tableName === '__new__') {
-      // Navigate to new table creation first — user will need to create the view after
-      navigate(withBook(bookId, '/table/new'));
-      return;
+      // Ask for a name for the new table, then create it with a starter date column
+      const newTableName = await showDialog({
+        title: 'New Table Name',
+        message: 'Enter a name for the new table. It will be created with a Name and Date column.',
+        inputPlaceholder: 'Table name',
+        inputDefault: viewName,
+        buttons: [
+          { label: 'Cancel', value: 'cancel', variant: 'secondary' },
+          { label: 'Create', value: 'ok', variant: 'primary' },
+        ],
+      });
+      if (!newTableName || !newTableName.trim()) return;
+      tableName = newTableName.trim();
+      await state.createTable({
+        name: tableName,
+        columns: [
+          { name: 'Name', type: 'text' },
+          { name: 'Date', type: 'date' },
+        ],
+        uniqueKeys: [],
+      });
     }
     await state.createViewSheet(viewName, tableName, viewType);
     navigate(withBook(bookId, `/view/${encodeURIComponent(viewName)}`));

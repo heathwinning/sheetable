@@ -18,6 +18,7 @@ interface DialogConfig {
   message: string;
   buttons: DialogButton[];
   inputPlaceholder?: string;
+  inputDefault?: string;
   selectLabel?: string;
   selectOptions?: SelectOption[];
   selectDefault?: string;
@@ -91,7 +92,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const showDialog = useCallback((config: DialogConfig): Promise<string | null> => {
     return new Promise((resolve) => {
       resolveRef.current = resolve;
-      setInputValue('');
+      setInputValue(config.inputDefault ?? '');
       setSelectValue(config.selectDefault ?? config.selectOptions?.[0]?.value ?? '');
       setDialog(config);
     });
