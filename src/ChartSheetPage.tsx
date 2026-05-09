@@ -331,14 +331,14 @@ const ChartConfigModal: React.FC<{
       <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, width: 'min(440px, 94vw)', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 40px rgba(0,0,0,0.22)', color: 'var(--color-text)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--color-border)' }}>
           <span style={{ fontWeight: 600, fontSize: 15 }}>{isNew ? 'Add Chart' : 'Edit Chart'}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 18, lineHeight: 1, padding: '2px 4px' }}>×</button>
+          <button onClick={onClose} className="app-dialog-close" aria-label="Close">×</button>
         </div>
         <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontWeight: 500, fontSize: 13 }}>Title</label>
+            <label className="app-dialog-label" style={{ marginBottom: 0 }}>Title</label>
             <input
-              className="calendar-col-select"
-              style={{ padding: '6px 8px' }}
+              className="app-dialog-input"
+              style={{ marginBottom: 0 }}
               value={draft.title}
               onChange={e => set('title', e.target.value)}
               placeholder="Chart title"
@@ -346,8 +346,8 @@ const ChartConfigModal: React.FC<{
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontWeight: 500, fontSize: 13 }}>Type</label>
-              <select className="calendar-col-select" value={draft.type} onChange={e => set('type', e.target.value as ChartType)}>
+              <label className="app-dialog-label" style={{ marginBottom: 0 }}>Type</label>
+              <select className="app-dialog-select" value={draft.type} onChange={e => set('type', e.target.value as ChartType)}>
                 <option value="bar">Bar</option>
                 <option value="line">Line</option>
                 <option value="area">Area</option>
@@ -357,8 +357,8 @@ const ChartConfigModal: React.FC<{
               </select>
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontWeight: 500, fontSize: 13 }}>Table</label>
-              <select className="calendar-col-select" value={draft.table}
+              <label className="app-dialog-label" style={{ marginBottom: 0 }}>Table</label>
+              <select className="app-dialog-select" value={draft.table}
                 onChange={e => { set('table', e.target.value); set('xColumn', ''); set('yColumn', ''); }}>
                 {tableIds.map(id => <option key={id} value={id}>{id}</option>)}
               </select>
@@ -366,15 +366,15 @@ const ChartConfigModal: React.FC<{
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontWeight: 500, fontSize: 13 }}>X column</label>
-              <select className="calendar-col-select" value={draft.xColumn} onChange={e => set('xColumn', e.target.value)}>
+              <label className="app-dialog-label" style={{ marginBottom: 0 }}>X column</label>
+              <select className="app-dialog-select" value={draft.xColumn} onChange={e => set('xColumn', e.target.value)}>
                 <option value="">— select —</option>
                 {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontWeight: 500, fontSize: 13 }}>Aggregate</label>
-              <select className="calendar-col-select" value={draft.aggregate} onChange={e => set('aggregate', e.target.value as AggregateFunc)}>
+              <label className="app-dialog-label" style={{ marginBottom: 0 }}>Aggregate</label>
+              <select className="app-dialog-select" value={draft.aggregate} onChange={e => set('aggregate', e.target.value as AggregateFunc)}>
                 <option value="count">Count</option>
                 <option value="sum">Sum</option>
                 <option value="avg">Average</option>
@@ -386,8 +386,8 @@ const ChartConfigModal: React.FC<{
           </div>
           {needsYCol && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontWeight: 500, fontSize: 13 }}>Y column</label>
-              <select className="calendar-col-select" value={draft.yColumn} onChange={e => set('yColumn', e.target.value)}>
+              <label className="app-dialog-label" style={{ marginBottom: 0 }}>Y column</label>
+              <select className="app-dialog-select" value={draft.yColumn} onChange={e => set('yColumn', e.target.value)}>
                 <option value="">— select —</option>
                 {(draft.aggregate === 'none' ? allPaths : numericPaths).map(p => (
                   <option key={p.path} value={p.path}>{p.label}</option>
@@ -397,10 +397,10 @@ const ChartConfigModal: React.FC<{
           )}
           {hasGroupBy && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontWeight: 500, fontSize: 13 }}>
+              <label className="app-dialog-label" style={{ marginBottom: 0 }}>
                 Group by <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
               </label>
-              <select className="calendar-col-select" value={draft.groupBy ?? ''} onChange={e => set('groupBy', e.target.value || undefined)}>
+              <select className="app-dialog-select" value={draft.groupBy ?? ''} onChange={e => set('groupBy', e.target.value || undefined)}>
                 <option value="">— none —</option>
                 {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
@@ -409,24 +409,24 @@ const ChartConfigModal: React.FC<{
           {draft.type !== 'pie' && draft.type !== 'table' && (
             <div style={{ display: 'flex', gap: 12 }}>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontWeight: 500, fontSize: 13 }}>
+                <label className="app-dialog-label" style={{ marginBottom: 0 }}>
                   X axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
                 </label>
                 <input
-                  className="calendar-col-select"
-                  style={{ padding: '6px 8px' }}
+                  className="app-dialog-input"
+                  style={{ marginBottom: 0 }}
                   value={draft.xLabel ?? ''}
                   onChange={e => set('xLabel', e.target.value || undefined)}
                   placeholder="X axis label"
                 />
               </div>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontWeight: 500, fontSize: 13 }}>
+                <label className="app-dialog-label" style={{ marginBottom: 0 }}>
                   Y axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
                 </label>
                 <input
-                  className="calendar-col-select"
-                  style={{ padding: '6px 8px' }}
+                  className="app-dialog-input"
+                  style={{ marginBottom: 0 }}
                   value={draft.yLabel ?? ''}
                   onChange={e => set('yLabel', e.target.value || undefined)}
                   placeholder="Y axis label"
