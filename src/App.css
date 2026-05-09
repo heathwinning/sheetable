@@ -1045,6 +1045,14 @@ body {
   @apply flex items-center gap-1;
 }
 
+.calendar-toolbar-segmented {
+  @apply inline-flex items-center border border-border rounded-md overflow-hidden bg-surface;
+}
+
+.calendar-toolbar-year-group {
+  @apply inline-flex items-center gap-1 ml-1 pl-2 border-l border-border;
+}
+
 .calendar-toolbar-btn {
   @apply px-2.5 py-1 text-[13px] font-medium border border-border rounded bg-transparent text-text-muted cursor-pointer transition-colors;
 }
@@ -1056,6 +1064,19 @@ body {
 .calendar-toolbar-btn.active {
   @apply text-primary border-primary;
   box-shadow: inset 0 -1px 0 var(--color-primary);
+}
+
+.calendar-toolbar-segment-btn {
+  @apply border-0 rounded-none border-r border-border;
+}
+
+.calendar-toolbar-segment-btn:last-child {
+  @apply border-r-0;
+}
+
+.calendar-toolbar-segment-btn.active {
+  @apply bg-cell-selected;
+  box-shadow: inset 0 -2px 0 var(--color-primary);
 }
 
 .calendar-toolbar-select {
