@@ -234,29 +234,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       {/* Toolbar row */}
       <div className="calendar-toolbar">
         <div className="calendar-toolbar-group">
-          <div className="calendar-toolbar-segmented" role="group" aria-label="View mode">
-          <button
-            className={`calendar-toolbar-btn calendar-toolbar-segment-btn ${viewMode === 'calendar' ? 'active' : ''}`}
-            onClick={() => {
-              setTemporaryDrilldown(false);
-              setAgendaDateFilter(null);
-              setViewMode('calendar');
-            }}
-          >
-            Calendar
-          </button>
-          <button
-            className={`calendar-toolbar-btn calendar-toolbar-segment-btn ${viewMode === 'agenda' ? 'active' : ''}`}
-            onClick={() => {
-              setTemporaryDrilldown(false);
-              setAgendaDateFilter(null);
-              setViewMode('agenda');
-            }}
-          >
-            Agenda
-          </button>
-          </div>
-
           <div className="calendar-toolbar-year-group">
           <select
             className="calendar-toolbar-select"
@@ -353,6 +330,31 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               )}
             </div>
           )}
+        </div>
+
+        <div className="calendar-toolbar-group calendar-toolbar-group-right">
+          <div className="calendar-toolbar-segmented" role="group" aria-label="View mode">
+            <button
+              className={`calendar-toolbar-btn calendar-toolbar-segment-btn ${viewMode === 'calendar' ? 'active' : ''}`}
+              onClick={() => {
+                setTemporaryDrilldown(false);
+                setAgendaDateFilter(null);
+                setViewMode('calendar');
+              }}
+            >
+              Calendar
+            </button>
+            <button
+              className={`calendar-toolbar-btn calendar-toolbar-segment-btn ${viewMode === 'agenda' ? 'active' : ''}`}
+              onClick={() => {
+                setTemporaryDrilldown(false);
+                setAgendaDateFilter(null);
+                setViewMode('agenda');
+              }}
+            >
+              Agenda
+            </button>
+          </div>
         </div>
       </div>
 

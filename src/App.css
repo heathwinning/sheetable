@@ -1045,6 +1045,10 @@ body {
   @apply flex items-center gap-1;
 }
 
+.calendar-toolbar-group-right {
+  @apply ml-auto;
+}
+
 .calendar-toolbar-segmented {
   @apply inline-flex items-center border border-border rounded-md overflow-hidden bg-surface;
 }
