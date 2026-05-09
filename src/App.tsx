@@ -12,8 +12,6 @@ import type { UseAppStateReturn } from './useAppState';
 import type { BookMember, BookInvite } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { CalendarView } from './CalendarView';
-
-type ViewType = 'grid' | 'calendar';
 import './App.css';
 
 const bookPrefix = (bookName?: string) => (bookName ? `/book/${encodeURIComponent(bookName)}` : '');
@@ -260,33 +258,6 @@ const ImportMenu: React.FC<{ bookId?: string; tableId: string }> = ({ bookId, ta
 const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { tableId, bookId } = useParams<{ tableId: string; bookId?: string }>();
   const showAlert = useAlert();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const viewType = (searchParams.get('view') ?? 'grid') as ViewType;
-
-  const viewStorageKey = `sheetable-view-${state.activeBookId}-${tableId}`;
-
-  // On mount / table change: restore saved view if URL has no ?view param
-  useEffect(() => {
-    if (!searchParams.has('view')) {
-      const saved = localStorage.getItem(viewStorageKey);
-      if (saved && saved !== 'grid') {
-        setSearchParams(prev => {
-          const next = new URLSearchParams(prev);
-          next.set('view', saved);
-          return next;
-        }, { replace: true });
-      }
-    }
-  }, [tableId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Persist view whenever it changes
-  useEffect(() => {
-    if (viewType === 'grid') {
-      localStorage.removeItem(viewStorageKey);
-    } else {
-      localStorage.setItem(viewStorageKey, viewType);
-    }
-  }, [viewType, viewStorageKey]);
 
   // Sync URL param to active table
   useEffect(() => {
@@ -297,24 +268,6 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
   const activeSchema = tableId ? state.getSchema(tableId) : null;
   const activeRows = tableId ? state.getRows(tableId) : [];
-
-  // Date column selection for calendar/schedule views
-  const dateColumns = useMemo(
-    () => activeSchema?.columns.filter(c => c.type === 'date' || c.type === 'datetime') ?? [],
-    [activeSchema],
-  );
-  const storageKey = `sheetable-date-col-${state.activeBookId}-${tableId}`;
-  const [dateColumnOverride, setDateColumnOverride] = useState<string | null>(
-    () => localStorage.getItem(storageKey),
-  );
-  const dateColumn =
-    (dateColumnOverride && dateColumns.some(c => c.name === dateColumnOverride))
-      ? dateColumnOverride
-      : (dateColumns[0]?.name ?? null);
-  const handleDateColumnChange = (col: string) => {
-    setDateColumnOverride(col);
-    localStorage.setItem(storageKey, col);
-  };
 
   const runUndo = () => {
     const errors = state.undo();
@@ -338,32 +291,11 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [state]);
 
-  // Decide effective view — fall back to grid if schema has no date columns
-  const effectiveView: ViewType =
-    viewType === 'calendar' && !dateColumn
-      ? 'grid'
-      : viewType;
-
   return (
     <div className="app-body">
       {/* Main content */}
       <div className="main-content">
         {tableId && activeSchema ? (
-          effectiveView === 'calendar' && dateColumn ? (
-            <CalendarView
-              schema={activeSchema}
-              rows={activeRows}
-              dateColumn={dateColumn}
-              onDateColumnChange={handleDateColumnChange}
-              resolveColumnPath={(row, path) => state.resolveColumnPath(tableId, row, path)}
-              onCreateRow={(row) => state.insertRow(tableId, row)}
-              onUpdateField={(rowIndex, col, val) => state.applyEdit(tableId, rowIndex, col, val)}
-              getReferenceRows={(refTable) => state.getReferenceRows(refTable)}
-              bookId={state.activeBookId}
-              readOnly={state.activeBookRole === 'viewer'}
-              configKey={`${state.activeBookId}-${tableId}`}
-            />
-          ) : (
           <SpreadsheetGrid
             key={tableId}
             schema={activeSchema}
@@ -405,7 +337,6 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             resolveColumnPath={state.resolveColumnPath}
             resolveColumnPathLabel={state.resolveColumnPathLabel}
           />
-          )
         ) : (
           <div className="empty-state-main">
             <h2>No table selected</h2>
@@ -1304,8 +1235,6 @@ const InviteAcceptPage: React.FC<{ state: ReturnType<typeof useAppState> }> = ({
 const App: React.FC = () => {
   const state = useAppState();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [searchParams, setSearchParams] = useSearchParams();
-  const currentView = (searchParams.get('view') ?? 'grid') as ViewType;
   const [tabOrderOpen, setTabOrderOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -1384,22 +1313,6 @@ const App: React.FC = () => {
   const viewMatch = location.pathname.match(/\/view\/([^/]+)$/);
   const headerViewId = viewMatch ? decodeURIComponent(viewMatch[1]) : null;
   const headerViewTableId = headerViewId ? (state.getViewSheet(headerViewId)?.tableName ?? null) : null;
-
-  // Determine if the current table has date/datetime columns (for view switcher visibility)
-  const headerTableHasDates = useMemo(() => {
-    if (!headerTableId) return false;
-    const schema = state.getSchema(headerTableId);
-    return schema?.columns.some(c => c.type === 'date' || c.type === 'datetime') ?? false;
-  }, [headerTableId, state.revision]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const setView = (v: ViewType) => {
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      if (v === 'grid') next.delete('view');
-      else next.set('view', v);
-      return next;
-    }, { replace: true });
-  };
 
   const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
 
@@ -1507,30 +1420,6 @@ const App: React.FC = () => {
           </div>
         )}
         <div className="header-right">
-          {isTableView && headerTableId && headerTableHasDates && (
-            <div className="view-switcher">
-              <button
-                className={`view-switch-btn${currentView === 'grid' ? ' active' : ''}`}
-                onClick={() => setView('grid')}
-                title="Grid view"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-                  <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
-                </svg>
-              </button>
-              <button
-                className={`view-switch-btn${currentView === 'calendar' ? ' active' : ''}`}
-                onClick={() => setView('calendar')}
-                title="Calendar view"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
-                  <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-                </svg>
-              </button>
-            </div>
-          )}
           {headerViewId && headerViewTableId && (
             <div className="header-actions">
               {canEdit && (
