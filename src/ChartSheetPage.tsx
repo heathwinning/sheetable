@@ -55,7 +55,7 @@ function aggregateData(
     const colon = expr.lastIndexOf(':');
     if (colon < 0) return { col: expr, feature: null };
     const maybeFeature = expr.slice(colon + 1) as DateFeature;
-    const validFeatures: DateFeature[] = ['year', 'quarter', 'month', 'monthnum', 'week', 'dayofweek', 'day', 'hour'];
+    const validFeatures: DateFeature[] = ['year', 'quarter', 'yearmonth', 'month', 'monthnum', 'week', 'dayofweek', 'day', 'hour'];
     if (!validFeatures.includes(maybeFeature)) return { col: expr, feature: null };
     return { col: expr.slice(0, colon), feature: maybeFeature };
   };
@@ -73,6 +73,7 @@ function aggregateData(
     switch (expr.feature) {
       case 'year': return String(d.getFullYear());
       case 'quarter': return `Q${Math.ceil((d.getMonth() + 1) / 3)}`;
+      case 'yearmonth': return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       case 'month': return d.toLocaleString('default', { month: 'long' });
       case 'monthnum': return String(d.getMonth() + 1).padStart(2, '0');
       case 'week': {
@@ -324,6 +325,7 @@ const ChartConfigModal: React.FC<{
   const DATE_FEATURES: { value: DateFeature; label: string }[] = [
     { value: 'year', label: 'Year' },
     { value: 'quarter', label: 'Quarter' },
+    { value: 'yearmonth', label: 'Year-Month' },
     { value: 'month', label: 'Month name' },
     { value: 'monthnum', label: 'Month #' },
     { value: 'week', label: 'Week of year' },
