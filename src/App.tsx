@@ -10,6 +10,7 @@ import { rowsToCSV } from './csv';
 import * as api from './api';
 import type { UseAppStateReturn } from './useAppState';
 import type { BookMember, BookInvite } from './types';
+import { INTERNAL_ROW_ID } from './types';
 import { CalendarView } from './CalendarView';
 
 type ViewType = 'grid' | 'calendar';
@@ -556,26 +557,63 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const [editTable, setEditTable] = useState('');
   const [editViewType, setEditViewType] = useState<'grid' | 'calendar'>('calendar');
   const [editDateCol, setEditDateCol] = useState('');
+  const [editDisplayCols, setEditDisplayCols] = useState<string[]>([]);
+  const [viewDisplayCols, setViewDisplayCols] = useState<string[]>([]);
+
+  const getCalColsStorageKey = (tableName: string) => `sheetable-cal-cols-${state.activeBookId}-${tableName}`;
+
+  const loadStoredDisplayCols = (tableName: string): string[] => {
+    try {
+      const saved = localStorage.getItem(getCalColsStorageKey(tableName));
+      return saved ? JSON.parse(saved) as string[] : [];
+    } catch {
+      return [];
+    }
+  };
 
   useEffect(() => {
     if (!viewSheet) return;
     setEditTable(viewSheet.tableName);
     setEditViewType(viewSheet.viewType === 'schedule' ? 'calendar' : viewSheet.viewType);
     setEditDateCol(viewSheet.dateColumn ?? '');
+    const cols = loadStoredDisplayCols(viewSheet.tableName);
+    setEditDisplayCols(cols);
+    setViewDisplayCols(cols);
   }, [viewSheet?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!editOpen || !editTable) return;
+    setEditDisplayCols(loadStoredDisplayCols(editTable));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editOpen, editTable]);
 
   const dateColumnsForTable = useMemo(
     () => state.getSchema(editTable)?.columns.filter(c => c.type === 'date' || c.type === 'datetime') ?? [],
     [editTable, state.revision], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  const displayableColsForTable = useMemo(
+    () => state.getSchema(editTable)?.columns.filter(c => c.name !== INTERNAL_ROW_ID && c.type !== 'date' && c.type !== 'datetime' && c.type !== 'image') ?? [],
+    [editTable, state.revision], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   const saveConfig = async () => {
     if (!viewId || !viewSheet) return;
+    if (editViewType === 'calendar') {
+      localStorage.setItem(getCalColsStorageKey(editTable), JSON.stringify(editDisplayCols));
+      if (editTable === viewSheet.tableName) {
+        setViewDisplayCols(editDisplayCols);
+      }
+    }
     await state.updateViewSheet(viewId, {
       tableName: editTable,
       viewType: editViewType,
       dateColumn: editDateCol || undefined,
     });
+
+    if (editTable !== viewSheet.tableName) {
+      setViewDisplayCols(editDisplayCols);
+    }
     setEditOpen(false);
   };
 
@@ -626,45 +664,73 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
       {/* Config modal */}
       {editOpen && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }}
+          className="app-dialog-overlay"
           onMouseDown={e => { if (e.target === e.currentTarget) setEditOpen(false); }}
         >
-          <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, width: 'min(400px, 94vw)', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 40px rgba(0,0,0,0.22)', color: 'var(--color-text)', overflow: 'hidden' }}>
+          <div className="app-dialog" style={{ width: 'min(420px, 94vw)', display: 'flex', flexDirection: 'column', color: 'var(--color-text)', overflow: 'hidden' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--color-border)' }}>
               <span style={{ fontWeight: 600, fontSize: 15 }}>Configure View</span>
-              <button onClick={() => setEditOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 18, lineHeight: 1, padding: '2px 4px' }} aria-label="Close">×</button>
+              <button onClick={() => setEditOpen(false)} className="app-dialog-close" aria-label="Close">×</button>
             </div>
             <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontWeight: 500, fontSize: 13 }}>Table</label>
-                <select className="calendar-col-select" value={editTable} onChange={e => { setEditTable(e.target.value); setEditDateCol(''); }}>
+                <label className="app-dialog-label" style={{ marginBottom: 0 }}>Table</label>
+                <select className="app-dialog-select" value={editTable} onChange={e => { setEditTable(e.target.value); setEditDateCol(''); }}>
                   {state.tableIds.map(id => <option key={id} value={id}>{id}</option>)}
                 </select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontWeight: 500, fontSize: 13 }}>View type</label>
-                <select className="calendar-col-select" value={editViewType} onChange={e => setEditViewType(e.target.value as 'grid' | 'calendar')}>
+                <label className="app-dialog-label" style={{ marginBottom: 0 }}>View type</label>
+                <select className="app-dialog-select" value={editViewType} onChange={e => setEditViewType(e.target.value as 'grid' | 'calendar')}>
                   <option value="grid">Grid</option>
                   <option value="calendar">Calendar</option>
                 </select>
               </div>
               {editViewType === 'calendar' && dateColumnsForTable.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label style={{ fontWeight: 500, fontSize: 13 }}>Date column</label>
-                  <select className="calendar-col-select" value={editDateCol || dateColumnsForTable[0]?.name} onChange={e => setEditDateCol(e.target.value)}>
+                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Date column</label>
+                  <select className="app-dialog-select" value={editDateCol || dateColumnsForTable[0]?.name} onChange={e => setEditDateCol(e.target.value)}>
                     {dateColumnsForTable.map(c => <option key={c.name} value={c.name}>{c.displayName ?? c.name}</option>)}
                   </select>
+                </div>
+              )}
+              {editViewType === 'calendar' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Event text columns</label>
+                  {displayableColsForTable.length === 0 ? (
+                    <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>No columns available</div>
+                  ) : (
+                    <div style={{ maxHeight: 170, overflowY: 'auto', border: '1px solid var(--color-border)', borderRadius: 8, padding: '8px 10px', background: 'var(--color-surface)' }}>
+                      {displayableColsForTable.map(col => {
+                        const checked = editDisplayCols.includes(col.name);
+                        return (
+                          <label key={col.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 13 }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setEditDisplayCols(prev => prev.includes(col.name) ? prev.filter(n => n !== col.name) : [...prev, col.name]);
+                              }}
+                              style={{ accentColor: 'var(--color-primary)' }}
+                            />
+                            <span>{col.displayName ?? col.name}</span>
+                            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--color-text-muted)' }}>{col.type}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => { setEditOpen(false); void doRename(); }}>Rename</button>
-                <button className="btn-secondary" style={{ fontSize: 12, color: 'var(--color-danger)' }} onClick={() => { setEditOpen(false); void doDelete(); }}>Delete</button>
+                <button className="app-dialog-btn app-dialog-btn-secondary" onClick={() => { setEditOpen(false); void doRename(); }}>Rename</button>
+                <button className="app-dialog-btn app-dialog-btn-secondary" style={{ color: 'var(--color-danger)' }} onClick={() => { setEditOpen(false); void doDelete(); }}>Delete</button>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn-secondary" onClick={() => setEditOpen(false)}>Cancel</button>
-                <button className="btn-primary" onClick={() => { void saveConfig(); }}>Save</button>
+                <button className="app-dialog-btn app-dialog-btn-secondary" onClick={() => setEditOpen(false)}>Cancel</button>
+                <button className="app-dialog-btn app-dialog-btn-primary" onClick={() => { void saveConfig(); }}>Save</button>
               </div>
             </div>
           </div>
@@ -691,6 +757,9 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             readOnly={!canEdit}
             bookId={state.activeBookId}
             configKey={`${state.activeBookId}-${viewSheet.tableName}`}
+            displayColumnNames={viewDisplayCols}
+            onDisplayColumnNamesChange={setViewDisplayCols}
+            showInlineConfig={false}
           />
         ) : (
           <SpreadsheetGrid

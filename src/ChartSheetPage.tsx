@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import type { UseAppStateReturn } from './useAppState';
-import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row } from './types';
+import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, ColumnDef } from './types';
 import { useConfirm } from './DialogProvider';
 
 const RGL = WidthProvider(GridLayout);
@@ -41,9 +41,28 @@ function aggregateData(
   xCol: string,
   yCol: string,
   agg: AggregateFunc,
-  groupBy?: string,
+  groupBy: string | undefined,
+  schema: ColumnDef[],
+  getRows: (tableId: string) => Row[],
 ): { data: Record<string, unknown>[]; seriesKeys: string[] } {
   if (!xCol) return { data: [], seriesKeys: [] };
+
+  // Build ref resolvers for columns that are references
+  const makeResolver = (colName: string) => {
+    const colDef = schema.find(c => c.name === colName);
+    if (colDef?.type !== 'reference' || !colDef.refTable) return null;
+    const refRows = getRows(colDef.refTable);
+    const displayCol = colDef.refDisplayColumns?.[0];
+    const map = new Map<string, string>();
+    for (const rr of refRows) {
+      const id = String(rr['_rowId'] ?? '');
+      const display = displayCol ? String(rr[displayCol] ?? id) : id;
+      if (id) map.set(id, display);
+    }
+    return (id: string) => map.get(id) ?? id;
+  };
+  const resolveX = makeResolver(xCol);
+  const resolveG = groupBy ? makeResolver(groupBy) : null;
 
   if (groupBy) {
     const xOrder: string[] = [];
@@ -51,8 +70,8 @@ function aggregateData(
     const seenG = new Set<string>();
     const groups = new Map<string, Map<string, number[]>>();
     for (const row of rows) {
-      const x = String(row[xCol] ?? '');
-      const g = String(row[groupBy] ?? '');
+      const x = resolveX ? resolveX(String(row[xCol] ?? '')) : String(row[xCol] ?? '');
+      const g = resolveG ? resolveG(String(row[groupBy] ?? '')) : String(row[groupBy] ?? '');
       if (!seenX.has(x)) { xOrder.push(x); seenX.add(x); }
       seenG.add(g);
       if (!groups.has(x)) groups.set(x, new Map());
@@ -74,7 +93,7 @@ function aggregateData(
   const seenX = new Set<string>();
   const groups = new Map<string, number[]>();
   for (const row of rows) {
-    const x = String(row[xCol] ?? '');
+    const x = resolveX ? resolveX(String(row[xCol] ?? '')) : String(row[xCol] ?? '');
     if (!seenX.has(x)) { xOrder.push(x); seenX.add(x); }
     if (!groups.has(x)) groups.set(x, []);
     groups.get(x)!.push(agg === 'count' ? 1 : toNum(row[yCol]));
@@ -124,7 +143,7 @@ const ChartRenderer: React.FC<{
         <ScatterChart margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
           <XAxis dataKey="x" name={config.xColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" />
-          <YAxis dataKey={seriesKeys[0]} name={config.yColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" />
+          <YAxis dataKey={seriesKeys[0]} name={config.yColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} />
           <Tooltip cursor={{ strokeDasharray: '3 3' }} />
           <Scatter data={data} fill={CHART_COLORS[0]} />
         </ScatterChart>
@@ -138,7 +157,7 @@ const ChartRenderer: React.FC<{
         <BarChart data={data} margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
           <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" />
-          <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" />
+          <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} />
           <Tooltip />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
@@ -155,7 +174,7 @@ const ChartRenderer: React.FC<{
         <LineChart data={data} margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
           <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" />
-          <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" />
+          <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} />
           <Tooltip />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
@@ -172,7 +191,7 @@ const ChartRenderer: React.FC<{
       <AreaChart data={data} margin={margin}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
         <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" />
-        <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" />
+        <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} />
         <Tooltip />
         {seriesKeys.length > 1 && <Legend />}
         {seriesKeys.map((k, i) => (
@@ -202,7 +221,7 @@ const ChartConfigModal: React.FC<{
 }> = ({ config, isNew, tableIds, getColumns, onSave, onClose }) => {
   const [draft, setDraft] = useState<ChartConfig>(config);
   const cols = getColumns(draft.table);
-  const numericCols = cols.filter(c => c.type === 'integer' || c.type === 'decimal');
+  const numericCols = cols.filter(c => c.type !== 'reference' && c.type !== 'image' && c.type !== 'bool');
   const hasGroupBy = draft.type === 'bar' || draft.type === 'line' || draft.type === 'area';
   const needsYCol = draft.aggregate !== 'count';
   const canSave = !!draft.xColumn && (!needsYCol || !!draft.yColumn);
@@ -449,7 +468,8 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           >
             {charts.map(chart => {
               const rows = state.getRows(chart.table);
-              const { data, seriesKeys } = aggregateData(rows, chart.xColumn, chart.yColumn, chart.aggregate, chart.groupBy);
+              const schema = state.getSchema(chart.table)?.columns ?? [];
+              const { data, seriesKeys } = aggregateData(rows, chart.xColumn, chart.yColumn, chart.aggregate, chart.groupBy, schema, state.getRows);
               return (
                 <div
                   key={chart.id}

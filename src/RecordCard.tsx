@@ -87,12 +87,12 @@ const ImageField: React.FC<{
         </div>
       )}
       {!readOnly && (
-        <button onClick={handleUpload} disabled={uploading} style={{ ...btnSecondary, fontSize: 12 }}>
+        <button onClick={handleUpload} disabled={uploading} className="app-dialog-btn app-dialog-btn-secondary btn-sm">
           {uploading ? 'Uploading…' : value ? 'Change' : 'Upload'}
         </button>
       )}
       {!readOnly && value && (
-        <button onClick={() => onChange('')} style={{ ...btnSecondary, fontSize: 12, color: 'var(--color-danger)' }}>
+        <button onClick={() => onChange('')} className="app-dialog-btn app-dialog-btn-secondary btn-sm" style={{ color: 'var(--color-danger)' }}>
           Remove
         </button>
       )}
@@ -175,27 +175,16 @@ export const RecordCard: React.FC<RecordCardProps> = ({
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.45)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 3000,
-      }}
+      className="app-dialog-overlay"
       onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
+        className="app-dialog record-card-dialog"
         style={{
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 12,
           width: 'min(520px, 94vw)',
           maxHeight: '88vh',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 12px 40px rgba(0,0,0,0.22)',
           color: 'var(--color-text)',
           overflow: 'hidden',
         }}
@@ -212,7 +201,7 @@ export const RecordCard: React.FC<RecordCardProps> = ({
           <span style={{ fontWeight: 600, fontSize: 15 }}>{title}</span>
           <button
             onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 18, lineHeight: 1, padding: '2px 4px' }}
+            className="app-dialog-close"
             aria-label="Close"
           >
             ×
@@ -257,7 +246,7 @@ export const RecordCard: React.FC<RecordCardProps> = ({
                       ) || '—'}
                     </span>
                   ) : (
-                    <select value={value} onChange={e => set(col.name, e.target.value)} style={inputStyle}>
+                    <select value={value} onChange={e => set(col.name, e.target.value)} className="app-dialog-select">
                       <option value="">— none —</option>
                       {getReferenceRows(col.refTable).map(refRow => (
                         <option key={refRow[INTERNAL_ROW_ID]} value={refRow[INTERNAL_ROW_ID] ?? ''}>
@@ -270,7 +259,7 @@ export const RecordCard: React.FC<RecordCardProps> = ({
                   readOnly ? (
                     <span style={valueStyle}>{value || '—'}</span>
                   ) : (
-                    <input type="date" value={value} onChange={e => set(col.name, e.target.value)} style={inputStyle} />
+                    <input type="date" value={value} onChange={e => set(col.name, e.target.value)} className="app-dialog-input" style={fieldInputStyle} />
                   )
                 ) : col.type === 'datetime' ? (
                   readOnly ? (
@@ -280,7 +269,8 @@ export const RecordCard: React.FC<RecordCardProps> = ({
                       type="datetime-local"
                       value={value ? value.replace('Z', '').slice(0, 16) : ''}
                       onChange={e => set(col.name, e.target.value ? new Date(e.target.value).toISOString() : '')}
-                      style={inputStyle}
+                      className="app-dialog-input"
+                      style={fieldInputStyle}
                     />
                   )
                 ) : (
@@ -291,7 +281,8 @@ export const RecordCard: React.FC<RecordCardProps> = ({
                       type={col.type === 'integer' || col.type === 'decimal' ? 'number' : 'text'}
                       value={value}
                       onChange={e => set(col.name, e.target.value)}
-                      style={inputStyle}
+                      className="app-dialog-input"
+                      style={fieldInputStyle}
                       step={col.type === 'decimal' ? 'any' : undefined}
                     />
                   )
@@ -310,18 +301,18 @@ export const RecordCard: React.FC<RecordCardProps> = ({
         {/* Footer */}
         <div style={{
           display: 'flex',
-          justifyContent: 'flex-end',
+          justifyContent: 'space-between',
           gap: 8,
           padding: '12px 20px',
           borderTop: '1px solid var(--color-border)',
           flexShrink: 0,
           background: 'var(--color-surface)',
         }}>
-          <button onClick={onClose} style={btnSecondary}>
+          <button onClick={onClose} className="app-dialog-btn app-dialog-btn-secondary">
             {readOnly ? 'Close' : 'Cancel'}
           </button>
           {!readOnly && onSave && (
-            <button onClick={handleSave} style={btnPrimary}>
+            <button onClick={handleSave} className="app-dialog-btn app-dialog-btn-primary">
               Save
             </button>
           )}
@@ -333,16 +324,8 @@ export const RecordCard: React.FC<RecordCardProps> = ({
 
 // ---- Shared styles ----------------------------------------------------------
 
-const inputStyle: React.CSSProperties = {
-  background: 'var(--color-bg)',
-  border: '1px solid var(--color-border)',
-  borderRadius: 6,
-  padding: '7px 10px',
-  fontSize: 13,
-  color: 'var(--color-text)',
-  width: '100%',
-  boxSizing: 'border-box',
-  outline: 'none',
+const fieldInputStyle: React.CSSProperties = {
+  marginBottom: 0,
 };
 
 const valueStyle: React.CSSProperties = {
@@ -351,24 +334,3 @@ const valueStyle: React.CSSProperties = {
   padding: '7px 0',
 };
 
-const btnPrimary: React.CSSProperties = {
-  padding: '8px 20px',
-  borderRadius: 6,
-  fontSize: 13,
-  fontWeight: 500,
-  cursor: 'pointer',
-  background: 'var(--color-primary)',
-  color: '#fff',
-  border: 'none',
-};
-
-const btnSecondary: React.CSSProperties = {
-  padding: '8px 16px',
-  borderRadius: 6,
-  fontSize: 13,
-  fontWeight: 500,
-  cursor: 'pointer',
-  background: 'var(--color-surface-2)',
-  color: 'var(--color-text)',
-  border: '1px solid var(--color-border)',
-};

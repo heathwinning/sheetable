@@ -60,64 +60,47 @@ const MonthGrid: React.FC<{
   }, [events]);
 
   return (
-    <div style={{ marginBottom: 32 }}>
+    <div className="calendar-month-grid">
       {/* Day-of-week headers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 4 }}>
+      <div className="calendar-grid-headers">
         {DAY_NAMES.map(d => (
-          <div key={d} style={{ textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', paddingBottom: 4 }}>{d}</div>
+          <div key={d} className="calendar-grid-header">{d}</div>
         ))}
       </div>
       {/* Day cells */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px 0' }}>
+      <div className="calendar-grid-days">
         {days.map((day, _i) => {
           const inMonth = isSameMonth(day, monthStart);
           const today = isToday(day);
           const key = format(day, 'yyyy-MM-dd');
-          const dayEvents = eventsByDay.get(key) ?? [];
+          const dayEvents = inMonth ? (eventsByDay.get(key) ?? []) : [];
           return (
             <div
               key={key}
               ref={today ? (todayRef as React.RefObject<HTMLDivElement>) : undefined}
               onClick={() => inMonth && onSelectDate?.(day)}
-              style={{
-                padding: '4px 2px',
-                minHeight: 54,
-                opacity: inMonth ? 1 : 0.25,
-                borderTop: '1px solid var(--color-border)',
-                cursor: inMonth && onSelectDate ? 'pointer' : 'default',
-                borderRadius: 4,
-                transition: 'background 0.1s',
-              }}
-              onMouseEnter={e => { if (inMonth && onSelectDate) (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-2)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = ''; }}
+              className={`calendar-day-cell ${inMonth ? 'in-month' : 'not-in-month'}`}
             >
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 3 }}>
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  width: 26, height: 26, borderRadius: '50%', fontSize: 13,
-                  fontWeight: today ? 700 : 400,
-                  color: today ? '#fff' : 'var(--color-text)',
-                  background: today ? 'var(--color-primary)' : 'transparent',
-                }}>
-                  {format(day, 'd')}
-                </span>
-              </div>
-              {dayEvents.slice(0, 3).map((ev, j) => (
-                <div
-                  key={j}
-                  onClick={e => { e.stopPropagation(); onSelectEvent?.(ev); }}
-                  style={{
-                    background: 'var(--color-cell-selected)', color: 'var(--color-primary)',
-                    fontSize: 10, fontWeight: 500, borderRadius: 3, padding: '1px 4px',
-                    marginBottom: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-                    cursor: onSelectEvent ? 'pointer' : 'default',
-                  }}
-                >
-                  {ev.title}
-                </div>
-              ))}
-              {dayEvents.length > 3 && (
-                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', paddingLeft: 4 }}>+{dayEvents.length - 3} more</div>
+              {inMonth && (
+                <>
+                  <div className="calendar-day-number-container">
+                    <span className={`calendar-day-number ${today ? 'today' : ''}`}>
+                      {format(day, 'd')}
+                    </span>
+                  </div>
+                  {dayEvents.slice(0, 3).map((ev, j) => (
+                    <div
+                      key={j}
+                      onClick={e => { e.stopPropagation(); onSelectEvent?.(ev); }}
+                      className={`calendar-event-item ${onSelectEvent ? '' : 'not-clickable'}`}
+                    >
+                      {ev.title}
+                    </div>
+                  ))}
+                  {dayEvents.length > 3 && (
+                    <div className="calendar-event-overflow">+{dayEvents.length - 3} more</div>
+                  )}
+                </>
               )}
             </div>
           );
@@ -132,14 +115,17 @@ const MonthGrid: React.FC<{
 export const AgendaView: React.FC<{
   events: ScrollEvent[];
   year: number;
+  selectedDate?: Date | null;
   todayRef: React.RefObject<HTMLDivElement | null>;
   onSelectEvent?: (event: ScrollEvent) => void;
-}> = ({ events, year, todayRef, onSelectEvent }) => {
+}> = ({ events, year, selectedDate = null, todayRef, onSelectEvent }) => {
+  const selectedDateKey = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : null;
   const sorted = useMemo(() =>
     [...events]
       .filter((ev) => ev.start.getFullYear() === year)
+      .filter((ev) => !selectedDateKey || format(ev.start, 'yyyy-MM-dd') === selectedDateKey)
       .sort((a, b) => a.start.getTime() - b.start.getTime()),
-    [events, year]
+    [events, year, selectedDateKey]
   );
 
   // Group by day
@@ -156,7 +142,7 @@ export const AgendaView: React.FC<{
   const todayKey = format(new Date(), 'yyyy-MM-dd');
 
   if (groups.length === 0) {
-    return <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 14 }}>No events</div>;
+    return <div className="agenda-empty">No events</div>;
   }
 
   return (
@@ -165,41 +151,27 @@ export const AgendaView: React.FC<{
         const today = key === todayKey;
         const past = isBefore(date, new Date()) && !today;
         return (
-          <div key={key} ref={today ? (todayRef as React.RefObject<HTMLDivElement>) : undefined} style={{ marginBottom: 2 }}>
-            <div style={{
-              padding: '6px 0 4px',
-              borderTop: '1px solid var(--color-border)',
-              display: 'flex', alignItems: 'baseline', gap: 8,
-              opacity: past ? 0.5 : 1,
-            }}>
-              <span style={{ fontWeight: 700, fontSize: 15, color: today ? 'var(--color-primary)' : 'var(--color-text)', minWidth: 28 }}>
+          <div key={key} ref={today ? (todayRef as React.RefObject<HTMLDivElement>) : undefined} className={`agenda-day-group`}>
+            <div className={`agenda-day-header ${past ? 'past' : ''}`}>
+              <span className={`agenda-day-number ${today ? 'today' : ''}`}>
                 {format(date, 'd')}
               </span>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <span className="agenda-day-weekday">
                 {format(date, 'EEE')}
               </span>
-              <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+              <span className="agenda-day-date">
                 {format(date, 'MMMM yyyy')}
               </span>
-              {today && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-primary)', background: 'var(--color-cell-selected)', borderRadius: 4, padding: '1px 6px' }}>Today</span>}
+              {today && <span className="agenda-today-badge">Today</span>}
             </div>
             {evs.map((ev, j) => (
               <div
                 key={j}
                 onClick={() => onSelectEvent?.(ev)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '8px 10px', marginBottom: 3, borderRadius: 6,
-                  background: 'var(--color-surface-2)',
-                  cursor: onSelectEvent ? 'pointer' : 'default',
-                  border: '1px solid var(--color-border)',
-                  opacity: past ? 0.6 : 1,
-                }}
-                onMouseEnter={e => { if (onSelectEvent) (e.currentTarget as HTMLDivElement).style.background = 'var(--color-cell-selected)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-2)'; }}
+                className={`agenda-event-item ${past ? 'past' : ''} ${onSelectEvent ? '' : 'not-clickable'}`}
               >
-                <div style={{ width: 4, height: 32, borderRadius: 2, background: 'var(--color-primary)', flexShrink: 0 }} />
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text)' }}>{ev.title}</span>
+                <div className="agenda-event-accent" />
+                <span className="agenda-event-title">{ev.title}</span>
               </div>
             ))}
           </div>
@@ -313,10 +285,7 @@ const _scrollToMonth = useCallback((key: string) => {
                 }}
               >
                 {/* Month label */}
-                <div style={{
-                  fontSize: 15, fontWeight: 700, color: 'var(--color-text)',
-                  margin: '8px 0 6px', paddingLeft: 2, letterSpacing: '-0.01em',
-                }}>
+                <div className="calendar-month-label">
                   {format(m, 'MMMM yyyy')}
                 </div>
                 <MonthGrid

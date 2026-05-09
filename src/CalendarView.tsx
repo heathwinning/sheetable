@@ -30,6 +30,11 @@ interface CalendarViewProps {
   bookId?: string | null;
   /** Stable key for persisting column config (e.g. bookId + tableId) */
   configKey?: string;
+  /** Controlled event text column selection (used by ViewSheet config modal). */
+  displayColumnNames?: string[];
+  onDisplayColumnNamesChange?: (cols: string[]) => void;
+  /** Hide inline configure button when configuration is managed externally. */
+  showInlineConfig?: boolean;
 }
 
 interface DialogState {
@@ -46,12 +51,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   readOnly = false,
   bookId,
   configKey,
+  displayColumnNames: controlledDisplayColumnNames,
+  onDisplayColumnNamesChange,
+  showInlineConfig = true,
 }) => {
   const [viewMode, setViewModeRaw] = useState<'calendar' | 'agenda'>(() => {
     if (!configKey) return 'calendar';
     const saved = localStorage.getItem(`sheetable-cal-mode-${configKey}`);
     return saved === 'agenda' ? 'agenda' : 'calendar';
   });
+  const [temporaryDrilldown, setTemporaryDrilldown] = useState(false);
   const setViewMode = (mode: 'calendar' | 'agenda') => {
     setViewModeRaw(mode);
     if (configKey) localStorage.setItem(`sheetable-cal-mode-${configKey}`, mode);
@@ -59,6 +68,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const [dialog, setDialog] = useState<DialogState>({ open: false, title: '', initialValues: {} });
   const [colPickerOpen, setColPickerOpen] = useState(false);
   const colPickerRef = useRef<HTMLDivElement>(null);
+  const [agendaDateFilter, setAgendaDateFilter] = useState<Date | null>(null);
 
   // Columns available for display on event chips (all non-date, non-internal)
   const displayableColumns = useMemo(
@@ -76,21 +86,25 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     } catch { /* ignore */ }
     return [];
   });
+  const selectedDisplayColumns = controlledDisplayColumnNames ?? displayColumnNames;
 
   // Default: first non-reference text column, else first displayable
   const effectiveDisplayColumns = useMemo(() => {
-    const valid = displayColumnNames.filter(n => displayableColumns.some(c => c.name === n));
+    const valid = selectedDisplayColumns.filter(n => displayableColumns.some(c => c.name === n));
     if (valid.length > 0) return valid;
     const first = displayableColumns.find(c => c.type !== 'reference') ?? displayableColumns[0];
     return first ? [first.name] : [];
-  }, [displayColumnNames, displayableColumns]);
+  }, [selectedDisplayColumns, displayableColumns]);
 
   const toggleDisplayColumn = (name: string) => {
-    setDisplayColumnNames(prev => {
-      const next = prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name];
-      if (colStorageKey) localStorage.setItem(colStorageKey, JSON.stringify(next));
-      return next;
-    });
+    const source = controlledDisplayColumnNames ?? displayColumnNames;
+    const next = source.includes(name) ? source.filter(n => n !== name) : [...source, name];
+    if (controlledDisplayColumnNames) {
+      onDisplayColumnNamesChange?.(next);
+      return;
+    }
+    setDisplayColumnNames(next);
+    if (colStorageKey) localStorage.setItem(colStorageKey, JSON.stringify(next));
   };
 
   // Close col picker on outside click
@@ -186,12 +200,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   };
 
   const handleSelectSlot = (date: Date) => {
-    if (readOnly || !onCreateRow) return;
-    setDialog({
-      open: true,
-      title: 'New Entry',
-      initialValues: blankRowForDate(date),
-    });
+    // Clicking a day in calendar drills into agenda for that specific day.
+    setAgendaDateFilter(date);
+    setTemporaryDrilldown(true);
+    // Temporary mode switch only; don't persist to localStorage.
+    setViewModeRaw('agenda');
   };
 
   const handleSelectEvent = (ev: CalEvent) => {
@@ -230,37 +243,35 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     return [];
   };
 
-  const viewToggleStyle = (active: boolean): React.CSSProperties => ({
-    padding: '4px 10px',
-    fontSize: 13,
-    fontWeight: active ? 600 : 500,
-    background: 'transparent',
-    color: active ? 'var(--color-primary)' : 'var(--color-text-muted)',
-    border: '1px solid var(--color-border)',
-    borderBottom: active ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
-    borderRadius: 4,
-    cursor: 'pointer',
-  });
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--color-surface)' }}>
       {/* Toolbar row */}
-      <div style={{ padding: '6px 12px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: 'var(--color-surface)' }}>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <button style={viewToggleStyle(viewMode === 'calendar')} onClick={() => setViewMode('calendar')}>Calendar</button>
-          <button style={viewToggleStyle(viewMode === 'agenda')} onClick={() => setViewMode('agenda')}>Agenda</button>
+      <div className="calendar-toolbar">
+        <div className="calendar-toolbar-group">
+          <button
+            className={`calendar-toolbar-btn ${viewMode === 'calendar' ? 'active' : ''}`}
+            onClick={() => {
+              setTemporaryDrilldown(false);
+              setAgendaDateFilter(null);
+              setViewMode('calendar');
+            }}
+          >
+            Calendar
+          </button>
+          <button
+            className={`calendar-toolbar-btn ${viewMode === 'agenda' ? 'active' : ''}`}
+            onClick={() => {
+              setTemporaryDrilldown(false);
+              setAgendaDateFilter(null);
+              setViewMode('agenda');
+            }}
+          >
+            Agenda
+          </button>
           <select
+            className="calendar-toolbar-select"
             value={selectedYear}
             onChange={(e) => setSelectedYear(Number(e.target.value))}
-            style={{
-              fontSize: 13,
-              padding: '3px 8px',
-              borderRadius: 4,
-              border: '1px solid var(--color-border)',
-              background: 'var(--color-surface)',
-              color: 'var(--color-text)',
-              cursor: 'pointer',
-            }}
             title="Year"
           >
             {availableYears.map((year) => (
@@ -268,77 +279,88 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             ))}
           </select>
           <button
-            style={viewToggleStyle(false)}
+            className="calendar-toolbar-btn"
             onClick={() => setSelectedYear(new Date().getFullYear())}
             title="Jump to current year"
           >
             This year
           </button>
-
-          {/* Consolidated view/event configuration */}
-          <div ref={colPickerRef} style={{ position: 'relative', marginLeft: 4 }}>
+          {temporaryDrilldown && agendaDateFilter && (
             <button
-              onClick={() => setColPickerOpen(o => !o)}
-              title="Configure view and event text"
-              style={{
-                ...viewToggleStyle(colPickerOpen),
-                padding: '3px 10px',
+              className="calendar-toolbar-btn"
+              onClick={() => {
+                setTemporaryDrilldown(false);
+                setAgendaDateFilter(null);
+                setViewModeRaw('calendar');
               }}
-            >Configure</button>
-            {colPickerOpen && (
-              <div style={{
-                position: 'absolute',
-                top: 'calc(100% + 4px)',
-                right: 0,
-                background: 'var(--color-surface)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 8,
-                boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-                padding: '10px 14px',
-                minWidth: 200,
-                zIndex: 500,
-              }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                  View
-                </div>
-                {hasPicker && (
-                  <label style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12, fontSize: 13, color: 'var(--color-text)' }}>
-                    <span>Date field</span>
-                    <select
-                      value={dateColumn}
-                      onChange={e => onDateColumnChange(e.target.value)}
-                      style={{ fontSize: 13, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
-                    >
-                      {dateColumns.map(c => (
-                        <option key={c.name} value={c.name}>{c.displayName ?? c.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                )}
+              title="Return to calendar view"
+            >
+              {`Back to calendar (${format(agendaDateFilter, 'MMM d')})`}
+            </button>
+          )}
 
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                  Event text
-                </div>
-                {displayableColumns.length === 0 ? (
-                  <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>No columns available</div>
-                ) : displayableColumns.map(col => {
-                  const checked = effectiveDisplayColumns.includes(col.name);
-                  return (
-                    <label key={col.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 13, color: 'var(--color-text)' }}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleDisplayColumn(col.name)}
-                        style={{ accentColor: 'var(--color-primary)', width: 15, height: 15 }}
-                      />
-                      {col.displayName ?? col.name}
-                      <span style={{ fontSize: 11, color: 'var(--color-text-muted)', marginLeft: 'auto' }}>{col.type}</span>
+          {showInlineConfig && (
+            <div ref={colPickerRef} style={{ position: 'relative', marginLeft: 4 }}>
+              <button
+                onClick={() => setColPickerOpen(o => !o)}
+                title="Configure view and event text"
+                className={`calendar-toolbar-btn ${colPickerOpen ? 'active' : ''}`}
+              >Configure</button>
+              {colPickerOpen && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  right: 0,
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 8,
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                  padding: '10px 14px',
+                  minWidth: 200,
+                  zIndex: 500,
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                    View
+                  </div>
+                  {hasPicker && (
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12, fontSize: 13, color: 'var(--color-text)' }}>
+                      <span>Date field</span>
+                      <select
+                        value={dateColumn}
+                        onChange={e => onDateColumnChange(e.target.value)}
+                        style={{ fontSize: 13, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+                      >
+                        {dateColumns.map(c => (
+                          <option key={c.name} value={c.name}>{c.displayName ?? c.name}</option>
+                        ))}
+                      </select>
                     </label>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                  )}
+
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                    Event text
+                  </div>
+                  {displayableColumns.length === 0 ? (
+                    <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>No columns available</div>
+                  ) : displayableColumns.map(col => {
+                    const checked = effectiveDisplayColumns.includes(col.name);
+                    return (
+                      <label key={col.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 13, color: 'var(--color-text)' }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleDisplayColumn(col.name)}
+                          style={{ accentColor: 'var(--color-primary)', width: 15, height: 15 }}
+                        />
+                        {col.displayName ?? col.name}
+                        <span style={{ fontSize: 11, color: 'var(--color-text-muted)', marginLeft: 'auto' }}>{col.type}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -346,7 +368,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         <CalendarScrollView
           events={events}
           year={selectedYear}
-          onSelectDate={!readOnly && onCreateRow ? handleSelectSlot : undefined}
+          onSelectDate={handleSelectSlot}
           onSelectEvent={(scrollEv) => handleSelectEvent(scrollEv as CalEvent)}
         />
       ) : (
@@ -354,6 +376,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           <AgendaView
             events={events}
             year={selectedYear}
+            selectedDate={agendaDateFilter}
             todayRef={{ current: null }}
             onSelectEvent={(scrollEv) => handleSelectEvent(scrollEv as CalEvent)}
           />

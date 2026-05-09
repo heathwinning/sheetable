@@ -435,6 +435,27 @@ body {
 .app-dialog-btn-danger { @apply bg-danger text-white; }
 .app-dialog-btn-danger:hover { @apply opacity-90; }
 
+.app-dialog-close {
+  @apply bg-transparent border-none cursor-pointer text-text-muted text-lg leading-none px-1 py-0.5;
+}
+
+.app-dialog-close:hover {
+  @apply text-text;
+}
+
+.record-card-dialog {
+  padding: 0;
+}
+
+.calendar-col-select {
+  @apply w-full py-2 px-2.5 text-sm border border-border rounded-md outline-none bg-surface text-text cursor-pointer;
+}
+
+.calendar-col-select:focus {
+  @apply border-primary;
+  box-shadow: 0 0 0 2px rgba(66, 99, 235, 0.15);
+}
+
 /* ============================================================
    Book Settings Page
    ============================================================ */
@@ -1019,7 +1040,180 @@ body {
 
 .view-tab {
   @apply px-3 py-2 text-sm font-medium rounded-md transition-colors;
-  @apply border border-border bg-primary/80 text-text hover:bg-primary;
+  @apply border border-transparent bg-transparent text-text-muted hover:bg-cell-bg hover:text-text;
+}
+
+.calendar-toolbar {
+  @apply px-3 py-1.5 border-b border-border flex items-center gap-2 flex-wrap bg-surface;
+}
+
+.calendar-toolbar-group {
+  @apply flex items-center gap-1;
+}
+
+.calendar-toolbar-btn {
+  @apply px-2.5 py-1 text-[13px] font-medium border border-border rounded bg-transparent text-text-muted cursor-pointer transition-colors;
+}
+
+.calendar-toolbar-btn:hover {
+  @apply bg-cell-selected text-text;
+}
+
+.calendar-toolbar-btn.active {
+  @apply text-primary border-primary;
+  box-shadow: inset 0 -1px 0 var(--color-primary);
+}
+
+.calendar-toolbar-select {
+  @apply text-[13px] py-1 px-2 border border-border rounded bg-surface text-text cursor-pointer;
+}
+
+/* Calendar month grid */
+.calendar-month-grid {
+  @apply mb-8;
+}
+
+.calendar-month-label {
+  @apply text-[15px] font-bold text-text mb-1.5 pl-0.5;
+  margin-top: 2px;
+  letter-spacing: -0.01em;
+}
+
+.calendar-grid-headers {
+  @apply grid gap-1 mb-1;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.calendar-grid-header {
+  @apply text-center text-[11px] font-semibold text-text-muted uppercase pb-1;
+  letter-spacing: 0.05em;
+}
+
+.calendar-grid-days {
+  @apply grid gap-[2px_0];
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.calendar-day-cell {
+  @apply p-1 border-t border-border rounded transition-colors;
+  min-height: 54px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.calendar-day-cell.not-in-month {
+  @apply cursor-default;
+}
+
+.calendar-day-cell.in-month:hover {
+  @apply bg-surface-2;
+}
+
+.calendar-day-number-container {
+  @apply flex justify-center mb-0.5;
+}
+
+.calendar-day-number {
+  @apply inline-flex items-center justify-center text-[13px] font-medium text-text;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.calendar-day-number.today {
+  @apply font-bold text-white;
+  background: var(--color-primary);
+}
+
+.calendar-event-item {
+  @apply bg-cell-selected text-primary text-[10px] font-medium rounded px-1 py-0.5;
+  min-width: 0;
+  margin-bottom: 0.5rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.calendar-event-item.not-clickable {
+  @apply cursor-default;
+}
+
+.calendar-event-overflow {
+  @apply text-[10px] text-text-muted pl-1;
+}
+
+/* Agenda view */
+.agenda-empty {
+  @apply py-8 text-center text-text-muted text-sm;
+}
+
+.agenda-day-group {
+  @apply mb-0.5;
+}
+
+.agenda-day-header {
+  @apply flex items-baseline gap-2 py-1.5 px-0 border-t border-border;
+}
+
+.agenda-day-header.past {
+  @apply opacity-50;
+}
+
+.agenda-day-number {
+  @apply font-bold text-[15px] text-text;
+  min-width: 28px;
+}
+
+.agenda-day-number.today {
+  @apply text-primary;
+}
+
+.agenda-day-weekday {
+  @apply text-[11px] font-semibold text-text-muted uppercase;
+  letter-spacing: 0.05em;
+}
+
+.agenda-day-date {
+  @apply text-xs text-text-muted;
+}
+
+.agenda-today-badge {
+  @apply text-[11px] font-semibold text-primary bg-cell-selected rounded px-1.5 py-0.5;
+}
+
+.agenda-event-item {
+  @apply flex items-center gap-2.5 p-2.5 mb-0.75 rounded-md bg-surface-2 border border-border transition-colors;
+  cursor: pointer;
+}
+
+.agenda-event-item.past {
+  @apply opacity-60;
+}
+
+.agenda-event-item:not(.not-clickable):hover {
+  @apply bg-cell-selected;
+}
+
+.agenda-event-item.not-clickable {
+  @apply cursor-default;
+}
+
+.agenda-event-item.not-clickable:hover {
+  @apply bg-surface-2;
+}
+
+.agenda-event-accent {
+  @apply flex-shrink-0;
+  width: 4px;
+  height: 32px;
+  border-radius: 2px;
+  background: var(--color-primary);
+}
+
+.agenda-event-title {
+  @apply text-[13px] font-medium text-text;
 }
 
 .calendar-grid {
