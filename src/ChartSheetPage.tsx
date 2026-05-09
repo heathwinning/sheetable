@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import type { UseAppStateReturn } from './useAppState';
-import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, ColumnDef, DateFeature } from './types';
+import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature } from './types';
 import { useConfirm } from './DialogProvider';
 
 const RGL = WidthProvider(GridLayout);
@@ -42,43 +42,29 @@ function aggregateData(
   yCol: string,
   agg: AggregateFunc,
   groupBy: string | undefined,
-  schema: ColumnDef[],
-  getRows: (tableId: string) => Row[],
+  resolveColumnPath: (tableName: string, row: Row, path: string) => string,
+  tableName: string,
 ): { data: Record<string, unknown>[]; seriesKeys: string[] } {
   if (!xCol) return { data: [], seriesKeys: [] };
 
-  // Parse "colname:feature" expressions
+  // Parse "colpath:feature" expressions — colpath may be a dot-path like "species.name"
   const parseExpr = (expr: string): { col: string; feature: DateFeature | null } => {
-    const colon = expr.indexOf(':');
+    // Find last colon that looks like a date feature (not a dot-path segment)
+    const colon = expr.lastIndexOf(':');
     if (colon < 0) return { col: expr, feature: null };
-    return { col: expr.slice(0, colon), feature: expr.slice(colon + 1) as DateFeature };
+    const maybeFeature = expr.slice(colon + 1) as DateFeature;
+    const validFeatures: DateFeature[] = ['year', 'quarter', 'month', 'monthnum', 'week', 'dayofweek', 'day', 'hour'];
+    if (!validFeatures.includes(maybeFeature)) return { col: expr, feature: null };
+    return { col: expr.slice(0, colon), feature: maybeFeature };
   };
 
   const xExpr = parseExpr(xCol);
   const gExpr = groupBy ? parseExpr(groupBy) : null;
 
-  // Build ref resolvers for plain (non-date-feature) reference columns
-  const makeRefResolver = (colName: string) => {
-    const colDef = schema.find(c => c.name === colName);
-    if (colDef?.type !== 'reference' || !colDef.refTable) return null;
-    const refRows = getRows(colDef.refTable);
-    const displayCol = colDef.refDisplayColumns?.[0];
-    const map = new Map<string, string>();
-    for (const rr of refRows) {
-      const id = String(rr['_rowId'] ?? '');
-      const display = displayCol ? String(rr[displayCol] ?? id) : id;
-      if (id) map.set(id, display);
-    }
-    return (id: string) => map.get(id) ?? id;
-  };
-
-  const resolveX = xExpr.feature ? null : makeRefResolver(xExpr.col);
-  const resolveG = gExpr && !gExpr.feature ? makeRefResolver(gExpr.col) : null;
-
-  const extractValue = (row: Row, expr: { col: string; feature: DateFeature | null }, resolver: ((id: string) => string) | null): string => {
-    const raw = String(row[expr.col] ?? '');
+  const extractValue = (row: Row, expr: { col: string; feature: DateFeature | null }): string => {
+    const raw = resolveColumnPath(tableName, row, expr.col);
     if (!raw) return '';
-    if (!expr.feature) return resolver ? resolver(raw) : raw;
+    if (!expr.feature) return raw;
     // Extract date feature
     const d = new Date(raw);
     if (isNaN(d.getTime())) return raw;
@@ -104,14 +90,14 @@ function aggregateData(
     const seenG = new Set<string>();
     const groups = new Map<string, Map<string, number[]>>();
     for (const row of rows) {
-      const x = extractValue(row, xExpr, resolveX);
-      const g = extractValue(row, gExpr!, resolveG);
+      const x = extractValue(row, xExpr);
+      const g = extractValue(row, gExpr!);
       if (!seenX.has(x)) { xOrder.push(x); seenX.add(x); }
       seenG.add(g);
       if (!groups.has(x)) groups.set(x, new Map());
       const xg = groups.get(x)!;
       if (!xg.has(g)) xg.set(g, []);
-      xg.get(g)!.push(agg === 'count' ? 1 : toNum(row[yCol]));
+      xg.get(g)!.push(agg === 'count' ? 1 : toNum(resolveColumnPath(tableName, row, yCol)));
     }
     const seriesKeys = Array.from(seenG);
     const data = xOrder.map(x => {
@@ -127,10 +113,10 @@ function aggregateData(
   const seenX = new Set<string>();
   const groups = new Map<string, number[]>();
   for (const row of rows) {
-    const x = extractValue(row, xExpr, resolveX);
+    const x = extractValue(row, xExpr);
     if (!seenX.has(x)) { xOrder.push(x); seenX.add(x); }
     if (!groups.has(x)) groups.set(x, []);
-    groups.get(x)!.push(agg === 'count' ? 1 : toNum(row[yCol]));
+    groups.get(x)!.push(agg === 'count' ? 1 : toNum(resolveColumnPath(tableName, row, yCol)));
   }
   const seriesKey = yCol || 'value';
   const data = xOrder.map(x => ({ x, [seriesKey]: applyAgg(groups.get(x) ?? [], agg) }));
@@ -298,18 +284,19 @@ const ChartConfigModal: React.FC<{
   config: ChartConfig;
   isNew: boolean;
   tableIds: string[];
-  getColumns: (tableId: string) => { name: string; type: string }[];
+  getColumnPaths: (tableId: string) => { path: string; label: string; type?: string }[];
   onSave: (config: ChartConfig) => void;
   onClose: () => void;
-}> = ({ config, isNew, tableIds, getColumns, onSave, onClose }) => {
+}> = ({ config, isNew, tableIds, getColumnPaths, onSave, onClose }) => {
   const [draft, setDraft] = useState<ChartConfig>(config);
-  const cols = getColumns(draft.table);
-  const numericCols = cols.filter(c => c.type !== 'reference' && c.type !== 'image' && c.type !== 'bool');
+  const allPaths = getColumnPaths(draft.table);
+  // Only leaf paths (no further ref children) or non-ref columns are valid Y columns
+  const numericPaths = allPaths.filter(p => !p.type || (p.type !== 'reference' && p.type !== 'image' && p.type !== 'bool'));
   const hasGroupBy = draft.type === 'bar' || draft.type === 'line' || draft.type === 'area' || draft.type === 'table';
   const needsYCol = draft.aggregate !== 'count' && draft.type !== 'table';
   const canSave = !!draft.xColumn && (!needsYCol || !!draft.yColumn);
 
-  // Build expanded column options — date/datetime columns get date-feature sub-options
+  // Build expanded column options — date/datetime leaf columns get date-feature sub-options
   const DATE_FEATURES: { value: DateFeature; label: string }[] = [
     { value: 'year', label: 'Year' },
     { value: 'quarter', label: 'Quarter' },
@@ -321,14 +308,14 @@ const ChartConfigModal: React.FC<{
     { value: 'hour', label: 'Hour' },
   ];
   const colOptions: { value: string; label: string }[] = [];
-  for (const c of cols) {
-    colOptions.push({ value: c.name, label: c.name });
-    if (c.type === 'date' || c.type === 'datetime') {
-      const features = c.type === 'date'
+  for (const p of allPaths) {
+    colOptions.push({ value: p.path, label: p.label });
+    if (p.type === 'date' || p.type === 'datetime') {
+      const features = p.type === 'date'
         ? DATE_FEATURES.filter(f => f.value !== 'hour')
         : DATE_FEATURES;
       for (const f of features) {
-        colOptions.push({ value: `${c.name}:${f.value}`, label: `${c.name} › ${f.label}` });
+        colOptions.push({ value: `${p.path}:${f.value}`, label: `${p.label} › ${f.label}` });
       }
     }
   }
@@ -402,8 +389,8 @@ const ChartConfigModal: React.FC<{
               <label style={{ fontWeight: 500, fontSize: 13 }}>Y column</label>
               <select className="calendar-col-select" value={draft.yColumn} onChange={e => set('yColumn', e.target.value)}>
                 <option value="">— select —</option>
-                {(draft.aggregate === 'none' ? cols : numericCols).map(c => (
-                  <option key={c.name} value={c.name}>{c.name}</option>
+                {(draft.aggregate === 'none' ? allPaths : numericPaths).map(p => (
+                  <option key={p.path} value={p.path}>{p.label}</option>
                 ))}
               </select>
             </div>
@@ -554,8 +541,29 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
     navigate(dest, { replace: true });
   }, [bookId, chartId, confirm, navigate, state]);
 
-  const getColumns = useCallback((tableId: string) =>
-    state.getSchema(tableId)?.columns.map(c => ({ name: c.name, type: c.type as string })) ?? [],
+  const getColumnPathsForTable = useCallback((tableId: string) =>
+    state.getColumnPaths(tableId).map(p => {
+      // Attach type for the leaf column so date features can be offered
+      const leafCol = p.path.split('.').reduce<string | null>((tableName, col) => {
+        if (!tableName) return null;
+        const schema = state.getSchema(tableName);
+        const colDef = schema?.columns.find(c => c.name === col);
+        return colDef?.type === 'reference' ? (colDef.refTable ?? null) : null;
+      }, tableId);
+      // Determine leaf column type
+      const parts = p.path.split('.');
+      let t = tableId;
+      let leafType: string | undefined;
+      for (let i = 0; i < parts.length; i++) {
+        const s = state.getSchema(t);
+        const cd = s?.columns.find(c => c.name === parts[i]);
+        if (!cd) break;
+        if (i === parts.length - 1) { leafType = cd.type; break; }
+        if (cd.type === 'reference' && cd.refTable) t = cd.refTable; else break;
+      }
+      void leafCol;
+      return { path: p.path, label: p.label, type: leafType };
+    }),
   [state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!chartId || !chartSheet) {
@@ -575,7 +583,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           config={editingChart}
           isNew={isNewChart}
           tableIds={state.tableIds}
-          getColumns={getColumns}
+          getColumnPaths={getColumnPathsForTable}
           onSave={handleSaveChart}
           onClose={() => setEditingChart(null)}
         />
@@ -604,8 +612,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           >
             {charts.map(chart => {
               const rows = state.getRows(chart.table);
-              const schema = state.getSchema(chart.table)?.columns ?? [];
-              const { data, seriesKeys } = aggregateData(rows, chart.xColumn, chart.yColumn, chart.aggregate, chart.groupBy, schema, state.getRows);
+              const { data, seriesKeys } = aggregateData(rows, chart.xColumn, chart.yColumn, chart.aggregate, chart.groupBy, state.resolveColumnPath, chart.table);
               return (
                 <div
                   key={chart.id}

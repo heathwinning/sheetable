@@ -382,22 +382,28 @@ export function useAppState(): UseAppStateReturn {
   }, []);
 
   const getColumnPaths = useCallback((tableName: string): { path: string; label: string }[] => {
-    const schema = schemasRef.current.get(tableName);
-    if (!schema) return [];
-
+    const MAX_DEPTH = 3;
     const result: { path: string; label: string }[] = [];
-    for (const col of schema.columns) {
-      if (col.type === 'reference' && col.refTable) {
-        const refSchema = schemasRef.current.get(col.refTable);
-        if (refSchema) {
-          for (const refCol of refSchema.columns) {
-            result.push({ path: `${col.name}.${refCol.name}`, label: `${col.name} → ${refCol.name}` });
-          }
+    const seen = new Set<string>(); // prevent cycles
+
+    const walk = (table: string, prefix: string, labelPrefix: string, depth: number) => {
+      if (depth > MAX_DEPTH || seen.has(table)) return;
+      seen.add(table);
+      const schema = schemasRef.current.get(table);
+      if (!schema) return;
+      for (const col of schema.columns) {
+        const path = prefix ? `${prefix}.${col.name}` : col.name;
+        const colLabel = col.displayName || col.name;
+        const label = labelPrefix ? `${labelPrefix} → ${colLabel}` : colLabel;
+        result.push({ path, label });
+        if (col.type === 'reference' && col.refTable) {
+          walk(col.refTable, path, label, depth + 1);
         }
-      } else {
-        result.push({ path: col.name, label: col.name });
       }
-    }
+      seen.delete(table);
+    };
+
+    walk(tableName, '', '', 0);
     return result;
   }, []);
 
