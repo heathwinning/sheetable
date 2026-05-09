@@ -1046,7 +1046,7 @@ body {
 }
 
 .calendar-toolbar-group-right {
-  @apply ml-auto;
+  @apply ml-auto pl-2 border-l border-border;
 }
 
 .calendar-toolbar-segmented {
@@ -1054,7 +1054,7 @@ body {
 }
 
 .calendar-toolbar-year-group {
-  @apply inline-flex items-center gap-1 ml-1 pl-2 border-l border-border;
+  @apply inline-flex items-center gap-1;
 }
 
 .calendar-toolbar-btn {
