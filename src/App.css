@@ -71,12 +71,11 @@ body {
 
 .header-tabs {
   @apply flex items-center flex-1 min-w-0 overflow-x-auto px-1 gap-0;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;
 }
-.header-tabs::-webkit-scrollbar { height: 3px; }
-.header-tabs::-webkit-scrollbar-thumb { @apply bg-border rounded-sm; }
+.header-tabs::-webkit-scrollbar { display: none; }
 
 .header-right {
   @apply flex items-center gap-2;
