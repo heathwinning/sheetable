@@ -1,163 +1,148 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import { Calendar as BigCalendar, dateFnsLocalizer, type Event as RBCEvent, type View } from 'react-big-calendar';
+import { format } from 'date-fns/format';
+import { parse } from 'date-fns/parse';
+import { startOfWeek } from 'date-fns/startOfWeek';
+import { getDay } from 'date-fns/getDay';
+import { enUS } from 'date-fns/locale/en-US';
 import type { TableSchema, Row } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { parseTemporalUnknown } from './dateFormat';
+import { CalendarScrollView } from './CalendarScrollView';
+import 'react-big-calendar/lib/css/react-big-calendar.css';
 
-const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
+const DEFAULT_RESOLVE = (_row: Row, _path: string) => '';
+
+const locales = { 'en-US': enUS };
+const localizer = dateFnsLocalizer({
+  format,
+  parse,
+  startOfWeek: () => startOfWeek(new Date(), { weekStartsOn: 0 }),
+  getDay,
+  locales,
+});
 
 interface CalendarViewProps {
   schema: TableSchema;
   rows: Row[];
   dateColumn: string;
   onDateColumnChange: (col: string) => void;
+  resolveColumnPath?: (row: Row, path: string) => string;
 }
 
-function dateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-const CalendarView: React.FC<CalendarViewProps> = ({
-  schema,
-  rows,
-  dateColumn,
-  onDateColumnChange,
-}) => {
-  const today = new Date();
-  const [viewYear, setViewYear] = useState(today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getMonth());
+export const CalendarView: React.FC<CalendarViewProps> = ({ schema, rows, dateColumn, onDateColumnChange, resolveColumnPath = DEFAULT_RESOLVE }) => {
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentView, setCurrentView] = useState<View>('month');
+  const [scrollMode, setScrollMode] = useState(false);
 
   const dateColumns = useMemo(
     () => schema.columns.filter(c => c.type === 'date' || c.type === 'datetime'),
     [schema.columns],
   );
+  // Prefer non-reference, non-image columns for label; fall back to any non-date column
+  const labelColumn = useMemo(() => {
+    const nonDate = schema.columns.filter(c => c.name !== INTERNAL_ROW_ID && c.type !== 'date' && c.type !== 'datetime' && c.type !== 'image');
+    return nonDate.find(c => c.type !== 'reference') ?? nonDate[0] ?? null;
+  }, [schema.columns]);
 
-  // First non-internal, non-date column used as the row label
-  const labelColumn = useMemo(
-    () => schema.columns.find(c => c.name !== INTERNAL_ROW_ID && c.type !== 'date' && c.type !== 'datetime'),
-    [schema.columns],
+  // Whether the active date column is date-only (no time component)
+  const isDateOnly = useMemo(
+    () => schema.columns.find(c => c.name === dateColumn)?.type === 'date',
+    [schema.columns, dateColumn],
   );
 
-  const getRowLabel = (row: Row): string => {
-    if (labelColumn) return row[labelColumn.name] || '(empty)';
-    return row[dateColumn] || '';
-  };
+  // Date-only data: restrict to month + agenda (no hourly time grids)
+  const availableViews: View[] = useMemo(
+    () => isDateOnly ? ['month', 'agenda'] : ['month', 'week', 'day', 'agenda'],
+    [isDateOnly],
+  );
 
-  // Build date → rows map
-  const eventMap = useMemo(() => {
-    const map = new Map<string, Row[]>();
-    for (const row of rows) {
-      const raw = row[dateColumn];
-      if (!raw) continue;
-      const d = parseTemporalUnknown(raw);
-      if (!d) continue;
-      const key = dateKey(d);
-      const existing = map.get(key);
-      if (existing) existing.push(row);
-      else map.set(key, [row]);
+  // If the current view is not available (e.g. switched from datetime → date col), reset to month
+  const safeView: View = availableViews.includes(currentView) ? currentView : 'month';
+
+  const events = useMemo(() => rows.map(row => {
+    const raw = row[dateColumn];
+    const date = parseTemporalUnknown(raw);
+    if (!date) return null;
+    let title = '';
+    if (labelColumn) {
+      title = labelColumn.type === 'reference'
+        ? resolveColumnPath(row, labelColumn.name)
+        : (row[labelColumn.name] ?? '');
     }
-    return map;
-  }, [rows, dateColumn]);
+    // Fall back to formatted date if label is empty
+    if (!title) title = format(date, 'd MMM yyyy');
+    return {
+      id: row[INTERNAL_ROW_ID] ?? Math.random(),
+      title,
+      start: date,
+      end: date,
+      allDay: isDateOnly,
+      resource: row,
+    };
+  }).filter(Boolean) as RBCEvent[], [rows, dateColumn, labelColumn, isDateOnly, resolveColumnPath]);
 
-  const prevMonth = () => {
-    if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
-    else setViewMonth(m => m - 1);
-  };
-  const nextMonth = () => {
-    if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
-    else setViewMonth(m => m + 1);
-  };
+  const hasPicker = dateColumns.length > 1;
 
-  const todayKey = dateKey(today);
-  const firstDow = new Date(viewYear, viewMonth, 1).getDay();
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-
-  // Build grid cells: leading blanks + day cells
-  const cells = useMemo(() => {
-    const result: Array<{ day: number; key: string } | null> = [];
-    for (let i = 0; i < firstDow; i++) result.push(null);
-    for (let d = 1; d <= daysInMonth; d++) {
-      const key = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      result.push({ day: d, key });
-    }
-    return result;
-  }, [viewYear, viewMonth, firstDow, daysInMonth]);
+  const viewToggleStyle = (active: boolean): React.CSSProperties => ({
+    padding: '3px 10px',
+    fontSize: 13,
+    fontWeight: active ? 600 : 400,
+    background: active ? '#4f46e5' : 'transparent',
+    color: active ? '#fff' : '#374151',
+    border: '1px solid',
+    borderColor: active ? '#4f46e5' : '#d1d5db',
+    borderRadius: 4,
+    cursor: 'pointer',
+  });
 
   return (
-    <div className="calendar-view">
-      {/* Navigation header */}
-      <div className="calendar-nav">
-        <button className="calendar-nav-btn" onClick={prevMonth} aria-label="Previous month">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
-        <h2 className="calendar-month-title">
-          {MONTH_NAMES[viewMonth]} {viewYear}
-        </h2>
-        <button className="calendar-nav-btn" onClick={nextMonth} aria-label="Next month">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-        </button>
-        {dateColumns.length > 1 && (
-          <label className="calendar-col-picker">
-            <span className="calendar-col-picker-label">Date field:</span>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'white' }}>
+      {/* Toolbar row */}
+      <div style={{ padding: '6px 12px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {hasPicker && (
+          <>
+            <label style={{ fontWeight: 500, fontSize: 13 }}>Date field:</label>
             <select
-              className="calendar-col-select"
               value={dateColumn}
               onChange={e => onDateColumnChange(e.target.value)}
+              style={{ fontSize: 13, padding: '2px 6px', borderRadius: 4, border: '1px solid #d1d5db', marginRight: 8 }}
             >
               {dateColumns.map(c => (
                 <option key={c.name} value={c.name}>{c.displayName ?? c.name}</option>
               ))}
             </select>
-          </label>
+          </>
         )}
+        <div style={{ display: 'flex', gap: 4, marginLeft: hasPicker ? 0 : 'auto' }}>
+          <button style={viewToggleStyle(!scrollMode)} onClick={() => setScrollMode(false)}>
+            Grid
+          </button>
+          <button style={viewToggleStyle(scrollMode)} onClick={() => setScrollMode(true)}>
+            Scroll
+          </button>
+        </div>
       </div>
 
-      {/* Day-of-week headers */}
-      <div className="calendar-grid">
-        {DAY_LABELS.map(d => (
-          <div key={d} className="calendar-dow-header">{d}</div>
-        ))}
-
-        {/* Day cells */}
-        {cells.map((cell, i) => {
-          if (!cell) {
-            return <div key={`blank-${i}`} className="calendar-cell calendar-cell-blank" />;
-          }
-          const events = eventMap.get(cell.key) ?? [];
-          const isToday = cell.key === todayKey;
-          return (
-            <div
-              key={cell.key}
-              className={`calendar-cell${isToday ? ' calendar-cell-today' : ''}`}
-            >
-              <span className={`calendar-day-num${isToday ? ' is-today' : ''}`}>{cell.day}</span>
-              <div className="calendar-event-list">
-                {events.slice(0, 3).map((row, ei) => (
-                  <div
-                    key={row[INTERNAL_ROW_ID] ?? ei}
-                    className="calendar-event-chip"
-                    title={getRowLabel(row)}
-                  >
-                    {getRowLabel(row)}
-                  </div>
-                ))}
-                {events.length > 3 && (
-                  <div className="calendar-event-overflow">+{events.length - 3} more</div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {scrollMode ? (
+        <CalendarScrollView events={events.map(e => ({ id: (e as RBCEvent & { id: unknown }).id, title: String(e!.title), start: e!.start as Date, allDay: !!e!.allDay }))} />
+      ) : (
+        <div style={{ flex: 1, minHeight: 0, padding: 8 }}>
+          <BigCalendar
+            localizer={localizer}
+            events={events}
+            startAccessor="start"
+            endAccessor="end"
+            style={{ height: '100%' }}
+            date={currentDate}
+            view={safeView}
+            onNavigate={date => setCurrentDate(date)}
+            onView={view => setCurrentView(view)}
+            popup
+            views={availableViews}
+          />
+        </div>
+      )}
     </div>
   );
 };
-
-export default CalendarView;

@@ -4,13 +4,13 @@ import { useAppState } from './useAppState';
 import { SpreadsheetGrid } from './SpreadsheetGrid';
 import { EditTablePage } from './EditTablePage';
 import { ChartSheetPage } from './ChartSheetPage';
-import { useAlert, usePromptInput, useConfirm } from './DialogProvider';
+import { useAlert, usePromptInput, useConfirm, useDialog } from './DialogProvider';
 import { ImportPage } from './ImportPage';
 import { rowsToCSV } from './csv';
 import * as api from './api';
 import type { UseAppStateReturn } from './useAppState';
 import type { BookMember, BookInvite } from './types';
-import CalendarView from './CalendarView';
+import { CalendarView } from './CalendarView';
 import ScheduleView from './ScheduleView';
 
 type ViewType = 'grid' | 'calendar' | 'schedule';
@@ -56,22 +56,51 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({
     navigate(withBook(bookId, `/chart/${encodeURIComponent(name.trim())}`));
   };
 
+  const { showDialog } = useDialog();
   const addView = async (viewType: 'calendar' | 'schedule') => {
     setOpen(false);
     const tableIds = state.tableIds;
-    if (tableIds.length === 0) return;
     const label = viewType === 'calendar' ? 'Calendar' : 'Schedule';
-    const name = await promptInput(
-      `Enter a name for the ${label} view:`,
-      `${tableIds[0]} ${label}`,
-      'View name',
-    );
-    if (!name?.trim()) return;
-    const tableName =
+    // Build table options: existing tables + "New table" option
+    const tableOptions = [
+      ...tableIds.map(id => ({ label: id, value: id })),
+      { label: '＋ New table', value: '__new__' },
+    ];
+    // Default to first table with a date column (if any), else first table
+    const defaultTable =
       tableIds.find(id => state.getSchema(id)?.columns.some(c => c.type === 'date' || c.type === 'datetime'))
-      ?? tableIds[0];
-    await state.createViewSheet(name.trim(), tableName, viewType);
-    navigate(withBook(bookId, `/view/${encodeURIComponent(name.trim())}`));
+      ?? tableIds[0]
+      ?? '__new__';
+    const result = await showDialog({
+      title: `New ${label} View`,
+      message: 'Choose a table to use as the data source and give the view a name.',
+      selectLabel: 'Data source table',
+      selectOptions: tableOptions,
+      selectDefault: defaultTable,
+      inputPlaceholder: 'View name',
+      buttons: [
+        { label: 'Cancel', value: 'cancel', variant: 'secondary' },
+        { label: 'Create', value: 'ok', variant: 'primary' },
+      ],
+    });
+    if (!result) return;
+    let viewName: string;
+    let tableName: string;
+    try {
+      const parsed = JSON.parse(result) as { input: string; select: string };
+      viewName = parsed.input.trim();
+      tableName = parsed.select;
+    } catch {
+      return;
+    }
+    if (!viewName) return;
+    if (tableName === '__new__') {
+      // Navigate to new table creation first — user will need to create the view after
+      navigate(withBook(bookId, '/table/new'));
+      return;
+    }
+    await state.createViewSheet(viewName, tableName, viewType);
+    navigate(withBook(bookId, `/view/${encodeURIComponent(viewName)}`));
   };
 
   return (
@@ -92,16 +121,13 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({
           <button className="add-sheet-option" onClick={addChart}>
             <span className="add-sheet-icon">📈</span> Chart
           </button>
-          {state.tableIds.length > 0 && (
-            <>
-              <button className="add-sheet-option" onClick={() => { void addView('calendar'); }}>
-                📅 Calendar View
-              </button>
-              <button className="add-sheet-option" onClick={() => { void addView('schedule'); }}>
-                🗓️ Schedule View
-              </button>
-            </>
-          )}
+          <button className="add-sheet-option" onClick={() => { void addView('calendar'); }}>
+            📅 Calendar View
+          </button>
+          <button className="add-sheet-option" onClick={() => { void addView('schedule'); }}>
+            🗓️ Schedule View
+          </button>
+
         </div>
       )}
     </>
@@ -245,6 +271,7 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               rows={activeRows}
               dateColumn={dateColumn}
               onDateColumnChange={handleDateColumnChange}
+              resolveColumnPath={(row, path) => state.resolveColumnPath(tableId, row, path)}
             />
           ) : effectiveView === 'schedule' && dateColumn ? (
             <ScheduleView
@@ -657,6 +684,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             rows={rows}
             dateColumn={dateColumn}
             onDateColumnChange={handleDateColumnChange}
+            resolveColumnPath={(row, path) => state.resolveColumnPath(viewSheet.tableName, row, path)}
           />
         ) : viewSheet.viewType === 'schedule' && dateColumn ? (
           <ScheduleView

@@ -6,11 +6,19 @@ interface DialogButton {
   variant?: 'primary' | 'danger' | 'secondary';
 }
 
+interface SelectOption {
+  label: string;
+  value: string;
+}
+
 interface DialogConfig {
   title: string;
   message: string;
   buttons: DialogButton[];
   inputPlaceholder?: string;
+  selectLabel?: string;
+  selectOptions?: SelectOption[];
+  selectDefault?: string;
 }
 
 interface DialogContextType {
@@ -75,24 +83,46 @@ export function usePromptInput() {
 export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [dialog, setDialog] = useState<DialogConfig | null>(null);
   const [inputValue, setInputValue] = useState('');
+  const [selectValue, setSelectValue] = useState('');
   const resolveRef = useRef<((value: string | null) => void) | null>(null);
 
   const showDialog = useCallback((config: DialogConfig): Promise<string | null> => {
     return new Promise((resolve) => {
       resolveRef.current = resolve;
       setInputValue('');
+      setSelectValue(config.selectDefault ?? config.selectOptions?.[0]?.value ?? '');
       setDialog(config);
     });
   }, []);
 
   const handleClick = (value: string | null) => {
-    const result = value === 'cancel'
-      ? null
-      : value === 'ok' && dialog?.inputPlaceholder !== undefined
-        ? inputValue
-        : value;
+    if (value === 'cancel' || value === null) {
+      setDialog(null);
+      resolveRef.current?.(null);
+      resolveRef.current = null;
+      return;
+    }
+    // For 'ok', return a JSON payload when there are combined fields
+    if (value === 'ok') {
+      const hasInput = dialog?.inputPlaceholder !== undefined;
+      const hasSelect = (dialog?.selectOptions?.length ?? 0) > 0;
+      let result: string;
+      if (hasInput && hasSelect) {
+        result = JSON.stringify({ input: inputValue, select: selectValue });
+      } else if (hasInput) {
+        result = inputValue;
+      } else if (hasSelect) {
+        result = selectValue;
+      } else {
+        result = 'ok';
+      }
+      setDialog(null);
+      resolveRef.current?.(result);
+      resolveRef.current = null;
+      return;
+    }
     setDialog(null);
-    resolveRef.current?.(result);
+    resolveRef.current?.(value);
     resolveRef.current = null;
   };
 
@@ -104,6 +134,20 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           <div className="app-dialog" onClick={(e) => e.stopPropagation()}>
             <h3 className="app-dialog-title">{dialog.title}</h3>
             <p className="app-dialog-message">{dialog.message}</p>
+            {dialog.selectOptions && dialog.selectOptions.length > 0 && (
+              <div className="app-dialog-field">
+                {dialog.selectLabel && <label className="app-dialog-label">{dialog.selectLabel}</label>}
+                <select
+                  className="app-dialog-select"
+                  value={selectValue}
+                  onChange={(e) => setSelectValue(e.target.value)}
+                >
+                  {dialog.selectOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {dialog.inputPlaceholder !== undefined && (
               <input
                 className="app-dialog-input"
