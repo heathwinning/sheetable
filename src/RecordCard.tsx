@@ -5,6 +5,8 @@
  * calendar date click, event click, future list-view row click, etc.
  */
 import React, { useState, useCallback } from 'react';
+import Select from 'react-select';
+import { dialogSelectStyles } from './selectStyles';
 import type { TableSchema, Row, ValidationError, ColumnDef } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import * as api from './api';
@@ -246,14 +248,20 @@ export const RecordCard: React.FC<RecordCardProps> = ({
                       ) || '—'}
                     </span>
                   ) : (
-                    <select value={value} onChange={e => set(col.name, e.target.value)} className="app-dialog-select">
-                      <option value="">— none —</option>
-                      {getReferenceRows(col.refTable).map(refRow => (
-                        <option key={refRow[INTERNAL_ROW_ID]} value={refRow[INTERNAL_ROW_ID] ?? ''}>
-                          {refDisplayLabel(refRow, col)}
-                        </option>
-                      ))}
-                    </select>
+                    <Select
+                      styles={dialogSelectStyles}
+                      value={value
+                        ? (() => { const r = getReferenceRows(col.refTable).find(r => r[INTERNAL_ROW_ID] === value); return r ? { value: String(value), label: refDisplayLabel(r, col) } : null; })()
+                        : null}
+                      options={getReferenceRows(col.refTable).map(refRow => ({
+                        value: String(refRow[INTERNAL_ROW_ID] ?? ''),
+                        label: refDisplayLabel(refRow, col),
+                      }))}
+                      onChange={opt => set(col.name, opt?.value ?? '')}
+                      isClearable
+                      placeholder="— none —"
+                      menuPlacement="auto"
+                    />
                   )
                 ) : col.type === 'date' ? (
                   readOnly ? (

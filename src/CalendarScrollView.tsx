@@ -23,7 +23,8 @@ export interface ScrollEvent {
 interface CalendarScrollViewProps {
   events: ScrollEvent[];
   year: number;
-  onSelectDate?: (date: Date) => void;
+  onSelectDateNumber?: (date: Date) => void;
+  onSelectDayTile?: (date: Date) => void;
   onSelectEvent?: (event: ScrollEvent) => void;
 }
 
@@ -44,9 +45,10 @@ const MonthGrid: React.FC<{
   monthStart: Date;
   events: ScrollEvent[];
   todayRef: React.RefObject<HTMLDivElement | null>;
-  onSelectDate?: (date: Date) => void;
+  onSelectDateNumber?: (date: Date) => void;
+  onSelectDayTile?: (date: Date) => void;
   onSelectEvent?: (event: ScrollEvent) => void;
-}> = ({ monthStart, events, todayRef, onSelectDate, onSelectEvent }) => {
+}> = ({ monthStart, events, todayRef, onSelectDateNumber, onSelectDayTile, onSelectEvent }) => {
   const days = useMemo(() => getMonthDays(monthStart), [monthStart]);
 
   const eventsByDay = useMemo(() => {
@@ -78,13 +80,19 @@ const MonthGrid: React.FC<{
             <div
               key={key}
               ref={today ? (todayRef as React.RefObject<HTMLDivElement>) : undefined}
-              onClick={() => inMonth && onSelectDate?.(day)}
+              onClick={() => inMonth && onSelectDayTile?.(day)}
               className={`calendar-day-cell ${inMonth ? 'in-month' : 'not-in-month'}`}
             >
               {inMonth && (
                 <>
                   <div className="calendar-day-number-container">
-                    <span className={`calendar-day-number ${today ? 'today' : ''}`}>
+                    <span
+                      className={`calendar-day-number ${today ? 'today' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectDateNumber?.(day);
+                      }}
+                    >
                       {format(day, 'd')}
                     </span>
                   </div>
@@ -186,7 +194,8 @@ export const AgendaView: React.FC<{
 export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
   events,
   year,
-  onSelectDate,
+  onSelectDateNumber,
+  onSelectDayTile,
   onSelectEvent,
 }) => {
   const todayRef = useRef<HTMLDivElement | null>(null);
@@ -348,7 +357,8 @@ const _scrollToMonth = useCallback((key: string) => {
                   monthStart={m}
                   events={events}
                   todayRef={todayRef}
-                  onSelectDate={onSelectDate}
+                  onSelectDateNumber={onSelectDateNumber}
+                  onSelectDayTile={onSelectDayTile}
                   onSelectEvent={onSelectEvent}
                 />
               </div>

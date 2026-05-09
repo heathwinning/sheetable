@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Select from 'react-select';
+import { dialogSelectStyles } from './selectStyles';
 import type { UseAppStateReturn } from './useAppState';
 import type { ColumnDef, ColumnType, Row, TableSchema } from './types';
 import { INTERNAL_ROW_ID } from './types';
@@ -96,38 +97,7 @@ interface ColumnMapping {
   createMissing?: boolean;
 }
 
-const selectStyles = {
-  control: (base: Record<string, unknown>, s: { isFocused: boolean }) => ({
-    ...base,
-    background: 'var(--bg)',
-    borderColor: s.isFocused ? 'var(--ref-color)' : 'var(--border)',
-    boxShadow: s.isFocused ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
-    borderRadius: 4,
-    fontSize: 13,
-    minHeight: 30,
-    '&:hover': { borderColor: 'var(--ref-color)' },
-  }),
-  menu: (base: Record<string, unknown>) => ({
-    ...base,
-    background: '#fff',
-    border: '1px solid var(--border)',
-    borderRadius: 4,
-    boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
-    zIndex: 10,
-  }),
-  option: (base: Record<string, unknown>, s: { isSelected: boolean; isFocused: boolean }) => ({
-    ...base,
-    background: s.isSelected ? 'var(--primary)' : s.isFocused ? 'var(--cell-selected)' : 'transparent',
-    color: s.isSelected ? '#fff' : 'var(--text)',
-    fontSize: 13,
-    padding: '4px 10px',
-    cursor: 'pointer',
-  }),
-  singleValue: (base: Record<string, unknown>) => ({ ...base, color: 'var(--text)' }),
-  input: (base: Record<string, unknown>) => ({ ...base, color: 'var(--text)' }),
-  placeholder: (base: Record<string, unknown>) => ({ ...base, color: 'var(--text-muted)' }),
-  indicatorSeparator: () => ({ display: 'none' }),
-};
+const selectStyles = dialogSelectStyles;
 
 // Column type options for new table mode
 const typeOptions: { value: ColumnType; label: string }[] = [

@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import Select from 'react-select';
+import { dialogSelectStyles } from './selectStyles';
 
 interface DialogButton {
   label: string;
@@ -137,15 +139,13 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             {dialog.selectOptions && dialog.selectOptions.length > 0 && (
               <div className="app-dialog-field">
                 {dialog.selectLabel && <label className="app-dialog-label">{dialog.selectLabel}</label>}
-                <select
-                  className="app-dialog-select"
-                  value={selectValue}
-                  onChange={(e) => setSelectValue(e.target.value)}
-                >
-                  {dialog.selectOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                <Select
+                  styles={dialogSelectStyles}
+                  value={dialog.selectOptions.find(o => o.value === selectValue) ?? null}
+                  options={dialog.selectOptions}
+                  onChange={opt => setSelectValue(opt?.value ?? '')}
+                  menuPlacement="auto"
+                />
               </div>
             )}
             {dialog.inputPlaceholder !== undefined && (

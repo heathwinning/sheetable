@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Select from 'react-select';
+import { dialogSelectStyles } from './selectStyles';
 import { DATE_FORMATS } from './dateFormatsList';
 import type { ColumnDef, ColumnType, Row, TableSchema } from './types';
 import { INTERNAL_ROW_ID } from './types';
@@ -81,39 +82,7 @@ function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorP
   );
 }
 
-const selectStyles = {
-  control: (base: Record<string, unknown>, state: { isFocused: boolean }) => ({
-    ...base,
-    background: 'var(--bg)',
-    borderColor: state.isFocused ? 'var(--ref-color)' : 'var(--border)',
-    boxShadow: state.isFocused ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
-    borderRadius: 4,
-    fontSize: 13,
-    minHeight: 30,
-    '&:hover': { borderColor: 'var(--ref-color)' },
-  }),
-  menu: (base: Record<string, unknown>) => ({
-    ...base,
-    background: 'var(--color-surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 4,
-    boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
-    zIndex: 10,
-  }),
-  option: (base: Record<string, unknown>, state: { isSelected: boolean; isFocused: boolean }) => ({
-    ...base,
-    background: state.isSelected ? 'var(--primary)' : state.isFocused ? 'var(--cell-selected)' : 'transparent',
-    color: state.isSelected ? 'var(--color-surface)' : 'var(--text)',
-    fontSize: 13,
-    padding: '4px 10px',
-    cursor: 'pointer',
-  }),
-  singleValue: (base: Record<string, unknown>) => ({ ...base, color: 'var(--text)' }),
-  multiValue: (base: Record<string, unknown>) => ({ ...base, background: 'var(--cell-selected, #e0e7ff)' }),
-  input: (base: Record<string, unknown>) => ({ ...base, color: 'var(--text)' }),
-  placeholder: (base: Record<string, unknown>) => ({ ...base, color: 'var(--text-muted)' }),
-  indicatorSeparator: () => ({ display: 'none' }),
-};
+const selectStyles = dialogSelectStyles;
 
 interface EditTablePageProps {
   state: UseAppStateReturn;
@@ -1061,39 +1030,7 @@ const RefConfigDialog: React.FC<{
   );
 };
 
-const refDialogSelectStyles = {
-  control: (base: Record<string, unknown>, state: { isFocused: boolean }) => ({
-    ...base,
-    background: 'var(--bg)',
-    borderColor: state.isFocused ? 'var(--ref-color)' : 'var(--border)',
-    boxShadow: state.isFocused ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
-    borderRadius: 4,
-    fontSize: 13,
-    minHeight: 30,
-    '&:hover': { borderColor: 'var(--ref-color)' },
-  }),
-  menu: (base: Record<string, unknown>) => ({
-    ...base,
-    background: 'var(--color-surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 4,
-    boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
-    zIndex: 10,
-  }),
-  option: (base: Record<string, unknown>, state: { isSelected: boolean; isFocused: boolean }) => ({
-    ...base,
-    background: state.isSelected ? 'var(--primary)' : state.isFocused ? 'var(--cell-selected)' : 'transparent',
-    color: state.isSelected ? 'var(--color-surface)' : 'var(--text)',
-    fontSize: 13,
-    padding: '4px 10px',
-    cursor: 'pointer',
-  }),
-  singleValue: (base: Record<string, unknown>) => ({ ...base, color: 'var(--text)' }),
-  multiValue: (base: Record<string, unknown>) => ({ ...base, background: 'var(--cell-selected, #e0e7ff)' }),
-  input: (base: Record<string, unknown>) => ({ ...base, color: 'var(--text)' }),
-  placeholder: (base: Record<string, unknown>) => ({ ...base, color: 'var(--text-muted)' }),
-  indicatorSeparator: () => ({ display: 'none' }),
-};
+const refDialogSelectStyles = dialogSelectStyles;
 
 const MigrationsToolsDialog: React.FC<{
   columns: ColumnDef[];

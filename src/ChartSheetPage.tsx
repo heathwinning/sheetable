@@ -1,5 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import Select from 'react-select';
+import { dialogSelectStyles } from './selectStyles';
 import GridLayout, { WidthProvider } from 'react-grid-layout/legacy';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -280,6 +282,24 @@ const ChartRenderer: React.FC<{
 
 // ── Config modal ─────────────────────────────────────────────────────────────
 
+const CHART_TYPE_OPTIONS = [
+  { value: 'bar', label: 'Bar' },
+  { value: 'line', label: 'Line' },
+  { value: 'area', label: 'Area' },
+  { value: 'pie', label: 'Pie' },
+  { value: 'scatter', label: 'Scatter' },
+  { value: 'table', label: 'Table' },
+];
+
+const AGGREGATE_OPTIONS = [
+  { value: 'count', label: 'Count' },
+  { value: 'sum', label: 'Sum' },
+  { value: 'avg', label: 'Average' },
+  { value: 'min', label: 'Min' },
+  { value: 'max', label: 'Max' },
+  { value: 'none', label: 'None (raw)' },
+];
+
 const ChartConfigModal: React.FC<{
   config: ChartConfig;
   isNew: boolean;
@@ -347,52 +367,64 @@ const ChartConfigModal: React.FC<{
           <div style={{ display: 'flex', gap: 12 }}>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label className="app-dialog-label" style={{ marginBottom: 0 }}>Type</label>
-              <select className="app-dialog-select" value={draft.type} onChange={e => set('type', e.target.value as ChartType)}>
-                <option value="bar">Bar</option>
-                <option value="line">Line</option>
-                <option value="area">Area</option>
-                <option value="pie">Pie</option>
-                <option value="scatter">Scatter</option>
-                <option value="table">Table</option>
-              </select>
+              <Select
+                styles={dialogSelectStyles}
+                isSearchable={false}
+                value={CHART_TYPE_OPTIONS.find(o => o.value === draft.type) ?? null}
+                options={CHART_TYPE_OPTIONS}
+                onChange={opt => set('type', (opt?.value ?? 'bar') as ChartType)}
+                menuPlacement="auto"
+              />
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label className="app-dialog-label" style={{ marginBottom: 0 }}>Table</label>
-              <select className="app-dialog-select" value={draft.table}
-                onChange={e => { set('table', e.target.value); set('xColumn', ''); set('yColumn', ''); }}>
-                {tableIds.map(id => <option key={id} value={id}>{id}</option>)}
-              </select>
+              <Select
+                styles={dialogSelectStyles}
+                isSearchable={false}
+                value={draft.table ? { value: draft.table, label: draft.table } : null}
+                options={tableIds.map(id => ({ value: id, label: id }))}
+                onChange={opt => { set('table', opt?.value ?? ''); set('xColumn', ''); set('yColumn', ''); }}
+                menuPlacement="auto"
+              />
             </div>
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label className="app-dialog-label" style={{ marginBottom: 0 }}>X column</label>
-              <select className="app-dialog-select" value={draft.xColumn} onChange={e => set('xColumn', e.target.value)}>
-                <option value="">— select —</option>
-                {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+              <Select
+                styles={dialogSelectStyles}
+                value={colOptions.find(o => o.value === draft.xColumn) ?? null}
+                options={colOptions}
+                onChange={opt => set('xColumn', opt?.value ?? '')}
+                placeholder="— select —"
+                isClearable
+                menuPlacement="auto"
+              />
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label className="app-dialog-label" style={{ marginBottom: 0 }}>Aggregate</label>
-              <select className="app-dialog-select" value={draft.aggregate} onChange={e => set('aggregate', e.target.value as AggregateFunc)}>
-                <option value="count">Count</option>
-                <option value="sum">Sum</option>
-                <option value="avg">Average</option>
-                <option value="min">Min</option>
-                <option value="max">Max</option>
-                <option value="none">None (raw)</option>
-              </select>
+              <Select
+                styles={dialogSelectStyles}
+                isSearchable={false}
+                value={AGGREGATE_OPTIONS.find(o => o.value === draft.aggregate) ?? null}
+                options={AGGREGATE_OPTIONS}
+                onChange={opt => set('aggregate', (opt?.value ?? 'count') as AggregateFunc)}
+                menuPlacement="auto"
+              />
             </div>
           </div>
           {needsYCol && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label className="app-dialog-label" style={{ marginBottom: 0 }}>Y column</label>
-              <select className="app-dialog-select" value={draft.yColumn} onChange={e => set('yColumn', e.target.value)}>
-                <option value="">— select —</option>
-                {(draft.aggregate === 'none' ? allPaths : numericPaths).map(p => (
-                  <option key={p.path} value={p.path}>{p.label}</option>
-                ))}
-              </select>
+              <Select
+                styles={dialogSelectStyles}
+                value={(draft.aggregate === 'none' ? allPaths : numericPaths).map(p => ({ value: p.path, label: p.label })).find(o => o.value === draft.yColumn) ?? null}
+                options={(draft.aggregate === 'none' ? allPaths : numericPaths).map(p => ({ value: p.path, label: p.label }))}
+                onChange={opt => set('yColumn', opt?.value ?? '')}
+                placeholder="— select —"
+                isClearable
+                menuPlacement="auto"
+              />
             </div>
           )}
           {hasGroupBy && (
@@ -400,10 +432,15 @@ const ChartConfigModal: React.FC<{
               <label className="app-dialog-label" style={{ marginBottom: 0 }}>
                 Group by <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
               </label>
-              <select className="app-dialog-select" value={draft.groupBy ?? ''} onChange={e => set('groupBy', e.target.value || undefined)}>
-                <option value="">— none —</option>
-                {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+              <Select
+                styles={dialogSelectStyles}
+                value={draft.groupBy ? colOptions.find(o => o.value === draft.groupBy) ?? null : null}
+                options={colOptions}
+                onChange={opt => set('groupBy', opt?.value || undefined)}
+                placeholder="— none —"
+                isClearable
+                menuPlacement="auto"
+              />
             </div>
           )}
           {draft.type !== 'pie' && draft.type !== 'table' && (

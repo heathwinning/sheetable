@@ -186,11 +186,29 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const hasPicker = dateColumns.length > 1;
 
   const handleSelectSlot = (date: Date) => {
-    // Clicking a day in calendar drills into agenda for that specific day.
+    // Clicking a date number drills into agenda for that specific day.
     setAgendaDateFilter(date);
     setTemporaryDrilldown(true);
     // Temporary mode switch only; don't persist to localStorage.
     setViewModeRaw('agenda');
+  };
+
+  const handleSelectDayTile = (date: Date) => {
+    if (readOnly || !onCreateRow) return;
+
+    const initialValues: Row = {};
+    for (const col of schema.columns) {
+      if (col.name === INTERNAL_ROW_ID) continue;
+      if (col.name === dateColumn) {
+        initialValues[col.name] = col.type === 'date'
+          ? format(date, 'yyyy-MM-dd')
+          : format(date, "yyyy-MM-dd'T'00:00");
+      } else {
+        initialValues[col.name] = '';
+      }
+    }
+
+    setDialog({ open: true, title: 'New Entry', initialValues });
   };
 
   const handleSelectEvent = (ev: CalEvent) => {
@@ -362,7 +380,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         <CalendarScrollView
           events={events}
           year={selectedYear}
-          onSelectDate={handleSelectSlot}
+          onSelectDateNumber={handleSelectSlot}
+          onSelectDayTile={handleSelectDayTile}
           onSelectEvent={(scrollEv) => handleSelectEvent(scrollEv as CalEvent)}
         />
       ) : (
