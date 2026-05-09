@@ -26,7 +26,8 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({
   const btnRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const promptInput = usePromptInput();
-  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  // pos variable removed - setPos is called but pos is never read
+  const [, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
   useEffect(() => {
     if (!open) return;
@@ -514,179 +515,177 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn; onMinimize: () => void }
   );
 };
 
-const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolean }> = ({ state, createMode = false }) => {
-  // --- View Sheet Page ---
-  const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
-    const { viewId, bookId } = useParams<{ viewId: string; bookId?: string }>();
-    const navigate = useNavigate();
-    const showAlert = useAlert();
-    const confirm = useConfirm();
-    const promptInput = usePromptInput();
+// --- View Sheet Page ---
+const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
+  const { viewId, bookId } = useParams<{ viewId: string; bookId?: string }>();
+  const navigate = useNavigate();
+  const confirm = useConfirm();
+  const promptInput = usePromptInput();
 
-    const viewSheet = viewId ? state.getViewSheet(viewId) : undefined;
+  const viewSheet = viewId ? state.getViewSheet(viewId) : undefined;
 
-    // Config editors
-    const [editOpen, setEditOpen] = useState(false);
-    const [editTable, setEditTable] = useState('');
-    const [editViewType, setEditViewType] = useState<'grid' | 'calendar' | 'schedule'>('calendar');
-    const [editDateCol, setEditDateCol] = useState('');
+  // Config editors
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTable, setEditTable] = useState('');
+  const [editViewType, setEditViewType] = useState<'grid' | 'calendar' | 'schedule'>('calendar');
+  const [editDateCol, setEditDateCol] = useState('');
 
-    useEffect(() => {
-      if (!viewSheet) return;
-      setEditTable(viewSheet.tableName);
-      setEditViewType(viewSheet.viewType);
-      setEditDateCol(viewSheet.dateColumn ?? '');
-    }, [viewSheet?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!viewSheet) return;
+    setEditTable(viewSheet.tableName);
+    setEditViewType(viewSheet.viewType);
+    setEditDateCol(viewSheet.dateColumn ?? '');
+  }, [viewSheet?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const dateColumnsForTable = useMemo(
-      () => state.getSchema(editTable)?.columns.filter(c => c.type === 'date' || c.type === 'datetime') ?? [],
-      [editTable, state.revision], // eslint-disable-line react-hooks/exhaustive-deps
-    );
+  const dateColumnsForTable = useMemo(
+    () => state.getSchema(editTable)?.columns.filter(c => c.type === 'date' || c.type === 'datetime') ?? [],
+    [editTable, state.revision], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
-    const saveConfig = async () => {
-      if (!viewId || !viewSheet) return;
-      await state.updateViewSheet(viewId, {
-        tableName: editTable,
-        viewType: editViewType,
-        dateColumn: editDateCol || undefined,
-      });
-      setEditOpen(false);
-    };
+  const saveConfig = async () => {
+    if (!viewId || !viewSheet) return;
+    await state.updateViewSheet(viewId, {
+      tableName: editTable,
+      viewType: editViewType,
+      dateColumn: editDateCol || undefined,
+    });
+    setEditOpen(false);
+  };
 
-    const doRename = async () => {
-      if (!viewId) return;
-      const name = await promptInput('Rename view:', viewId, 'View name');
-      if (!name?.trim() || name.trim() === viewId) return;
-      await state.renameViewSheet(viewId, name.trim());
-      navigate(withBook(bookId, `/view/${encodeURIComponent(name.trim())}`), { replace: true });
-    };
+  const doRename = async () => {
+    if (!viewId) return;
+    const name = await promptInput('Rename view:', viewId, 'View name');
+    if (!name?.trim() || name.trim() === viewId) return;
+    await state.renameViewSheet(viewId, name.trim());
+    navigate(withBook(bookId, `/view/${encodeURIComponent(name.trim())}`), { replace: true });
+  };
 
-    const doDelete = async () => {
-      if (!viewId) return;
-      const confirmed = await confirm(`Delete view "${viewId}"?`, 'Delete View');
-      if (!confirmed) return;
-      await state.deleteViewSheet(viewId);
-      const first = state.tableIds[0];
-      navigate(first ? withBook(bookId, `/table/${encodeURIComponent(first)}`) : withBook(bookId, ''), { replace: true });
-    };
+  const doDelete = async () => {
+    if (!viewId) return;
+    const confirmed = await confirm(`Delete view "${viewId}"?`, 'Delete View');
+    if (!confirmed) return;
+    await state.deleteViewSheet(viewId);
+    const first = state.tableIds[0];
+    navigate(first ? withBook(bookId, `/table/${encodeURIComponent(first)}`) : withBook(bookId, ''), { replace: true });
+  };
 
-    if (!viewSheet) {
-      return (
-        <div className="app-body">
-          <div className="main-content">
-            <div className="empty-state-main">
-              <h2>View not found</h2>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    const schema = state.getSchema(viewSheet.tableName);
-    const rows = state.getRows(viewSheet.tableName);
-    const dateColumns = schema?.columns.filter(c => c.type === 'date' || c.type === 'datetime') ?? [];
-    const dateColumn = (viewSheet.dateColumn && dateColumns.some(c => c.name === viewSheet.dateColumn))
-      ? viewSheet.dateColumn
-      : (dateColumns[0]?.name ?? null);
-
-    const handleDateColumnChange = (col: string) => {
-      void state.updateViewSheet(viewSheet.name, { dateColumn: col });
-    };
-
-    const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
-
+  if (!viewSheet) {
     return (
       <div className="app-body">
-        {/* Config bar */}
-        {canEdit && (
-          <div className="view-sheet-bar">
-            <span className="view-sheet-bar-label">
-              Showing <strong>{viewSheet.tableName}</strong> as{' '}
-              <strong>{viewSheet.viewType}</strong>
-            </span>
-            <button className="header-action-btn" onClick={() => setEditOpen(o => !o)}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-              Configure
-            </button>
-            <button className="header-action-btn" onClick={() => { void doRename(); }}>
-              Rename
-            </button>
-            <button className="header-action-btn" style={{ color: 'var(--color-danger)' }} onClick={() => { void doDelete(); }}>
-              Delete
-            </button>
-          </div>
-        )}
-
-        {/* Config panel */}
-        {editOpen && (
-          <div className="view-sheet-config">
-            <label className="view-sheet-config-label">Table</label>
-            <select className="calendar-col-select" value={editTable} onChange={e => { setEditTable(e.target.value); setEditDateCol(''); }}>
-              {state.tableIds.map(id => <option key={id} value={id}>{id}</option>)}
-            </select>
-            <label className="view-sheet-config-label">View type</label>
-            <select className="calendar-col-select" value={editViewType} onChange={e => setEditViewType(e.target.value as 'grid' | 'calendar' | 'schedule')}>
-              <option value="grid">Grid</option>
-              <option value="calendar">Calendar</option>
-              <option value="schedule">Schedule</option>
-            </select>
-            {(editViewType === 'calendar' || editViewType === 'schedule') && dateColumnsForTable.length > 0 && (
-              <>
-                <label className="view-sheet-config-label">Date column</label>
-                <select className="calendar-col-select" value={editDateCol || dateColumnsForTable[0]?.name} onChange={e => setEditDateCol(e.target.value)}>
-                  {dateColumnsForTable.map(c => <option key={c.name} value={c.name}>{c.displayName ?? c.name}</option>)}
-                </select>
-              </>
-            )}
-            <button className="btn-primary" style={{ marginLeft: 8 }} onClick={() => { void saveConfig(); }}>Save</button>
-            <button className="btn-secondary" style={{ marginLeft: 4 }} onClick={() => setEditOpen(false)}>Cancel</button>
-          </div>
-        )}
-
-        {/* View content */}
         <div className="main-content">
-          {!schema ? (
-            <div className="empty-state-main">
-              <h2>Table &ldquo;{viewSheet.tableName}&rdquo; not found</h2>
-              {canEdit && <p>Open Configure to pick a different table.</p>}
-            </div>
-          ) : viewSheet.viewType === 'calendar' && dateColumn ? (
-            <CalendarView
-              schema={schema}
-              rows={rows}
-              dateColumn={dateColumn}
-              onDateColumnChange={handleDateColumnChange}
-            />
-          ) : viewSheet.viewType === 'schedule' && dateColumn ? (
-            <ScheduleView
-              schema={schema}
-              rows={rows}
-              dateColumn={dateColumn}
-              onDateColumnChange={handleDateColumnChange}
-            />
-          ) : (
-            <SpreadsheetGrid
-              key={viewSheet.tableName}
-              schema={schema}
-              rows={rows}
-              readOnly={true}
-              onEdit={() => []}
-              onInsert={() => []}
-              onDeleteRow={() => []}
-              revision={state.revision}
-              bookId={state.activeBookId ?? null}
-              getReferencedRow={state.getReferencedRow}
-              getReferenceRows={state.getReferenceRows}
-              resolveColumnPath={state.resolveColumnPath}
-              resolveColumnPathLabel={state.resolveColumnPathLabel}
-            />
-          )}
+          <div className="empty-state-main">
+            <h2>View not found</h2>
+          </div>
         </div>
       </div>
     );
+  }
+
+  const schema = state.getSchema(viewSheet.tableName);
+  const rows = state.getRows(viewSheet.tableName);
+  const dateColumns = schema?.columns.filter(c => c.type === 'date' || c.type === 'datetime') ?? [];
+  const dateColumn = (viewSheet.dateColumn && dateColumns.some(c => c.name === viewSheet.dateColumn))
+    ? viewSheet.dateColumn
+    : (dateColumns[0]?.name ?? null);
+
+  const handleDateColumnChange = (col: string) => {
+    void state.updateViewSheet(viewSheet.name, { dateColumn: col });
   };
 
-  const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolean }> = ({ state, createMode = false }) => {
+  const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
+
+  return (
+    <div className="app-body">
+      {/* Config bar */}
+      {canEdit && (
+        <div className="view-sheet-bar">
+          <span className="view-sheet-bar-label">
+            Showing <strong>{viewSheet.tableName}</strong> as{' '}
+            <strong>{viewSheet.viewType}</strong>
+          </span>
+          <button className="header-action-btn" onClick={() => setEditOpen(o => !o)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            Configure
+          </button>
+          <button className="header-action-btn" onClick={() => { void doRename(); }}>
+            Rename
+          </button>
+          <button className="header-action-btn" style={{ color: 'var(--color-danger)' }} onClick={() => { void doDelete(); }}>
+            Delete
+          </button>
+        </div>
+      )}
+
+      {/* Config panel */}
+      {editOpen && (
+        <div className="view-sheet-config">
+          <label className="view-sheet-config-label">Table</label>
+          <select className="calendar-col-select" value={editTable} onChange={e => { setEditTable(e.target.value); setEditDateCol(''); }}>
+            {state.tableIds.map(id => <option key={id} value={id}>{id}</option>)}
+          </select>
+          <label className="view-sheet-config-label">View type</label>
+          <select className="calendar-col-select" value={editViewType} onChange={e => setEditViewType(e.target.value as 'grid' | 'calendar' | 'schedule')}>
+            <option value="grid">Grid</option>
+            <option value="calendar">Calendar</option>
+            <option value="schedule">Schedule</option>
+          </select>
+          {(editViewType === 'calendar' || editViewType === 'schedule') && dateColumnsForTable.length > 0 && (
+            <>
+              <label className="view-sheet-config-label">Date column</label>
+              <select className="calendar-col-select" value={editDateCol || dateColumnsForTable[0]?.name} onChange={e => setEditDateCol(e.target.value)}>
+                {dateColumnsForTable.map(c => <option key={c.name} value={c.name}>{c.displayName ?? c.name}</option>)}
+              </select>
+            </>
+          )}
+          <button className="btn-primary" style={{ marginLeft: 8 }} onClick={() => { void saveConfig(); }}>Save</button>
+          <button className="btn-secondary" style={{ marginLeft: 4 }} onClick={() => setEditOpen(false)}>Cancel</button>
+        </div>
+      )}
+
+      {/* View content */}
+      <div className="main-content">
+        {!schema ? (
+          <div className="empty-state-main">
+            <h2>Table &ldquo;{viewSheet.tableName}&rdquo; not found</h2>
+            {canEdit && <p>Open Configure to pick a different table.</p>}
+          </div>
+        ) : viewSheet.viewType === 'calendar' && dateColumn ? (
+          <CalendarView
+            schema={schema}
+            rows={rows}
+            dateColumn={dateColumn}
+            onDateColumnChange={handleDateColumnChange}
+          />
+        ) : viewSheet.viewType === 'schedule' && dateColumn ? (
+          <ScheduleView
+            schema={schema}
+            rows={rows}
+            dateColumn={dateColumn}
+            onDateColumnChange={handleDateColumnChange}
+          />
+        ) : (
+          <SpreadsheetGrid
+            key={viewSheet.tableName}
+            schema={schema}
+            rows={rows}
+            readOnly={true}
+            onEdit={() => []}
+            onInsert={() => []}
+            onDeleteRow={() => []}
+            revision={state.revision}
+            bookId={state.activeBookId ?? null}
+            getReferencedRow={state.getReferencedRow}
+            getReferenceRows={state.getReferenceRows}
+            resolveColumnPath={state.resolveColumnPath}
+            resolveColumnPathLabel={state.resolveColumnPathLabel}
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
+const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolean }> = ({ state, createMode = false }) => {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
   const confirm = useConfirm();

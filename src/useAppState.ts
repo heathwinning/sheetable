@@ -811,58 +811,57 @@ export function useAppState(): UseAppStateReturn {
     const chart = chartSheetsRef.current.get(name);
     if (chart) chart.mode = mode;
     await api.updateChart(activeBookId, name, { mode });
+  }, [activeBookId, bump]);
 
-      // ---- View sheets ----
-      const getViewSheet = useCallback((id: string) => viewSheetsRef.current.get(id), []);
+  // ---- View sheets ----
+  const getViewSheet = useCallback((id: string) => viewSheetsRef.current.get(id), []);
 
-      const doCreateViewSheet = useCallback(async (
-        name: string,
-        tableName: string,
-        viewType: ViewSheet['viewType'],
-        dateColumn?: string,
-      ) => {
-        if (!activeBookId) return;
-        await api.createView(activeBookId, name, tableName, viewType, dateColumn);
-        viewSheetsRef.current.set(name, { name, tableName, viewType, dateColumn });
-        setViewSheetOrder(prev => [...prev, name]);
-        bump();
-      }, [activeBookId, bump]);
+  const doCreateViewSheet = useCallback(async (
+    name: string,
+    tableName: string,
+    viewType: ViewSheet['viewType'],
+    dateColumn?: string,
+  ) => {
+    if (!activeBookId) return;
+    await api.createView(activeBookId, name, tableName, viewType, dateColumn);
+    viewSheetsRef.current.set(name, { name, tableName, viewType, dateColumn });
+    setViewSheetOrder(prev => [...prev, name]);
+    bump();
+  }, [activeBookId, bump]);
 
-      const doDeleteViewSheet = useCallback(async (name: string) => {
-        if (!activeBookId) return;
-        await api.deleteView(activeBookId, name);
-        viewSheetsRef.current.delete(name);
-        setViewSheetOrder(prev => prev.filter(id => id !== name));
-        bump();
-      }, [activeBookId, bump]);
+  const doDeleteViewSheet = useCallback(async (name: string) => {
+    if (!activeBookId) return;
+    await api.deleteView(activeBookId, name);
+    viewSheetsRef.current.delete(name);
+    setViewSheetOrder(prev => prev.filter(id => id !== name));
+    bump();
+  }, [activeBookId, bump]);
 
-      const doRenameViewSheet = useCallback(async (oldName: string, newName: string) => {
-        if (!activeBookId) return;
-        await api.updateView(activeBookId, oldName, { name: newName });
-        const view = viewSheetsRef.current.get(oldName);
-        if (view) {
-          view.name = newName;
-          viewSheetsRef.current.delete(oldName);
-          viewSheetsRef.current.set(newName, view);
-        }
-        setViewSheetOrder(prev => prev.map(id => id === oldName ? newName : id));
-        bump();
-      }, [activeBookId, bump]);
+  const doRenameViewSheet = useCallback(async (oldName: string, newName: string) => {
+    if (!activeBookId) return;
+    await api.updateView(activeBookId, oldName, { name: newName });
+    const view = viewSheetsRef.current.get(oldName);
+    if (view) {
+      view.name = newName;
+      viewSheetsRef.current.delete(oldName);
+      viewSheetsRef.current.set(newName, view);
+    }
+    setViewSheetOrder(prev => prev.map(id => id === oldName ? newName : id));
+    bump();
+  }, [activeBookId, bump]);
 
-      const doUpdateViewSheet = useCallback(async (
-        name: string,
-        updates: Partial<Pick<ViewSheet, 'tableName' | 'viewType' | 'dateColumn'>>,
-      ) => {
-        if (!activeBookId) return;
-        const view = viewSheetsRef.current.get(name);
-        if (view) Object.assign(view, updates);
-        await api.updateView(activeBookId, name, {
-          ...(updates.tableName !== undefined ? { tableName: updates.tableName } : {}),
-          ...(updates.viewType !== undefined ? { viewType: updates.viewType } : {}),
-          ...('dateColumn' in updates ? { dateColumn: updates.dateColumn ?? null } : {}),
-        });
-        bump();
-      }, [activeBookId, bump]);
+  const doUpdateViewSheet = useCallback(async (
+    name: string,
+    updates: Partial<Pick<ViewSheet, 'tableName' | 'viewType' | 'dateColumn'>>,
+  ) => {
+    if (!activeBookId) return;
+    const view = viewSheetsRef.current.get(name);
+    if (view) Object.assign(view, updates);
+    await api.updateView(activeBookId, name, {
+      ...(updates.tableName !== undefined ? { tableName: updates.tableName } : {}),
+      ...(updates.viewType !== undefined ? { viewType: updates.viewType } : {}),
+      ...('dateColumn' in updates ? { dateColumn: updates.dateColumn ?? null } : {}),
+    });
     bump();
   }, [activeBookId, bump]);
 
