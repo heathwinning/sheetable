@@ -277,6 +277,7 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               getReferenceRows={(refTable) => state.getReferenceRows(refTable)}
               bookId={state.activeBookId}
               readOnly={state.activeBookRole === 'viewer'}
+              configKey={`${state.activeBookId}-${tableId}`}
             />
           ) : effectiveView === 'schedule' && dateColumn ? (
             <ScheduleView
@@ -692,6 +693,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             resolveColumnPath={(row, path) => state.resolveColumnPath(viewSheet.tableName, row, path)}
             readOnly={true}
             bookId={state.activeBookId}
+            configKey={`${state.activeBookId}-${viewSheet.tableName}`}
           />
         ) : viewSheet.viewType === 'schedule' && dateColumn ? (
           <ScheduleView
