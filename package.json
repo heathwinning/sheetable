@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "wrangler pages dev -- npx vite",
     "build": "tsc -b && vite build",
-    "deploy": "wrangler pages deploy dist",
     "lint": "eslint .",
     "preview": "wrangler pages dev dist"
   },
