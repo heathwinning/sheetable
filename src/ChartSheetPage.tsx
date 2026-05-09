@@ -656,9 +656,11 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           </RGL>
         )}
       </div>
-      {canEdit && charts.length > 0 && (
+      {canEdit && (
         <div style={{ padding: '8px 16px', borderTop: '1px solid var(--color-border)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-          <button className="btn-primary btn-sm" onClick={handleAddChart}>+ Add chart</button>
+          {state.tableIds.length > 0 && (
+            <button className="btn-primary btn-sm" onClick={handleAddChart}>+ Add chart</button>
+          )}
           <button
             className="btn-secondary btn-sm"
             style={{ color: 'var(--color-danger)', marginLeft: 'auto' }}
