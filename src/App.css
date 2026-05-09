@@ -822,7 +822,6 @@ body {
          cursor-pointer text-[13px] text-text no-underline text-left;
 }
 .add-sheet-option:hover { @apply bg-cell-selected; }
-.add-sheet-icon { @apply text-[15px]; }
 
 /* ============================================================
    Form elements (used in old column editor dialogs)

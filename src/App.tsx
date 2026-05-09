@@ -115,13 +115,13 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string; onOpen
           onClick={() => setOpen(false)}
         >
           <Link className="add-sheet-option" to={withBook(bookId, '/table/new')} onClick={() => setOpen(false)}>
-            <span className="add-sheet-icon">📊</span> Spreadsheet
+            Spreadsheet
           </Link>
           <button className="add-sheet-option" onClick={addChart}>
-            <span className="add-sheet-icon">📈</span> Chart
+            Chart
           </button>
           <button className="add-sheet-option" onClick={() => { void addView(); }}>
-            📅 Calendar View
+            Calendar View
           </button>
           <button
             className="add-sheet-option"
