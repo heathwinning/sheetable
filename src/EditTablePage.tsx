@@ -42,7 +42,7 @@ function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorP
         if (e.key === 'Escape') stopEditing();
       }}
       style={{
-        background: '#fff',
+        background: 'var(--color-surface)',
         border: '1px solid var(--border)',
         borderRadius: 4,
         boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
@@ -65,7 +65,7 @@ function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorP
             fontSize: 13,
             cursor: 'pointer',
             background: o.value === value ? 'var(--primary, #2563eb)' : 'transparent',
-            color: o.value === value ? '#fff' : 'var(--text)',
+            color: o.value === value ? 'var(--color-surface)' : 'var(--text)',
           }}
           onMouseEnter={(e) => {
             if (o.value !== value) e.currentTarget.style.background = 'var(--cell-selected, #e0e7ff)';
@@ -94,7 +94,7 @@ const selectStyles = {
   }),
   menu: (base: Record<string, unknown>) => ({
     ...base,
-    background: '#fff',
+    background: 'var(--color-surface)',
     border: '1px solid var(--border)',
     borderRadius: 4,
     boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
@@ -103,7 +103,7 @@ const selectStyles = {
   option: (base: Record<string, unknown>, state: { isSelected: boolean; isFocused: boolean }) => ({
     ...base,
     background: state.isSelected ? 'var(--primary)' : state.isFocused ? 'var(--cell-selected)' : 'transparent',
-    color: state.isSelected ? '#fff' : 'var(--text)',
+    color: state.isSelected ? 'var(--color-surface)' : 'var(--text)',
     fontSize: 13,
     padding: '4px 10px',
     cursor: 'pointer',
@@ -181,20 +181,25 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   );
 
   // AG Grid theme matching SpreadsheetGrid
-  const editGridTheme = useMemo(() => themeQuartz.withParams({
-    backgroundColor: '#ffffff',
-    foregroundColor: '#1e1e2e',
-    headerBackgroundColor: '#f5f6f8',
-    rowHoverColor: '#f0f4ff',
-    selectedRowBackgroundColor: '#e0e7ff',
-    borderColor: '#d4d4d8',
-    cellHorizontalPaddingScale: 0.8,
-    headerFontSize: 12,
-    fontSize: 13,
-    rowHeight: 32,
-    headerHeight: 32,
-    columnBorder: true,
-  }), []);
+  const editGridTheme = useMemo(() => {
+    const getColor = (varName: string): string => {
+      return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    };
+    return themeQuartz.withParams({
+      backgroundColor: getColor('--color-surface'),
+      foregroundColor: getColor('--color-text'),
+      headerBackgroundColor: getColor('--color-surface-2'),
+      rowHoverColor: getColor('--color-cell-editing'),
+      selectedRowBackgroundColor: getColor('--color-cell-selected'),
+      borderColor: getColor('--color-border'),
+      cellHorizontalPaddingScale: 0.8,
+      headerFontSize: 12,
+      fontSize: 13,
+      rowHeight: 32,
+      headerHeight: 32,
+      columnBorder: true,
+    });
+  }, []);
 
   // Row data for AG Grid column editor: each row = one column definition
   // Add _idx field so we can map back to state array
@@ -1069,7 +1074,7 @@ const refDialogSelectStyles = {
   }),
   menu: (base: Record<string, unknown>) => ({
     ...base,
-    background: '#fff',
+    background: 'var(--color-surface)',
     border: '1px solid var(--border)',
     borderRadius: 4,
     boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
@@ -1078,7 +1083,7 @@ const refDialogSelectStyles = {
   option: (base: Record<string, unknown>, state: { isSelected: boolean; isFocused: boolean }) => ({
     ...base,
     background: state.isSelected ? 'var(--primary)' : state.isFocused ? 'var(--cell-selected)' : 'transparent',
-    color: state.isSelected ? '#fff' : 'var(--text)',
+    color: state.isSelected ? 'var(--color-surface)' : 'var(--text)',
     fontSize: 13,
     padding: '4px 10px',
     cursor: 'pointer',
