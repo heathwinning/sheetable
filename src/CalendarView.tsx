@@ -185,20 +185,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
   const hasPicker = dateColumns.length > 1;
 
-  // Build a blank row pre-filled with the given date
-  const blankRowForDate = (date: Date): Row => {
-    const isDateOnly = schema.columns.find(c => c.name === dateColumn)?.type === 'date';
-    const dateValue = isDateOnly
-      ? format(date, 'yyyy-MM-dd')
-      : date.toISOString();
-    const row: Row = {};
-    for (const col of schema.columns) {
-      if (col.name === INTERNAL_ROW_ID) continue;
-      row[col.name] = col.name === dateColumn ? dateValue : '';
-    }
-    return row;
-  };
-
   const handleSelectSlot = (date: Date) => {
     // Clicking a day in calendar drills into agenda for that specific day.
     setAgendaDateFilter(date);
