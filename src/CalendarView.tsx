@@ -139,8 +139,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const [selectedYear, setSelectedYearRaw] = useState<number>(() => {
     const currentYear = new Date().getFullYear();
     if (!yearStorageKey) return currentYear;
-    const saved = Number(localStorage.getItem(yearStorageKey));
-    return Number.isFinite(saved) ? saved : currentYear;
+    const raw = localStorage.getItem(yearStorageKey);
+    if (!raw) return currentYear;
+    const saved = Number(raw);
+    return Number.isFinite(saved) && saved >= 1970 ? saved : currentYear;
   });
   const setSelectedYear = (year: number) => {
     setSelectedYearRaw(year);

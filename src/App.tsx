@@ -778,6 +778,9 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="app-dialog-btn app-dialog-btn-secondary" style={{ color: 'var(--color-danger)' }} onClick={() => { setEditOpen(false); void doDelete(); }}>Delete</button>
+                {editTable && (
+                  <button className="app-dialog-btn app-dialog-btn-secondary" onClick={() => { setEditOpen(false); navigate(withBook(bookId, `/table/${encodeURIComponent(editTable)}/edit`)); }}>Edit table…</button>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="app-dialog-btn app-dialog-btn-secondary" onClick={() => setEditOpen(false)}>Cancel</button>
