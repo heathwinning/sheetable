@@ -1,14 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { Calendar as BigCalendar, dateFnsLocalizer, type Event as RBCEvent, type View } from 'react-big-calendar';
+import { Calendar as BigCalendar, dateFnsLocalizer, type Event as RBCEvent, type View, type SlotInfo } from 'react-big-calendar';
 import { format } from 'date-fns/format';
 import { parse } from 'date-fns/parse';
 import { startOfWeek } from 'date-fns/startOfWeek';
 import { getDay } from 'date-fns/getDay';
 import { enUS } from 'date-fns/locale/en-US';
-import type { TableSchema, Row } from './types';
+import type { TableSchema, Row, ValidationError } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { parseTemporalUnknown } from './dateFormat';
 import { CalendarScrollView } from './CalendarScrollView';
+import { RecordCard } from './RecordCard';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
 const DEFAULT_RESOLVE = (_row: Row, _path: string) => '';
@@ -28,12 +29,31 @@ interface CalendarViewProps {
   dateColumn: string;
   onDateColumnChange: (col: string) => void;
   resolveColumnPath?: (row: Row, path: string) => string;
+  onCreateRow?: (row: Row) => ValidationError[];
+  onUpdateField?: (rowIndex: number, column: string, value: string) => ValidationError[];
+  getReferenceRows?: (refTable: string) => Row[];
+  readOnly?: boolean;
+  bookId?: string | null;
 }
 
-export const CalendarView: React.FC<CalendarViewProps> = ({ schema, rows, dateColumn, onDateColumnChange, resolveColumnPath = DEFAULT_RESOLVE }) => {
+interface DialogState {
+  open: boolean;
+  title: string;
+  initialValues: Row;
+  rowIndex?: number; // defined when editing an existing row
+}
+
+export const CalendarView: React.FC<CalendarViewProps> = ({
+  schema, rows, dateColumn, onDateColumnChange,
+  resolveColumnPath = DEFAULT_RESOLVE,
+  onCreateRow, onUpdateField, getReferenceRows,
+  readOnly = false,
+  bookId,
+}) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [currentView, setCurrentView] = useState<View>('month');
   const [scrollMode, setScrollMode] = useState(false);
+  const [dialog, setDialog] = useState<DialogState>({ open: false, title: '', initialValues: {} });
 
   const dateColumns = useMemo(
     () => schema.columns.filter(c => c.type === 'date' || c.type === 'datetime'),
@@ -84,6 +104,71 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ schema, rows, dateCo
 
   const hasPicker = dateColumns.length > 1;
 
+  // Build a blank row pre-filled with the given date for the date column
+  const blankRowForDate = (date: Date): Row => {
+    const isDateOnly = schema.columns.find(c => c.name === dateColumn)?.type === 'date';
+    const dateValue = isDateOnly
+      ? format(date, 'yyyy-MM-dd')
+      : date.toISOString();
+    const row: Row = {};
+    for (const col of schema.columns) {
+      if (col.name === INTERNAL_ROW_ID) continue;
+      row[col.name] = col.name === dateColumn ? dateValue : '';
+    }
+    return row;
+  };
+
+  const handleSelectSlot = (slotInfo: SlotInfo) => {
+    if (readOnly || !onCreateRow) return;
+    setDialog({
+      open: true,
+      title: 'New Entry',
+      initialValues: blankRowForDate(slotInfo.start),
+    });
+  };
+
+  const handleSelectEvent = (event: RBCEvent) => {
+    const row = (event as RBCEvent & { resource: Row }).resource;
+    if (!row) return;
+    const rowIndex = rows.findIndex(r => r[INTERNAL_ROW_ID] === row[INTERNAL_ROW_ID]);
+    if (rowIndex < 0) return;
+    // Build initial values from the row (exclude _rowId)
+    const initialValues: Row = {};
+    for (const col of schema.columns) {
+      if (col.name === INTERNAL_ROW_ID) continue;
+      initialValues[col.name] = row[col.name] ?? '';
+    }
+    setDialog({
+      open: true,
+      title: 'Edit Entry',
+      initialValues,
+      rowIndex,
+    });
+  };
+
+  const handleDialogSave = (values: Row): ValidationError[] => {
+    if (dialog.rowIndex !== undefined && onUpdateField) {
+      // Edit mode: apply each changed field
+      let errs: ValidationError[] = [];
+      for (const col of schema.columns) {
+        if (col.name === INTERNAL_ROW_ID) continue;
+        const newVal = values[col.name] ?? '';
+        const oldVal = rows[dialog.rowIndex]?.[col.name] ?? '';
+        if (newVal !== oldVal) {
+          errs = onUpdateField(dialog.rowIndex, col.name, newVal);
+          if (errs.length > 0) return errs;
+        }
+      }
+      setDialog(d => ({ ...d, open: false }));
+      return [];
+    } else if (onCreateRow) {
+      const errs = onCreateRow(values);
+      if (errs.length === 0) setDialog(d => ({ ...d, open: false }));
+      return errs;
+    }
+    return [];
+  };
+
   const viewToggleStyle = (active: boolean): React.CSSProperties => ({
     padding: '3px 10px',
     fontSize: 13,
@@ -125,7 +210,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ schema, rows, dateCo
       </div>
 
       {scrollMode ? (
-        <CalendarScrollView events={events.map(e => ({ id: (e as RBCEvent & { id: unknown }).id, title: String(e!.title), start: e!.start as Date, allDay: !!e!.allDay }))} />
+        <CalendarScrollView
+          events={events.map(e => ({ id: (e as RBCEvent & { id: unknown }).id, title: String(e!.title), start: e!.start as Date, allDay: !!e!.allDay, resource: (e as RBCEvent & { resource: Row }).resource }))}
+          onSelectDate={!readOnly && onCreateRow ? (date) => handleSelectSlot({ start: date, end: date, slots: [date], action: 'click' }) : undefined}
+          onSelectEvent={(scrollEv) => {
+            const row = (scrollEv as { resource?: Row }).resource;
+            if (!row) return;
+            const fakeEvent = events.find(e => (e as RBCEvent & { id: unknown }).id === scrollEv.id);
+            if (fakeEvent) handleSelectEvent(fakeEvent as RBCEvent);
+          }}
+        />
       ) : (
         <div style={{ flex: 1, minHeight: 0, padding: 8 }}>
           <BigCalendar
@@ -140,8 +234,23 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ schema, rows, dateCo
             onView={view => setCurrentView(view)}
             popup
             views={availableViews}
+            selectable={!readOnly && !!onCreateRow}
+            onSelectSlot={handleSelectSlot}
+            onSelectEvent={handleSelectEvent}
           />
         </div>
+      )}
+      {dialog.open && (
+        <RecordCard
+          schema={schema}
+          title={dialog.title}
+          initialValues={dialog.initialValues}
+          onSave={handleDialogSave}
+          onClose={() => setDialog(d => ({ ...d, open: false }))}
+          getReferenceRows={getReferenceRows ?? (() => [])}
+          bookId={bookId}
+          readOnly={readOnly && dialog.rowIndex !== undefined}
+        />
       )}
     </div>
   );

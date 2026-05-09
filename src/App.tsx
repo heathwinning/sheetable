@@ -272,6 +272,11 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               dateColumn={dateColumn}
               onDateColumnChange={handleDateColumnChange}
               resolveColumnPath={(row, path) => state.resolveColumnPath(tableId, row, path)}
+              onCreateRow={(row) => state.insertRow(tableId, row)}
+              onUpdateField={(rowIndex, col, val) => state.applyEdit(tableId, rowIndex, col, val)}
+              getReferenceRows={(refTable) => state.getReferenceRows(refTable)}
+              bookId={state.activeBookId}
+              readOnly={state.activeBookRole === 'viewer'}
             />
           ) : effectiveView === 'schedule' && dateColumn ? (
             <ScheduleView
@@ -685,6 +690,8 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             dateColumn={dateColumn}
             onDateColumnChange={handleDateColumnChange}
             resolveColumnPath={(row, path) => state.resolveColumnPath(viewSheet.tableName, row, path)}
+            readOnly={true}
+            bookId={state.activeBookId}
           />
         ) : viewSheet.viewType === 'schedule' && dateColumn ? (
           <ScheduleView
