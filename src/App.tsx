@@ -1199,6 +1199,7 @@ const App: React.FC = () => {
   // Derive active view sheet ID for header actions
   const viewMatch = location.pathname.match(/\/view\/([^/]+)$/);
   const headerViewId = viewMatch ? decodeURIComponent(viewMatch[1]) : null;
+  const headerViewTableId = headerViewId ? (state.getViewSheet(headerViewId)?.tableName ?? null) : null;
 
   // Determine if the current table has date/datetime columns (for view switcher visibility)
   const headerTableHasDates = useMemo(() => {
@@ -1246,17 +1247,17 @@ const App: React.FC = () => {
     }
   };
 
-  const exportCSV = () => {
-    if (!headerTableId) return;
-    const schema = state.getSchema(headerTableId);
-    const rows = state.getRows(headerTableId);
+  const exportCSV = (tableId = headerTableId) => {
+    if (!tableId) return;
+    const schema = state.getSchema(tableId);
+    const rows = state.getRows(tableId);
     if (!schema) return;
     const csv = rowsToCSV(schema, rows);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${headerTableId}.csv`;
+    a.download = `${tableId}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1390,16 +1391,42 @@ const App: React.FC = () => {
               </button>
             </div>
           )}
-          {headerViewId && canEdit && (
+          {headerViewId && headerViewTableId && (
             <div className="header-actions">
-              <Link
+              {canEdit && (
+                <>
+                  <button
+                    className="header-action-btn"
+                    onClick={runUndo}
+                    disabled={!state.canUndo}
+                    title="Undo (Ctrl/Cmd+Z)"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'block',margin:'0 auto'}}>
+                      <path d="M3 12h13a5 5 0 1 1 0 10h-1" />
+                      <polyline points="8 17 3 12 8 7" />
+                    </svg>
+                  </button>
+                  <ImportMenu bookId={headerBookId} tableId={headerViewTableId} />
+                </>
+              )}
+              <button
                 className="header-action-btn"
-                to={withBook(headerBookId, `/view/${encodeURIComponent(headerViewId)}?configure=1`)}
-                title="Configure view"
+                onClick={() => exportCSV(headerViewTableId)}
+                title="Export as CSV"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                <span className="header-action-label">Edit</span>
-              </Link>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span className="header-action-label">Export</span>
+              </button>
+              {canEdit && (
+                <Link
+                  className="header-action-btn"
+                  to={withBook(headerBookId, `/view/${encodeURIComponent(headerViewId)}?configure=1`)}
+                  title="Configure view"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  <span className="header-action-label">Edit</span>
+                </Link>
+              )}
             </div>
           )}
           {isTableView && headerTableId && (
@@ -1422,7 +1449,7 @@ const App: React.FC = () => {
               )}
               <button
                 className="header-action-btn"
-                onClick={exportCSV}
+                onClick={() => exportCSV(headerViewTableId)}
                 title="Export as CSV"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
