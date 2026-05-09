@@ -1001,7 +1001,7 @@ const RefConfigDialog: React.FC<{
         <h3 className="app-dialog-title">Reference Config: {col.name || 'unnamed'}</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
           <div>
-            <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Referenced Table</label>
+            <label className="app-dialog-label" style={{ marginBottom: 4 }}>Referenced Table</label>
             <Select
               value={col.refTable ? { value: col.refTable, label: col.refTable } : null}
               onChange={opt => onUpdate(colIndex, {
@@ -1019,7 +1019,7 @@ const RefConfigDialog: React.FC<{
           {col.refTable && (
             <>
               <div>
-                <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Display Columns</label>
+                <label className="app-dialog-label" style={{ marginBottom: 4 }}>Display Columns</label>
                 <Select
                   isMulti
                   value={(col.refDisplayColumns ?? []).map(cn => ({
@@ -1034,7 +1034,7 @@ const RefConfigDialog: React.FC<{
                 />
               </div>
               <div>
-                <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Search Columns</label>
+                <label className="app-dialog-label" style={{ marginBottom: 4 }}>Search Columns</label>
                 <Select
                   isMulti
                   value={(col.refSearchColumns ?? []).map(cn => ({
@@ -1226,16 +1226,17 @@ const MigrationsToolsDialog: React.FC<{
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Text to Reference Migration</div>
             <div style={{ display: 'grid', gap: 10 }}>
               <div>
-                <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Resulting Reference Column Name</label>
+                <label className="app-dialog-label" style={{ marginBottom: 4 }}>Resulting Reference Column Name</label>
                 <input
-                  className="edit-table-input"
+                  className="app-dialog-input"
+                  style={{ marginBottom: 0 }}
                   value={resultColName}
                   onChange={e => setResultColName(e.target.value)}
                   placeholder="Enter resulting reference column name"
                 />
               </div>
               <div>
-                <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Referenced Table</label>
+                <label className="app-dialog-label" style={{ marginBottom: 4 }}>Referenced Table</label>
                 <Select
                   options={otherTableIds.map(id => ({ value: id, label: id }))}
                   value={refTable ? { value: refTable, label: refTable } : null}
@@ -1249,7 +1250,7 @@ const MigrationsToolsDialog: React.FC<{
                 />
               </div>
               <div>
-                <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>Match Pairs</label>
+                <label className="app-dialog-label" style={{ marginBottom: 6 }}>Match Pairs</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {pairs.map((pair, i) => (
                     <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto', gap: 8, alignItems: 'center' }}>
@@ -1365,7 +1366,7 @@ const MigrationPreviewDialog: React.FC<{
         {/* Date format selection dropdown */}
         {needsDateFormat && (
           <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>
+            <label className="app-dialog-label" style={{ marginBottom: 4 }}>
               Select date format for conversion
             </label>
             <Select<OptionType>
