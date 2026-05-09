@@ -56,34 +56,6 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({
     navigate(withBook(bookId, `/chart/${encodeURIComponent(name.trim())}`));
   };
 
-  return (
-    <>
-      <button ref={btnRef} className="table-tab add-tab" onClick={toggle} title="Add sheet">
-        +
-      </button>
-      {open && (
-        <div className="add-sheet-dropdown" ref={menuRef} style={{ top: pos.top, left: pos.left }}>
-          <Link className="add-sheet-option" to={withBook(bookId, '/table/new')} onClick={() => setOpen(false)}>
-            <span className="add-sheet-icon">📊</span> Spreadsheet
-          </Link>
-          <button className="add-sheet-option" onClick={addChart}>
-            <span className="add-sheet-icon">📈</span> Chart
-          </button>
-          {state.tableIds.length > 0 && (
-            <>
-              <button className="add-sheet-option" onClick={() => { void addView('calendar'); }}>
-                <span className="add-sheet-icon">📅</span> Calendar View
-              </button>
-              <button className="add-sheet-option" onClick={() => { void addView('schedule'); }}>
-                <span className="add-sheet-icon">🗓️</span> Schedule View
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </>
-  );
-};
   const addView = async (viewType: 'calendar' | 'schedule') => {
     setOpen(false);
     const tableIds = state.tableIds;
@@ -105,6 +77,33 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string }> = ({
   return (
     <>
       <button ref={btnRef} className="table-tab add-tab" onClick={toggle} title="Add sheet">
+        +
+      </button>
+      {open && (
+        <div className="header-action-dropdown-wrap" ref={menuRef} onClick={() => setOpen(false)}>
+          <div className="header-action-dropdown">
+            <Link className="header-action-dropdown-item" to={withBook(bookId, '/table/new')} onClick={() => setOpen(false)}>
+              <span className="add-sheet-icon">📊</span> Spreadsheet
+            </Link>
+            <button className="header-action-dropdown-item" onClick={addChart}>
+              <span className="add-sheet-icon">📈</span> Chart
+            </button>
+            {state.tableIds.length > 0 && (
+              <>
+                <button className="header-action-dropdown-item" onClick={() => { void addView('calendar'); }}>
+                  📅 Calendar View
+                </button>
+                <button className="header-action-dropdown-item" onClick={() => { void addView('schedule'); }}>
+                  🗓️ Schedule View
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
 
 // --- Import Menu (dropdown combining import options) ---
 const ImportMenu: React.FC<{ bookId?: string; tableId: string }> = ({ bookId, tableId }) => {
@@ -1429,7 +1428,7 @@ const App: React.FC = () => {
             <Route path="/book/:bookId/table/:tableId" element={<TableViewPage state={state} />} />
             <Route path="/book/:bookId/chart/:chartId" element={<ChartSheetPage state={state} />} />
             <Route path="/book/:bookId/settings" element={<BookSettingsPage state={state} />} />
-                        <Route path="/book/:bookId/view/:viewId" element={<ViewSheetPage state={state} />} />
+            <Route path="/book/:bookId/view/:viewId" element={<ViewSheetPage state={state} />} />
             <Route path="/book/:bookId/table/:tableId/edit" element={<EditTablePage state={state} />} />
             <Route path="/book/:bookId/table/:tableId/import" element={<ImportPage state={state} />} />
             <Route path="/book/:bookId/import" element={<ImportPage state={state} />} />
@@ -1440,7 +1439,6 @@ const App: React.FC = () => {
             <Route path="/import" element={<ImportPage state={state} />} />
             <Route path="/chart/:chartId" element={<ChartSheetPage state={state} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
-                      <Route path="/view/:viewId" element={<ViewSheetPage state={state} />} />
           </Routes>
         </div>
       </div>
