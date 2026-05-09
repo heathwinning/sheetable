@@ -5,6 +5,7 @@ import { startOfWeek } from 'date-fns/startOfWeek';
 import { endOfWeek } from 'date-fns/endOfWeek';
 import { addDays } from 'date-fns/addDays';
 import { addMonths } from 'date-fns/addMonths';
+import { startOfYear } from 'date-fns/startOfYear';
 import { isSameMonth } from 'date-fns/isSameMonth';
 import { isToday } from 'date-fns/isToday';
 import { isBefore } from 'date-fns/isBefore';
@@ -21,8 +22,7 @@ export interface ScrollEvent {
 
 interface CalendarScrollViewProps {
   events: ScrollEvent[];
-  monthsBefore?: number;
-  monthsAfter?: number;
+  year: number;
   onSelectDate?: (date: Date) => void;
   onSelectEvent?: (event: ScrollEvent) => void;
 }
@@ -131,12 +131,15 @@ const MonthGrid: React.FC<{
 
 export const AgendaView: React.FC<{
   events: ScrollEvent[];
+  year: number;
   todayRef: React.RefObject<HTMLDivElement | null>;
   onSelectEvent?: (event: ScrollEvent) => void;
-}> = ({ events, todayRef, onSelectEvent }) => {
+}> = ({ events, year, todayRef, onSelectEvent }) => {
   const sorted = useMemo(() =>
-    [...events].sort((a, b) => a.start.getTime() - b.start.getTime()),
-    [events]
+    [...events]
+      .filter((ev) => ev.start.getFullYear() === year)
+      .sort((a, b) => a.start.getTime() - b.start.getTime()),
+    [events, year]
   );
 
   // Group by day
@@ -210,8 +213,7 @@ export const AgendaView: React.FC<{
 
 export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
   events,
-  monthsBefore = 36,
-  monthsAfter = 60,
+  year,
   onSelectDate,
   onSelectEvent,
 }) => {
@@ -220,13 +222,19 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
   const monthRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const thisMonth = useMemo(() => startOfMonth(new Date()), []);
-  const [activeMonthKey, setActiveMonthKey] = useState(() => format(thisMonth, 'yyyy-MM'));
+  const initialMonth = useMemo(
+    () => (thisMonth.getFullYear() === year ? thisMonth : new Date(year, 0, 1)),
+    [thisMonth, year],
+  );
+  const [_activeMonthKey, setActiveMonthKey] = useState(() => format(initialMonth, 'yyyy-MM'));
+  void _activeMonthKey;
 
   const months = useMemo(() => {
     const result: Date[] = [];
-    for (let i = -monthsBefore; i <= monthsAfter; i++) result.push(addMonths(thisMonth, i));
+    const yearStart = startOfYear(new Date(year, 0, 1));
+    for (let i = 0; i < 12; i++) result.push(addMonths(yearStart, i));
     return result;
-  }, [thisMonth, monthsBefore, monthsAfter]);
+  }, [year]);
 
   // IntersectionObserver — track which month is at the top of the viewport
   useEffect(() => {
@@ -251,7 +259,7 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
     return () => observer.disconnect();
   }, [months]);
 
-  // Scroll today into view on mount — position today ~1/3 from top (≈ 3 weeks of context above)
+  // Scroll today/month into view on mount — position ~1/3 from top (≈ 3 weeks of context above)
   useEffect(() => {
     if (todayRef.current && scrollRef.current) {
       const cellTop = todayRef.current.offsetTop;
@@ -260,66 +268,25 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
     }
   }, []);
 
-const scrollToMonth = useCallback((key: string) => {
+  useEffect(() => {
+    const next = format(initialMonth, 'yyyy-MM');
+    setActiveMonthKey(next);
+    const el = monthRefsMap.current.get(next);
+    if (el && scrollRef.current) {
+      scrollRef.current.scrollTop = Math.max(0, el.offsetTop - 12);
+    }
+  }, [initialMonth]);
+
+const _scrollToMonth = useCallback((key: string) => {
     const el = monthRefsMap.current.get(key);
     if (el && scrollRef.current) {
       scrollRef.current.scrollTop = Math.max(0, el.offsetTop - 80);
     }
   }, []);
+  void _scrollToMonth;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, background: 'var(--color-surface)' }}>
-
-      {/* ── Sticky nav ── */}
-      <div style={{
-        flexShrink: 0,
-        borderBottom: '1px solid var(--color-border)',
-        background: 'var(--color-surface)',
-        padding: '6px 12px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-      }}>
-        <select
-          value={activeMonthKey.slice(0, 4)}
-          onChange={e => {
-            const year = e.target.value;
-            const key = `${year}-01`;
-            setActiveMonthKey(key);
-            scrollToMonth(key);
-          }}
-          style={{
-            fontSize: 13,
-            padding: '2px 6px',
-            borderRadius: 4,
-            border: '1px solid var(--color-border)',
-            background: 'var(--color-surface)',
-            color: 'var(--color-text)',
-            cursor: 'pointer',
-          }}
-        >
-          {[...new Set(months.map(m => format(m, 'yyyy')))].map(y => (
-            <option key={y} value={y}>{y}</option>
-          ))}
-        </select>
-        <button
-          onClick={() => {
-            const key = format(thisMonth, 'yyyy-MM');
-            setActiveMonthKey(key);
-            scrollToMonth(key);
-          }}
-          style={{
-            fontSize: 12,
-            padding: '3px 10px',
-            borderRadius: 6,
-            border: '1px solid var(--color-border)',
-            background: 'transparent',
-            color: 'var(--color-text)',
-            cursor: 'pointer',
-          }}
-        >Today</button>
-      </div>
-
       {/* ── Scrollable content ── */}
       <div
         ref={scrollRef}

@@ -235,7 +235,7 @@ export async function createChart(bookId: string, name: string, tableName?: stri
 export async function updateChart(
   bookId: string,
   name: string,
-  updates: Partial<{ name: string; tableName: string; mode: string; charts: unknown[] }>,
+  updates: Partial<{ name: string; tableName: string; mode: string; charts: unknown; displayOrder: number }>,
 ): Promise<void> {
   await request(`/books/${bookId}/charts/${encodeURIComponent(name)}`, {
     method: 'PATCH',

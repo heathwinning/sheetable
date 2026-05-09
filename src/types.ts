@@ -35,12 +35,34 @@ export interface ValidationError {
   columnName?: string;
 }
 
-// Chart sheet — stores Graphic Walker chart configurations
+// Chart types
+export type ChartType = 'bar' | 'line' | 'area' | 'pie' | 'scatter';
+export type AggregateFunc = 'sum' | 'count' | 'avg' | 'min' | 'max' | 'none';
+
+export interface ChartConfig {
+  id: string;
+  title: string;
+  type: ChartType;
+  table: string;
+  xColumn: string;
+  yColumn: string;
+  groupBy?: string;
+  aggregate: AggregateFunc;
+}
+
+export interface ChartLayoutItem {
+  i: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+// Chart sheet — a named dashboard of Recharts plots on a react-grid-layout canvas
 export interface ChartSheet {
   name: string;
-  tableName?: string;
-  mode?: 'edit' | 'display';
-  charts: unknown[];
+  charts: ChartConfig[];
+  layout: ChartLayoutItem[];
 }
 
 // View sheet — a named tab that shows a table in a specific view type

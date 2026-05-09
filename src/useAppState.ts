@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import type { TableSchema, Row, ValidationError, ChartSheet, ViewSheet, UndoEntry, SessionUser, BookInfo } from './types';
+import type { TableSchema, Row, ValidationError, ChartSheet, ChartConfig, ChartLayoutItem, ViewSheet, UndoEntry, SessionUser, BookInfo } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import * as api from './api';
 import { log } from './DebugLogger';
@@ -52,9 +52,7 @@ export interface UseAppStateReturn {
   createChartSheet: (name: string) => Promise<void>;
   deleteChartSheet: (name: string) => Promise<void>;
   renameChartSheet: (oldName: string, newName: string) => Promise<void>;
-  updateChartSheet: (name: string, charts: unknown[]) => Promise<void>;
-  setChartSheetTable: (name: string, tableName: string) => Promise<void>;
-  setChartSheetMode: (name: string, mode: 'edit' | 'display') => Promise<void>;
+  updateChartSheet: (name: string, charts: ChartConfig[], layout: ChartLayoutItem[]) => Promise<void>;
 
   // View sheets
   viewSheetIds: string[];
@@ -218,7 +216,15 @@ export function useAppState(): UseAppStateReturn {
         chartSheetsRef.current.clear();
         const chartOrder: string[] = [];
         for (const chart of charts) {
-          chartSheetsRef.current.set(chart.name, chart);
+          const raw = (chart as { charts?: unknown }).charts;
+          let parsedCharts: ChartConfig[] = [];
+          let parsedLayout: ChartLayoutItem[] = [];
+          if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            const cfg = raw as { charts?: unknown; layout?: unknown };
+            if (Array.isArray(cfg.charts)) parsedCharts = cfg.charts as ChartConfig[];
+            if (Array.isArray(cfg.layout)) parsedLayout = cfg.layout as ChartLayoutItem[];
+          }
+          chartSheetsRef.current.set(chart.name, { name: chart.name, charts: parsedCharts, layout: parsedLayout });
           chartOrder.push(chart.name);
         }
         setChartSheetOrder(chartOrder);
@@ -762,7 +768,7 @@ export function useAppState(): UseAppStateReturn {
   const doCreateChartSheet = useCallback(async (name: string) => {
     if (!activeBookId) return;
     await api.createChart(activeBookId, name);
-    chartSheetsRef.current.set(name, { name, charts: [] });
+    chartSheetsRef.current.set(name, { name, charts: [], layout: [] });
     setChartSheetOrder(prev => [...prev, name]);
     bump();
   }, [activeBookId, bump]);
@@ -788,30 +794,12 @@ export function useAppState(): UseAppStateReturn {
     bump();
   }, [activeBookId, bump]);
 
-  const doUpdateChartSheet = useCallback(async (name: string, charts: unknown[]) => {
+  const doUpdateChartSheet = useCallback(async (name: string, charts: ChartConfig[], layout: ChartLayoutItem[]) => {
     if (!activeBookId) return;
-    const chart = chartSheetsRef.current.get(name);
-    if (chart) chart.charts = charts;
-    await api.updateChart(activeBookId, name, { charts });
+    const sheet = chartSheetsRef.current.get(name);
+    if (sheet) { sheet.charts = charts; sheet.layout = layout; }
+    await api.updateChart(activeBookId, name, { charts: { charts, layout } });
   }, [activeBookId]);
-
-  const doSetChartSheetTable = useCallback(async (name: string, tableName: string) => {
-    if (!activeBookId) return;
-    const chart = chartSheetsRef.current.get(name);
-    if (chart) {
-      chart.tableName = tableName;
-      chart.charts = [];
-    }
-    await api.updateChart(activeBookId, name, { tableName, charts: [] });
-    bump();
-  }, [activeBookId, bump]);
-
-  const doSetChartSheetMode = useCallback(async (name: string, mode: 'edit' | 'display') => {
-    if (!activeBookId) return;
-    const chart = chartSheetsRef.current.get(name);
-    if (chart) chart.mode = mode;
-    await api.updateChart(activeBookId, name, { mode });
-  }, [activeBookId, bump]);
 
   // ---- View sheets ----
   const getViewSheet = useCallback((id: string) => viewSheetsRef.current.get(id), []);
@@ -908,8 +896,6 @@ export function useAppState(): UseAppStateReturn {
     deleteChartSheet: doDeleteChartSheet,
     renameChartSheet: doRenameChartSheet,
     updateChartSheet: doUpdateChartSheet,
-    setChartSheetTable: doSetChartSheetTable,
-    setChartSheetMode: doSetChartSheetMode,
 
   viewSheetIds: viewSheetOrder,
   getViewSheet,
