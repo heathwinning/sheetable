@@ -251,11 +251,12 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
     return () => observer.disconnect();
   }, [months]);
 
-  // Scroll today into view on mount
+  // Scroll today into view on mount — position today ~1/3 from top (≈ 3 weeks of context above)
   useEffect(() => {
     if (todayRef.current && scrollRef.current) {
       const cellTop = todayRef.current.offsetTop;
-      scrollRef.current.scrollTop = Math.max(0, cellTop - 160);
+      const viewHeight = scrollRef.current.clientHeight;
+      scrollRef.current.scrollTop = Math.max(0, cellTop - viewHeight / 3);
     }
   }, []);
 
