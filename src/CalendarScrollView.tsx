@@ -279,15 +279,11 @@ const scrollToMonth = useCallback((key: string) => {
         alignItems: 'center',
         gap: 8,
       }}>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Jump to</label>
-        <input
-          type="month"
-          value={activeMonthKey}
-          min={format(months[0], 'yyyy-MM')}
-          max={format(months[months.length - 1], 'yyyy-MM')}
+        <select
+          value={activeMonthKey.slice(0, 4)}
           onChange={e => {
-            const key = e.target.value;
-            if (!key) return;
+            const year = e.target.value;
+            const key = `${year}-01`;
             setActiveMonthKey(key);
             scrollToMonth(key);
           }}
@@ -300,7 +296,11 @@ const scrollToMonth = useCallback((key: string) => {
             color: 'var(--color-text)',
             cursor: 'pointer',
           }}
-        />
+        >
+          {[...new Set(months.map(m => format(m, 'yyyy')))].map(y => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
         <button
           onClick={() => {
             const key = format(thisMonth, 'yyyy-MM');
