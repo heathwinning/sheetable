@@ -6,7 +6,6 @@ import { endOfWeek } from 'date-fns/endOfWeek';
 import { addDays } from 'date-fns/addDays';
 import { addMonths } from 'date-fns/addMonths';
 import { isSameMonth } from 'date-fns/isSameMonth';
-import { isSameDay } from 'date-fns/isSameDay';
 import { isToday } from 'date-fns/isToday';
 import { format } from 'date-fns/format';
 
