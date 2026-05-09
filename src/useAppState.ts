@@ -60,7 +60,7 @@ export interface UseAppStateReturn {
   createViewSheet: (name: string, tableName: string, viewType: ViewSheet['viewType'], dateColumn?: string) => Promise<void>;
   deleteViewSheet: (name: string) => Promise<void>;
   renameViewSheet: (oldName: string, newName: string) => Promise<void>;
-  updateViewSheet: (name: string, updates: Partial<Pick<ViewSheet, 'tableName' | 'viewType' | 'dateColumn'>>) => Promise<void>;
+  updateViewSheet: (name: string, updates: Partial<Pick<ViewSheet, 'name' | 'tableName' | 'viewType' | 'dateColumn' | 'hideSourceTableTab'>>) => Promise<void>;
 
   // Reference helpers (replacement for DataModel methods)
   getReferencedRow: (refTable: string, rowId: string) => Row | undefined;
@@ -840,15 +840,17 @@ export function useAppState(): UseAppStateReturn {
 
   const doUpdateViewSheet = useCallback(async (
     name: string,
-    updates: Partial<Pick<ViewSheet, 'tableName' | 'viewType' | 'dateColumn'>>,
+    updates: Partial<Pick<ViewSheet, 'name' | 'tableName' | 'viewType' | 'dateColumn' | 'hideSourceTableTab'>>,
   ) => {
     if (!activeBookId) return;
     const view = viewSheetsRef.current.get(name);
     if (view) Object.assign(view, updates);
     await api.updateView(activeBookId, name, {
+      ...(updates.name !== undefined ? { name: updates.name } : {}),
       ...(updates.tableName !== undefined ? { tableName: updates.tableName } : {}),
       ...(updates.viewType !== undefined ? { viewType: updates.viewType } : {}),
       ...('dateColumn' in updates ? { dateColumn: updates.dateColumn ?? null } : {}),
+      ...('hideSourceTableTab' in updates ? { hideSourceTableTab: updates.hideSourceTableTab ?? false } : {}),
     });
     bump();
   }, [activeBookId, bump]);

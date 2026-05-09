@@ -546,7 +546,6 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { viewId, bookId } = useParams<{ viewId: string; bookId?: string }>();
   const navigate = useNavigate();
   const confirm = useConfirm();
-  const promptInput = usePromptInput();
 
   const viewSheet = viewId ? state.getViewSheet(viewId) : undefined;
 
@@ -555,6 +554,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const editOpen = searchParams.get('configure') === '1';
   const setEditOpen = (open: boolean) => setSearchParams(prev => { const n = new URLSearchParams(prev); if (open) n.set('configure', '1'); else n.delete('configure'); return n; }, { replace: true });
   const [editTable, setEditTable] = useState('');
+  const [editName, setEditName] = useState('');
   const [editViewType, setEditViewType] = useState<'grid' | 'calendar'>('calendar');
   const [editDateCol, setEditDateCol] = useState('');
   const [editDisplayCols, setEditDisplayCols] = useState<string[]>([]);
@@ -574,6 +574,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
   useEffect(() => {
     if (!viewSheet) return;
+    setEditName(viewSheet.name);
     setEditTable(viewSheet.tableName);
     setEditViewType(viewSheet.viewType === 'schedule' ? 'calendar' : viewSheet.viewType);
     setEditDateCol(viewSheet.dateColumn ?? '');
@@ -601,13 +602,22 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
   const saveConfig = async () => {
     if (!viewId || !viewSheet) return;
+    const targetName = editName.trim();
+    if (!targetName) return;
+
+    let currentViewId = viewId;
+    if (targetName !== viewId) {
+      await state.renameViewSheet(viewId, targetName);
+      currentViewId = targetName;
+    }
+
     if (editViewType === 'calendar') {
       localStorage.setItem(getCalColsStorageKey(editTable), JSON.stringify(editDisplayCols));
       if (editTable === viewSheet.tableName) {
         setViewDisplayCols(editDisplayCols);
       }
     }
-    await state.updateViewSheet(viewId, {
+    await state.updateViewSheet(currentViewId, {
       tableName: editTable,
       viewType: editViewType,
       dateColumn: editDateCol || undefined,
@@ -617,15 +627,13 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
     if (editTable !== viewSheet.tableName) {
       setViewDisplayCols(editDisplayCols);
     }
-    setEditOpen(false);
-  };
 
-  const doRename = async () => {
-    if (!viewId) return;
-    const name = await promptInput('Rename view:', viewId, 'View name');
-    if (!name?.trim() || name.trim() === viewId) return;
-    await state.renameViewSheet(viewId, name.trim());
-    navigate(withBook(bookId, `/view/${encodeURIComponent(name.trim())}`), { replace: true });
+    if (currentViewId !== viewId) {
+      navigate(withBook(bookId, `/view/${encodeURIComponent(currentViewId)}`), { replace: true });
+      return;
+    }
+
+    setEditOpen(false);
   };
 
   const doDelete = async () => {
@@ -676,6 +684,15 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               <button onClick={() => setEditOpen(false)} className="app-dialog-close" aria-label="Close">×</button>
             </div>
             <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label className="app-dialog-label" style={{ marginBottom: 0 }}>View name</label>
+                <input
+                  className="app-dialog-input"
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  placeholder="View name"
+                />
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label className="app-dialog-label" style={{ marginBottom: 0 }}>Table</label>
                 <select className="app-dialog-select" value={editTable} onChange={e => { setEditTable(e.target.value); setEditDateCol(''); }}>
@@ -739,12 +756,11 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button className="app-dialog-btn app-dialog-btn-secondary" onClick={() => { setEditOpen(false); void doRename(); }}>Rename</button>
                 <button className="app-dialog-btn app-dialog-btn-secondary" style={{ color: 'var(--color-danger)' }} onClick={() => { setEditOpen(false); void doDelete(); }}>Delete</button>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="app-dialog-btn app-dialog-btn-secondary" onClick={() => setEditOpen(false)}>Cancel</button>
-                <button className="app-dialog-btn app-dialog-btn-primary" onClick={() => { void saveConfig(); }}>Save</button>
+                <button className="app-dialog-btn app-dialog-btn-primary" disabled={!editName.trim()} onClick={() => { void saveConfig(); }}>Save</button>
               </div>
             </div>
           </div>

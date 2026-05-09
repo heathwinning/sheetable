@@ -269,7 +269,7 @@ export async function createView(
 export async function updateView(
   bookId: string,
   name: string,
-  updates: Partial<{ name: string; tableName: string; viewType: string; dateColumn: string | null }>,
+  updates: Partial<{ name: string; tableName: string; viewType: string; dateColumn: string | null; hideSourceTableTab: boolean }>,
 ): Promise<void> {
   await request(`/books/${bookId}/views/${encodeURIComponent(name)}`, {
     method: 'PATCH',
