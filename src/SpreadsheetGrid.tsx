@@ -502,6 +502,10 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     isRowSelectable,
   }), [isRowSelectable]);
 
+  const popupParent = useMemo(() => {
+    return typeof document !== 'undefined' ? document.body : undefined;
+  }, []);
+
   // Editable column options for bulk edit dropdown
   const editableColumnOptions = useMemo(() =>
     schema.columns
@@ -630,17 +634,13 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           {rows.length} row{rows.length !== 1 ? 's' : ''}{displayedRowCount !== null ? ` (${displayedRowCount} shown)` : ''}
         </span>
         <span className="grid-status-spacer" />
-        <div className="grid-zoom-bar">
-          <button className="grid-zoom-btn" onClick={() => changeZoom(zoom - 0.1)} disabled={zoom <= 0.25} title="Zoom out">−</button>
-          <button className="grid-zoom-label" onClick={() => changeZoom(1)} title="Reset zoom">{Math.round(zoom * 100)}%</button>
-          <button className="grid-zoom-btn" onClick={() => changeZoom(zoom + 0.1)} disabled={zoom >= 2} title="Zoom in">+</button>
-        </div>
       </div>
       <div ref={gridWrapperRef} style={{ flex: 1, minHeight: 0, zoom, touchAction: 'pan-x pan-y' }}>
         <AgGridReact
           ref={gridRef}
           modules={[AllCommunityModule]}
           theme={gridTheme}
+          popupParent={popupParent}
           rowData={rowData}
           columnDefs={columnDefs}
           getRowId={getRowId}

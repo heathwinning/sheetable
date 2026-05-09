@@ -364,19 +364,6 @@ body {
 .grid-row-count { white-space: nowrap; }
 .grid-status-spacer { flex: 1; }
 
-.grid-zoom-bar { @apply flex items-center gap-0.5 py-0.5 px-2 justify-end shrink-0; }
-.grid-zoom-btn {
-  @apply w-6 h-[22px] border border-border bg-surface text-text rounded cursor-pointer
-         text-sm font-semibold inline-flex items-center justify-center leading-none;
-}
-.grid-zoom-btn:hover:not(:disabled) { @apply bg-surface-2; }
-.grid-zoom-btn:disabled { @apply opacity-30 cursor-default; }
-.grid-zoom-label {
-  @apply py-0.5 px-1.5 text-[11px] text-text-muted min-w-[36px] text-center
-         bg-transparent border-none cursor-pointer rounded;
-}
-.grid-zoom-label:hover { @apply bg-surface-2 text-text; }
-
 /* AG Grid derived reference styling */
 .reference-derived-header {
   background: var(--color-cell-editing) !important;
