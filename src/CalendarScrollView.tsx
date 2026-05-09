@@ -132,7 +132,7 @@ const MonthGrid: React.FC<{
 
 // ---- Agenda sub-view --------------------------------------------------------
 
-const AgendaView: React.FC<{
+export const AgendaView: React.FC<{
   events: ScrollEvent[];
   todayRef: React.RefObject<HTMLDivElement | null>;
   onSelectEvent?: (event: ScrollEvent) => void;
@@ -225,7 +225,6 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
   const thisMonth = useMemo(() => startOfMonth(new Date()), []);
   const [activeMonthKey, setActiveMonthKey] = useState(() => format(thisMonth, 'yyyy-MM'));
   const [selectedYear, setSelectedYear] = useState(() => getYear(thisMonth));
-  const [agendaMode, setAgendaMode] = useState(false);
 
   const months = useMemo(() => {
     const result: Date[] = [];
@@ -235,7 +234,6 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
 
   // IntersectionObserver — track which month is at the top of the viewport
   useEffect(() => {
-    if (agendaMode) return;
     const container = scrollRef.current;
     if (!container) return;
     const observer = new IntersectionObserver(
@@ -256,7 +254,7 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
     );
     monthRefsMap.current.forEach(el => observer.observe(el));
     return () => observer.disconnect();
-  }, [agendaMode, months]);
+  }, [months]);
 
   // Scroll today into view on mount
   useEffect(() => {
@@ -313,23 +311,11 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
             style={yearNavBtn}
             aria-label="Next year"
           >›</button>
-          <div style={{ flex: 1 }} />
-          {/* Agenda / Grid toggle */}
-          <button
-            onClick={() => setAgendaMode(false)}
-            style={{ ...viewToggle, ...(agendaMode ? {} : viewToggleActive) }}
-          >Grid</button>
-          <button
-            onClick={() => setAgendaMode(true)}
-            style={{ ...viewToggle, ...(agendaMode ? viewToggleActive : {}) }}
-          >Agenda</button>
         </div>
         {/* Month pills */}
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {MONTH_ABBREVS.map((abbr, m) => {
-            const isActive = !agendaMode && getYear(startOfMonth(new Date())) === selectedYear
-              ? activeMonth === m && parseInt(activeMonthKey.slice(0, 4), 10) === selectedYear
-              : parseInt(activeMonthKey.slice(0, 4), 10) === selectedYear && activeMonth === m;
+            const isActive = parseInt(activeMonthKey.slice(0, 4), 10) === selectedYear && activeMonth === m;
             const exists = yearHasMonths(selectedYear);
             return (
               <button
@@ -365,10 +351,7 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
           color: 'var(--color-text)',
         }}
       >
-        {agendaMode ? (
-          <AgendaView events={events} todayRef={todayRef} onSelectEvent={onSelectEvent} />
-        ) : (
-          months.map((m) => {
+        {months.map((m) => {
             const key = format(m, 'yyyy-MM');
             return (
               <div
@@ -395,8 +378,7 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
                 />
               </div>
             );
-          })
-        )}
+          })}
       </div>
     </div>
   );
@@ -428,23 +410,6 @@ const monthPill: React.CSSProperties = {
   cursor: 'pointer',
   transition: 'background 0.1s, color 0.1s',
   lineHeight: '20px',
-};
-
-const viewToggle: React.CSSProperties = {
-  padding: '2px 10px',
-  borderRadius: 4,
-  border: '1px solid var(--color-border)',
-  fontSize: 12,
-  cursor: 'pointer',
-  background: 'transparent',
-  color: 'var(--color-text)',
-};
-
-const viewToggleActive: React.CSSProperties = {
-  background: 'var(--color-primary)',
-  color: '#fff',
-  borderColor: 'var(--color-primary)',
-  fontWeight: 600,
 };
 
 

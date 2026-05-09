@@ -8,7 +8,7 @@ import { enUS } from 'date-fns/locale/en-US';
 import type { TableSchema, Row, ValidationError } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { parseTemporalUnknown } from './dateFormat';
-import { CalendarScrollView } from './CalendarScrollView';
+import { CalendarScrollView, AgendaView } from './CalendarScrollView';
 import { RecordCard } from './RecordCard';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
@@ -52,7 +52,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [currentView, setCurrentView] = useState<View>('month');
-  const [scrollMode, setScrollMode] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'scroll' | 'agenda'>('grid');
   const [dialog, setDialog] = useState<DialogState>({ open: false, title: '', initialValues: {} });
 
   const dateColumns = useMemo(
@@ -200,16 +200,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           </>
         )}
         <div style={{ display: 'flex', gap: 4, marginLeft: hasPicker ? 0 : 'auto' }}>
-          <button style={viewToggleStyle(!scrollMode)} onClick={() => setScrollMode(false)}>
-            Grid
-          </button>
-          <button style={viewToggleStyle(scrollMode)} onClick={() => setScrollMode(true)}>
-            Scroll
-          </button>
+          <button style={viewToggleStyle(viewMode === 'grid')} onClick={() => setViewMode('grid')}>Grid</button>
+          <button style={viewToggleStyle(viewMode === 'scroll')} onClick={() => setViewMode('scroll')}>Scroll</button>
+          <button style={viewToggleStyle(viewMode === 'agenda')} onClick={() => setViewMode('agenda')}>Agenda</button>
         </div>
       </div>
 
-      {scrollMode ? (
+      {viewMode === 'scroll' ? (
         <CalendarScrollView
           events={events.map(e => ({ id: (e as RBCEvent & { id: unknown }).id, title: String(e!.title), start: e!.start as Date, allDay: !!e!.allDay, resource: (e as RBCEvent & { resource: Row }).resource }))}
           onSelectDate={!readOnly && onCreateRow ? (date) => handleSelectSlot({ start: date, end: date, slots: [date], action: 'click' }) : undefined}
@@ -220,7 +217,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             if (fakeEvent) handleSelectEvent(fakeEvent as RBCEvent);
           }}
         />
-      ) : (
+      ) : viewMode === 'grid' ? (
         <div style={{ flex: 1, minHeight: 0, padding: 8 }}>
           <BigCalendar
             localizer={localizer}
@@ -237,6 +234,19 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             selectable={!readOnly && !!onCreateRow}
             onSelectSlot={handleSelectSlot}
             onSelectEvent={handleSelectEvent}
+          />
+        </div>
+      ) : (
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 16px 24px', maxWidth: 720, margin: '0 auto', width: '100%', boxSizing: 'border-box', color: 'var(--color-text)' }}>
+          <AgendaView
+            events={events.map(e => ({ id: (e as RBCEvent & { id: unknown }).id, title: String(e!.title), start: e!.start as Date, allDay: !!e!.allDay, resource: (e as RBCEvent & { resource: Row }).resource }))}
+            todayRef={{ current: null }}
+            onSelectEvent={(scrollEv) => {
+              const row = (scrollEv as { resource?: Row }).resource;
+              if (!row) return;
+              const fakeEvent = events.find(ev => (ev as RBCEvent & { id: unknown }).id === scrollEv.id);
+              if (fakeEvent) handleSelectEvent(fakeEvent as RBCEvent);
+            }}
           />
         </div>
       )}
