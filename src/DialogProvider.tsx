@@ -86,7 +86,11 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   const handleClick = (value: string | null) => {
-    const result = value === 'ok' && dialog?.inputPlaceholder !== undefined ? inputValue : value;
+    const result = value === 'cancel'
+      ? null
+      : value === 'ok' && dialog?.inputPlaceholder !== undefined
+        ? inputValue
+        : value;
     setDialog(null);
     resolveRef.current?.(result);
     resolveRef.current = null;

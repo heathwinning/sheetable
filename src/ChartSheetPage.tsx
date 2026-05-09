@@ -6,6 +6,7 @@ import type { VizSpecStore, IMutField, IChart } from '@kanaries/graphic-walker';
 import type { UseAppStateReturn } from './useAppState';
 import type { ColumnType } from './types';
 import { parseTemporalUnknown } from './dateFormat';
+import { useConfirm } from './DialogProvider';
 
 const bookPrefix = (bookName?: string) => (bookName ? `/book/${encodeURIComponent(bookName)}` : '');
 
@@ -119,6 +120,7 @@ function collectLeafColumnPaths(
 export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { bookId, chartId } = useParams<{ bookId?: string; chartId: string }>();
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const storeRef = useRef<VizSpecStore | null>(null);
   const lastSavedChartsRef = useRef<string>('');
 
@@ -233,6 +235,34 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
     state.setChartSheetTable(chartId, tableName);
   }, [chartId, state]);
 
+  const handleDelete = useCallback(async () => {
+    if (!chartId) return;
+    const confirmed = await confirm(`Delete chart "${chartId}"?`, 'Delete Chart');
+    if (!confirmed) return;
+
+    await state.deleteChartSheet(chartId);
+
+    const firstTable = state.tableIds[0];
+    if (firstTable) {
+      navigate(`${bookPrefix(bookId)}/table/${encodeURIComponent(firstTable)}`, { replace: true });
+      return;
+    }
+
+    const firstChart = state.chartSheetIds.find((id) => id !== chartId);
+    if (firstChart) {
+      navigate(`${bookPrefix(bookId)}/chart/${encodeURIComponent(firstChart)}`, { replace: true });
+      return;
+    }
+
+    const firstView = state.viewSheetIds[0];
+    if (firstView) {
+      navigate(`${bookPrefix(bookId)}/view/${encodeURIComponent(firstView)}`, { replace: true });
+      return;
+    }
+
+    navigate(bookPrefix(bookId), { replace: true });
+  }, [bookId, chartId, confirm, navigate, state]);
+
   const hasUnsavedChartChanges = useCallback((): boolean => {
     const store = storeRef.current;
     if (!store) return false;
@@ -276,6 +306,8 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [hasUnsavedChartChanges, mode]);
+
+  const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
 
   if (!chartId || !chartSheet) {
     return (
@@ -333,6 +365,15 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
         {mode === 'edit' && (
           <button className="btn-primary btn-sm" onClick={handleSave}>
             Save Charts
+          </button>
+        )}
+        {canEdit && (
+          <button
+            className="btn-secondary btn-sm"
+            style={{ color: 'var(--color-danger)' }}
+            onClick={() => { void handleDelete(); }}
+          >
+            Delete Chart
           </button>
         )}
       </div>
