@@ -43,7 +43,8 @@ export type DateFeature = 'year' | 'quarter' | 'yearmonth' | 'month' | 'monthnum
 export type AggregateFunc = 'sum' | 'count' | 'avg' | 'min' | 'max' | 'none';
 
 export interface ColumnModifier {
-  divisor?: number;    // divide value by this before display (e.g. 1000 for g→kg)
+  multiplier?: number; // multiply value by this before display (e.g. 0.001 for g→kg, 100 for ratio→%)
+  /** @deprecated use multiplier=1/divisor */ divisor?: number;
   thousands?: boolean; // thousands separator
   decimals?: number;   // fixed decimal places (undefined = auto)
   prefix?: string;     // display prefix (e.g. "$")

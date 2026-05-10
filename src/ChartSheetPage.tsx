@@ -54,7 +54,9 @@ function getFeature(col: string): DateFeature | undefined {
 
 // Format a numeric value with a ColumnModifier
 function formatValue(n: number, mod?: ColumnModifier): string {
-  let v = mod?.divisor ? n / mod.divisor : n;
+  let v = n;
+  if (mod?.multiplier != null) v = n * mod.multiplier;
+  else if (mod?.divisor) v = n / mod.divisor; // legacy
   const dec = mod?.decimals;
   let str: string;
   if (dec !== undefined) {
@@ -287,7 +289,16 @@ const ChartRenderer: React.FC<{
   seriesKeys: string[];
   rows?: Row[];
   resolveColumnPath?: (tableName: string, row: Row, path: string) => string;
-}> = ({ config, data, seriesKeys, rows, resolveColumnPath }) => {
+  getColumnPaths?: (tableId: string) => { path: string; label: string; type?: string }[];
+}> = ({ config, data, seriesKeys, rows, resolveColumnPath, getColumnPaths }) => {
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+
   if (config.type === 'table') {
     const rowDims = config.tableRows?.length ? config.tableRows : (config.xColumn ? [config.xColumn] : []);
     const colDims = config.tableColumns?.length ? config.tableColumns : (config.groupBy ? [config.groupBy] : []);
@@ -300,7 +311,48 @@ const ChartRenderer: React.FC<{
     }
     const pivot = buildPivotTable(rows, rowDims, colDims, config.yColumn, config.aggregate, resolveColumnPath, config.table);
     const hasColDims = pivot.colKeys.length > 0;
-    const thStyle: React.CSSProperties = { padding: '4px 10px', borderBottom: '2px solid var(--color-border)', textAlign: 'right', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', background: 'var(--color-surface)' };
+
+    // Build label lookup for column paths (strips :feature suffix before lookup)
+    const pathLabels = getColumnPaths ? new Map(getColumnPaths(config.table).map(p => [p.path, p.label])) : new Map<string, string>();
+    const dimLabel = (dim: string) => {
+      const path = stripFeature(dim);
+      const feature = getFeature(dim);
+      const base = pathLabels.get(path) ?? (path.includes(':') ? path.split(':')[0] : path);
+      const feat = feature ? DATE_FEATURES.find(f => f.value === feature)?.label : undefined;
+      return feat ? `${base} (${feat})` : base;
+    };
+
+    // Sort rows
+    const sortedRowKeys = [...pivot.rowKeys].sort((a, b) => {
+      if (!sortKey) return 0;
+      const aJoined = a.join('\0');
+      const bJoined = b.join('\0');
+      let aVal: number | string, bVal: number | string;
+      if (sortKey === 'total') {
+        aVal = pivot.rowTotals.get(aJoined) ?? 0;
+        bVal = pivot.rowTotals.get(bJoined) ?? 0;
+      } else if (sortKey.startsWith('dim:')) {
+        const idx = parseInt(sortKey.slice(4));
+        aVal = fmtDimVal(a[idx] ?? '', rowDims[idx]);
+        bVal = fmtDimVal(b[idx] ?? '', rowDims[idx]);
+      } else {
+        // val:colJoined
+        const colJoined = sortKey.slice(4);
+        aVal = pivot.cells.get(`${aJoined}\x01${colJoined}`) ?? pivot.rowTotals.get(aJoined) ?? 0;
+        bVal = pivot.cells.get(`${bJoined}\x01${colJoined}`) ?? pivot.rowTotals.get(bJoined) ?? 0;
+      }
+      const cmp = typeof aVal === 'number' && typeof bVal === 'number'
+        ? aVal - bVal
+        : String(aVal).localeCompare(String(bVal));
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+    const sortIcon = (key: string) => {
+      if (sortKey !== key) return <span style={{ opacity: 0.25, marginLeft: 3 }}>↕</span>;
+      return <span style={{ marginLeft: 3 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
+    };
+
+    const thStyle: React.CSSProperties = { padding: '4px 10px', borderBottom: '2px solid var(--color-border)', textAlign: 'right', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', background: 'var(--color-surface)', cursor: 'pointer', userSelect: 'none' };
     const thLeftStyle: React.CSSProperties = { ...thStyle, textAlign: 'left' };
     const tdStyle: React.CSSProperties = { padding: '3px 10px', borderBottom: '1px solid var(--color-border)', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
     const tdLeftStyle: React.CSSProperties = { ...tdStyle, textAlign: 'left' };
@@ -311,18 +363,32 @@ const ChartRenderer: React.FC<{
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 160 }}>
           <thead>
             <tr>
-              {rowDims.map((d, i) => <th key={i} style={thLeftStyle}>{d.includes(':') ? d.split(':')[0] : d}</th>)}
+              {rowDims.map((d, i) => (
+                <th key={i} style={thLeftStyle} onClick={() => handleSort(`dim:${i}`)}>
+                  {dimLabel(d)}{sortIcon(`dim:${i}`)}
+                </th>
+              ))}
               {hasColDims
-                ? pivot.colKeys.map((ck, ci) => (
-                  <th key={ci} style={thStyle}>{ck.map((v, i) => fmtDimVal(v, colDims[i])).join(' / ')}</th>
-                ))
-                : <th style={thStyle}>{config.aggregate === 'count' ? 'Count' : `${config.aggregate}(${config.yColumn || 'value'})`}</th>
+                ? pivot.colKeys.map((ck, ci) => {
+                  const colJoined = ck.join('\0');
+                  const key = `val:${colJoined}`;
+                  return (
+                    <th key={ci} style={thStyle} onClick={() => handleSort(key)}>
+                      {ck.map((v, i) => fmtDimVal(v, colDims[i])).join(' / ')}{sortIcon(key)}
+                    </th>
+                  );
+                })
+                : <th style={thStyle} onClick={() => handleSort('val:')}>
+                    {config.aggregate === 'count' ? 'Count' : `${config.aggregate}(${config.yColumn || 'value'})`}{sortIcon('val:')}
+                  </th>
               }
-              <th style={{ ...thStyle, color: 'var(--color-text)' }}>Total</th>
+              <th style={{ ...thStyle, color: 'var(--color-text)' }} onClick={() => handleSort('total')}>
+                Total{sortIcon('total')}
+              </th>
             </tr>
           </thead>
           <tbody>
-            {pivot.rowKeys.map((rk, ri) => {
+            {sortedRowKeys.map((rk, ri) => {
               const rowJoined = rk.join('\0');
               return (
                 <tr key={ri} style={{ background: ri % 2 === 0 ? 'transparent' : 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
@@ -503,16 +569,6 @@ const DATE_FEATURES: { value: DateFeature; label: string }[] = [
   { value: 'dayofweek', label: 'Day of week' },
   { value: 'day', label: 'Day of month' },
   { value: 'hour', label: 'Hour' },
-];
-
-const DIVISOR_OPTIONS: { value: number | null; label: string }[] = [
-  { value: null, label: 'None' },
-  { value: 100, label: '÷ 100' },
-  { value: 1_000, label: '÷ 1,000' },
-  { value: 1_000_000, label: '÷ 1,000,000' },
-  { value: 1_000_000_000, label: '÷ 1,000,000,000' },
-  { value: 0.01, label: '× 100' },
-  { value: 0.001, label: '× 1,000' },
 ];
 
 const ChartConfigModal: React.FC<{
@@ -723,19 +779,8 @@ const ChartConfigModal: React.FC<{
                 <div style={modSectionStyle}>
                   <div style={modLabelStyle}>Value format</div>
                   <div style={modRowStyle}>
-                    <div style={{ flex: '1 1 120px' }}>
-                      <Select
-                        styles={dialogSelectStyles}
-                        isSearchable={false}
-                        placeholder="Scale"
-                        isClearable
-                        value={DIVISOR_OPTIONS.find(o => o.value === (draft.yModifier?.divisor ?? null)) ?? null}
-                        options={DIVISOR_OPTIONS}
-                        onChange={opt => setMod({ divisor: opt?.value ?? undefined })}
-                        menuPortalTarget={document.body}
-                        menuPlacement="auto"
-                      />
-                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>×</label>
+                    <input type="number" placeholder="Multiplier" className="app-dialog-input" style={{ marginBottom: 0, width: 100 }} value={draft.yModifier?.multiplier ?? ''} onChange={e => setMod({ multiplier: e.target.value !== '' ? Number(e.target.value) : undefined })} />
                     <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>
                       <input type="checkbox" checked={draft.yModifier?.thousands ?? false} onChange={e => setMod({ thousands: e.target.checked || undefined })} />
                       , sep
@@ -816,19 +861,8 @@ const ChartConfigModal: React.FC<{
                 <div style={modSectionStyle}>
                   <div style={modLabelStyle}>Value format</div>
                   <div style={modRowStyle}>
-                    <div style={{ flex: '1 1 120px' }}>
-                      <Select
-                        styles={dialogSelectStyles}
-                        isSearchable={false}
-                        placeholder="Scale"
-                        isClearable
-                        value={DIVISOR_OPTIONS.find(o => o.value === (draft.yModifier?.divisor ?? null)) ?? null}
-                        options={DIVISOR_OPTIONS}
-                        onChange={opt => setMod({ divisor: opt?.value ?? undefined })}
-                        menuPortalTarget={document.body}
-                        menuPlacement="auto"
-                      />
-                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>×</label>
+                    <input type="number" placeholder="Multiplier" className="app-dialog-input" style={{ marginBottom: 0, width: 100 }} value={draft.yModifier?.multiplier ?? ''} onChange={e => setMod({ multiplier: e.target.value !== '' ? Number(e.target.value) : undefined })} />
                     <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>
                       <input type="checkbox" checked={draft.yModifier?.thousands ?? false} onChange={e => setMod({ thousands: e.target.checked || undefined })} />
                       , sep
@@ -1135,7 +1169,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                     )}
                   </div>
                   <div style={{ flex: 1, minHeight: 0, padding: '8px 4px 4px' }}>
-                    <ChartRenderer config={chart} data={data} seriesKeys={seriesKeys} rows={rows} resolveColumnPath={state.resolveColumnPath} />
+                    <ChartRenderer config={chart} data={data} seriesKeys={seriesKeys} rows={rows} resolveColumnPath={state.resolveColumnPath} getColumnPaths={getColumnPathsForTable} />
                   </div>
                 </div>
               );
