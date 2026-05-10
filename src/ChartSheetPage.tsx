@@ -193,7 +193,9 @@ function buildPivotTable(
 
   const extractVal = (row: Row, expr: { col: string; feature: DateFeature | null }): string => {
     const raw = resolveColumnPath(tableName, row, expr.col);
-    if (!raw || !expr.feature) return raw ?? '';
+    if (!raw) return '';
+    // For reference columns with no date feature, use only the first display column value
+    if (!expr.feature) return raw.includes(' · ') ? raw.split(' · ')[0] : raw;
     const d = new Date(raw);
     if (isNaN(d.getTime())) return raw;
     switch (expr.feature) {
@@ -290,13 +292,17 @@ const ChartRenderer: React.FC<{
   rows?: Row[];
   resolveColumnPath?: (tableName: string, row: Row, path: string) => string;
   getColumnPaths?: (tableId: string) => { path: string; label: string; type?: string }[];
-}> = ({ config, data, seriesKeys, rows, resolveColumnPath, getColumnPaths }) => {
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  onSortChange?: (sort: { key: string; dir: 'asc' | 'desc' } | undefined) => void;
+}> = ({ config, data, seriesKeys, rows, resolveColumnPath, getColumnPaths, onSortChange }) => {
+  const [sortKey, setSortKey] = useState<string | null>(config.tableSort?.key ?? null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(config.tableSort?.dir ?? 'desc');
 
   const handleSort = (key: string) => {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortKey(key); setSortDir('desc'); }
+    const newDir = sortKey === key ? (sortDir === 'asc' ? 'desc' : 'asc') : 'desc';
+    const newKey = key;
+    setSortKey(newKey);
+    setSortDir(newDir);
+    onSortChange?.({ key: newKey, dir: newDir });
   };
 
   if (config.type === 'table') {
@@ -352,19 +358,20 @@ const ChartRenderer: React.FC<{
       return <span style={{ marginLeft: 3 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
     };
 
+    const DIM_COL_WIDTH = 120;
     const thStyle: React.CSSProperties = { padding: '4px 10px', borderBottom: '2px solid var(--color-border)', textAlign: 'right', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', background: 'var(--color-surface)', cursor: 'pointer', userSelect: 'none' };
-    const thLeftStyle: React.CSSProperties = { ...thStyle, textAlign: 'left' };
+    const thLeftStyle: React.CSSProperties = { ...thStyle, textAlign: 'left', position: 'sticky', zIndex: 2, minWidth: DIM_COL_WIDTH };
     const tdStyle: React.CSSProperties = { padding: '3px 10px', borderBottom: '1px solid var(--color-border)', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
-    const tdLeftStyle: React.CSSProperties = { ...tdStyle, textAlign: 'left' };
+    const tdLeftStyle: React.CSSProperties = { ...tdStyle, textAlign: 'left', position: 'sticky', zIndex: 1, background: 'var(--color-surface)', minWidth: DIM_COL_WIDTH };
     const totalStyle: React.CSSProperties = { ...tdStyle, fontWeight: 700, background: 'var(--color-surface-raised, rgba(0,0,0,0.04))' };
-    const totalLeftStyle: React.CSSProperties = { ...totalStyle, textAlign: 'left' };
+    const totalLeftStyle: React.CSSProperties = { ...totalStyle, textAlign: 'left', position: 'sticky', left: 0, zIndex: 1 };
     return (
       <div style={{ overflow: 'auto', height: '100%', fontSize: 12 }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 160 }}>
           <thead>
             <tr>
               {rowDims.map((d, i) => (
-                <th key={i} style={thLeftStyle} onClick={() => handleSort(`dim:${i}`)}>
+                <th key={i} style={{ ...thLeftStyle, left: i * DIM_COL_WIDTH }} onClick={() => handleSort(`dim:${i}`)}>
                   {dimLabel(d)}{sortIcon(`dim:${i}`)}
                 </th>
               ))}
@@ -379,7 +386,7 @@ const ChartRenderer: React.FC<{
                   );
                 })
                 : <th style={thStyle} onClick={() => handleSort('val:')}>
-                    {config.aggregate === 'count' ? 'Count' : `${config.aggregate}(${config.yColumn || 'value'})`}{sortIcon('val:')}
+                    {config.aggregate === 'count' ? 'Count' : (config.yColumn ? dimLabel(config.yColumn) : 'Value')}{sortIcon('val:')}
                   </th>
               }
               <th style={{ ...thStyle, color: 'var(--color-text)' }} onClick={() => handleSort('total')}>
@@ -390,9 +397,10 @@ const ChartRenderer: React.FC<{
           <tbody>
             {sortedRowKeys.map((rk, ri) => {
               const rowJoined = rk.join('\0');
+              const rowBg = ri % 2 === 0 ? 'var(--color-surface)' : 'var(--color-surface-raised, rgba(0,0,0,0.03))';
               return (
-                <tr key={ri} style={{ background: ri % 2 === 0 ? 'transparent' : 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
-                  {rk.map((v, i) => <td key={i} style={tdLeftStyle}>{fmtDimVal(v, rowDims[i])}</td>)}
+                <tr key={ri} style={{ background: rowBg }}>
+                  {rk.map((v, i) => <td key={i} style={{ ...tdLeftStyle, left: i * DIM_COL_WIDTH, background: rowBg }}>{fmtDimVal(v, rowDims[i])}</td>)}
                   {hasColDims
                     ? pivot.colKeys.map((ck, ci) => {
                       const colJoined = ck.join('\0');
@@ -483,7 +491,8 @@ const ChartRenderer: React.FC<{
     );
   }
 
-  if (config.type === 'bar') {
+  if (config.type === 'bar' || config.type === 'bar-stacked') {
+    const stacked = config.type === 'bar-stacked';
     return (
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={margin}>
@@ -493,7 +502,7 @@ const ChartRenderer: React.FC<{
           <Tooltip formatter={tooltipFormatter} />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
-            <Bar key={k} dataKey={k} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[3, 3, 0, 0]} />
+            <Bar key={k} dataKey={k} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={stacked ? undefined : [3, 3, 0, 0]} stackId={stacked ? 'stack' : undefined} />
           ))}
         </BarChart>
       </ResponsiveContainer>
@@ -517,7 +526,8 @@ const ChartRenderer: React.FC<{
     );
   }
 
-  // area (default)
+  // area / area-stacked (default)
+  const areaStacked = config.type === 'area-stacked';
   return (
     <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data} margin={margin}>
@@ -534,6 +544,7 @@ const ChartRenderer: React.FC<{
             stroke={CHART_COLORS[i % CHART_COLORS.length]}
             fill={CHART_COLORS[i % CHART_COLORS.length] + '33'}
             strokeWidth={2}
+            stackId={areaStacked ? 'stack' : undefined}
           />
         ))}
       </AreaChart>
@@ -545,8 +556,10 @@ const ChartRenderer: React.FC<{
 
 const CHART_TYPE_OPTIONS = [
   { value: 'bar', label: 'Bar' },
+  { value: 'bar-stacked', label: 'Bar (stacked)' },
   { value: 'line', label: 'Line' },
   { value: 'area', label: 'Area' },
+  { value: 'area-stacked', label: 'Area (stacked)' },
   { value: 'pie', label: 'Pie' },
   { value: 'scatter', label: 'Scatter' },
   { value: 'table', label: 'Table' },
@@ -589,7 +602,7 @@ const ChartConfigModal: React.FC<{
       .map(p => p.path)
   );
   const isTableType = draft.type === 'table';
-  const hasGroupBy = !isTableType && (draft.type === 'bar' || draft.type === 'line' || draft.type === 'area');
+  const hasGroupBy = !isTableType && (draft.type === 'bar' || draft.type === 'bar-stacked' || draft.type === 'line' || draft.type === 'area' || draft.type === 'area-stacked');
   const needsYCol = draft.aggregate !== 'count' && draft.aggregate !== 'none';
   const canSave = isTableType
     ? (draft.tableRows?.length ?? 0) > 0 && (!needsYCol || !!draft.yColumn)
@@ -1169,7 +1182,21 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                     )}
                   </div>
                   <div style={{ flex: 1, minHeight: 0, padding: '8px 4px 4px' }}>
-                    <ChartRenderer config={chart} data={data} seriesKeys={seriesKeys} rows={rows} resolveColumnPath={state.resolveColumnPath} getColumnPaths={getColumnPathsForTable} />
+                    <ChartRenderer
+                      config={chart}
+                      data={data}
+                      seriesKeys={seriesKeys}
+                      rows={rows}
+                      resolveColumnPath={state.resolveColumnPath}
+                      getColumnPaths={getColumnPathsForTable}
+                      onSortChange={sort => {
+                        setCharts(prev => {
+                          const next = prev.map(c => c.id === chart.id ? { ...c, tableSort: sort } : c);
+                          scheduleSave(next, layout);
+                          return next;
+                        });
+                      }}
+                    />
                   </div>
                 </div>
               );
