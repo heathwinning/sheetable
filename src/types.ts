@@ -42,6 +42,14 @@ export type DateFeature = 'year' | 'quarter' | 'yearmonth' | 'month' | 'monthnum
 // e.g. "sale_date:year", "created_at:month"
 export type AggregateFunc = 'sum' | 'count' | 'avg' | 'min' | 'max' | 'none';
 
+export interface ColumnModifier {
+  divisor?: number;    // divide value by this before display (e.g. 1000 for g→kg)
+  thousands?: boolean; // thousands separator
+  decimals?: number;   // fixed decimal places (undefined = auto)
+  prefix?: string;     // display prefix (e.g. "$")
+  suffix?: string;     // display suffix (e.g. " kg")
+}
+
 export interface ChartConfig {
   id: string;
   title: string;
@@ -53,6 +61,9 @@ export interface ChartConfig {
   aggregate: AggregateFunc;
   xLabel?: string;
   yLabel?: string;
+  tableRows?: string[];
+  tableColumns?: string[];
+  yModifier?: ColumnModifier; // display transform/format for the value column
 }
 
 export interface ChartLayoutItem {

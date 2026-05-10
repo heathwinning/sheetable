@@ -91,6 +91,8 @@ body {
          cursor-pointer text-xs whitespace-nowrap no-underline transition-colors;
 }
 .header-action-btn:hover { @apply bg-surface-2 text-text; }
+.header-action-btn--active { @apply bg-surface-2 text-text; }
+.header-action-btn--active:hover { @apply bg-surface-2 text-text; }
 .header-action-btn:disabled { @apply opacity-50 text-text-muted bg-transparent cursor-not-allowed; }
 .header-action-btn:disabled:hover { @apply bg-transparent text-text-muted; }
 .header-action-btn svg { @apply w-3.5 h-3.5 block shrink-0; }

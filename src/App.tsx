@@ -220,6 +220,25 @@ const TabOrderModal: React.FC<{ open: boolean; onClose: () => void; state: UseAp
   );
 };
 
+// --- Chart Layout Toggle button (header) ---
+const ChartLayoutToggle: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const editLayout = searchParams.get('editLayout') === '1';
+  const toggle = () => setSearchParams(prev => {
+    const next = new URLSearchParams(prev);
+    if (editLayout) next.delete('editLayout'); else next.set('editLayout', '1');
+    return next;
+  }, { replace: true });
+  return (
+    <button className={`header-action-btn${editLayout ? ' header-action-btn--active' : ''}`} onClick={toggle} title="Edit chart layout">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+      </svg>
+      <span className="header-action-label">{editLayout ? 'Done' : 'Edit layout'}</span>
+    </button>
+  );
+};
+
 // --- Import Menu (dropdown combining import options) ---
 const ImportMenu: React.FC<{ bookId?: string; tableId: string }> = ({ bookId, tableId }) => {
   const [open, setOpen] = useState(false);
@@ -1321,6 +1340,11 @@ const App: React.FC = () => {
   const headerViewId = viewMatch ? decodeURIComponent(viewMatch[1]) : null;
   const headerViewTableId = headerViewId ? (state.getViewSheet(headerViewId)?.tableName ?? null) : null;
 
+  // Derive active chart sheet ID for header actions
+  const chartMatch = location.pathname.match(/\/chart\/([^/]+)$/);
+  const headerChartId = chartMatch ? decodeURIComponent(chartMatch[1]) : null;
+  const isChartView = !!headerChartId;
+
   const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
 
   const showAlert = useAlert();
@@ -1427,6 +1451,11 @@ const App: React.FC = () => {
           </div>
         )}
         <div className="header-right">
+          {isChartView && canEdit && (
+            <div className="header-actions">
+              <ChartLayoutToggle />
+            </div>
+          )}
           {headerViewId && headerViewTableId && (
             <div className="header-actions">
               {canEdit && (
