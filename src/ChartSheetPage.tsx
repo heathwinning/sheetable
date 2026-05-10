@@ -10,6 +10,9 @@ import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { AgGridReact } from 'ag-grid-react';
+import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
+import type { ColDef, ColGroupDef } from 'ag-grid-community';
 import type { UseAppStateReturn } from './useAppState';
 import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature, ColumnModifier } from './types';
 import { useConfirm } from './DialogProvider';
@@ -293,18 +296,7 @@ const ChartRenderer: React.FC<{
   resolveColumnPath?: (tableName: string, row: Row, path: string) => string;
   getColumnPaths?: (tableId: string) => { path: string; label: string; type?: string }[];
   onSortChange?: (sort: { key: string; dir: 'asc' | 'desc' } | undefined) => void;
-}> = ({ config, data, seriesKeys, rows, resolveColumnPath, getColumnPaths, onSortChange }) => {
-  const [sortKey, setSortKey] = useState<string | null>(config.tableSort?.key ?? null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(config.tableSort?.dir ?? 'desc');
-
-  const handleSort = (key: string) => {
-    const newDir = sortKey === key ? (sortDir === 'asc' ? 'desc' : 'asc') : 'desc';
-    const newKey = key;
-    setSortKey(newKey);
-    setSortDir(newDir);
-    onSortChange?.({ key: newKey, dir: newDir });
-  };
-
+}> = ({ config, data, seriesKeys, rows, resolveColumnPath, getColumnPaths }) => {
   if (config.type === 'table') {
     const rowDims = config.tableRows?.length ? config.tableRows : (config.xColumn ? [config.xColumn] : []);
     const colDims = config.tableColumns?.length ? config.tableColumns : (config.groupBy ? [config.groupBy] : []);
@@ -328,106 +320,102 @@ const ChartRenderer: React.FC<{
       return feat ? `${base} (${feat})` : base;
     };
 
-    // Sort rows
-    const sortedRowKeys = [...pivot.rowKeys].sort((a, b) => {
-      if (!sortKey) return 0;
-      const aJoined = a.join('\0');
-      const bJoined = b.join('\0');
-      let aVal: number | string, bVal: number | string;
-      if (sortKey === 'total') {
-        aVal = pivot.rowTotals.get(aJoined) ?? 0;
-        bVal = pivot.rowTotals.get(bJoined) ?? 0;
-      } else if (sortKey.startsWith('dim:')) {
-        const idx = parseInt(sortKey.slice(4));
-        aVal = fmtDimVal(a[idx] ?? '', rowDims[idx]);
-        bVal = fmtDimVal(b[idx] ?? '', rowDims[idx]);
+    const valueFormatter = (p: { value: number | null | undefined }) =>
+      p.value !== null && p.value !== undefined ? formatValue(p.value, config.yModifier) : '';
+
+    // Build AG Grid rowData
+    const rowData = pivot.rowKeys.map(rk => {
+      const rowJoined = rk.join('\0');
+      const row: Record<string, unknown> = {};
+      rk.forEach((v, i) => { row[`_dim_${i}`] = fmtDimVal(v, rowDims[i]); });
+      if (hasColDims) {
+        pivot.colKeys.forEach((ck, ci) => {
+          const colJoined = ck.join('\0');
+          const val = pivot.cells.get(`${rowJoined}\x01${colJoined}`);
+          row[`_col_${ci}`] = val ?? null;
+        });
       } else {
-        // val:colJoined
-        const colJoined = sortKey.slice(4);
-        aVal = pivot.cells.get(`${aJoined}\x01${colJoined}`) ?? pivot.rowTotals.get(aJoined) ?? 0;
-        bVal = pivot.cells.get(`${bJoined}\x01${colJoined}`) ?? pivot.rowTotals.get(bJoined) ?? 0;
+        row['_val'] = pivot.cells.get(`${rowJoined}\x01`) ?? pivot.rowTotals.get(rowJoined) ?? 0;
       }
-      const cmp = typeof aVal === 'number' && typeof bVal === 'number'
-        ? aVal - bVal
-        : String(aVal).localeCompare(String(bVal));
-      return sortDir === 'asc' ? cmp : -cmp;
+      row['_total'] = pivot.rowTotals.get(rowJoined) ?? 0;
+      return row;
     });
 
-    const sortIcon = (key: string) => {
-      if (sortKey !== key) return <span style={{ opacity: 0.25, marginLeft: 3 }}>↕</span>;
-      return <span style={{ marginLeft: 3 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
+    // Pinned bottom totals row
+    const totalRow: Record<string, unknown> = { _dim_0: 'Total' };
+    rowDims.slice(1).forEach((_, i) => { totalRow[`_dim_${i + 1}`] = ''; });
+    if (hasColDims) {
+      pivot.colKeys.forEach((ck, ci) => {
+        totalRow[`_col_${ci}`] = pivot.colTotals.get(ck.join('\0')) ?? null;
+      });
+    } else {
+      totalRow['_val'] = pivot.grandTotal;
+    }
+    totalRow['_total'] = pivot.grandTotal;
+
+    // Recursively build nested column defs for multi-level column dimensions
+    const buildColGroup = (keys: string[][], level: number, prefix: string[]): (ColDef | ColGroupDef)[] => {
+      const filtered = keys.filter(ck => prefix.every((v, i) => ck[i] === v));
+      if (level === colDims.length - 1) {
+        return filtered.map(ck => ({
+          headerName: fmtDimVal(ck[level], colDims[level]),
+          field: `_col_${pivot.colKeys.indexOf(ck)}`,
+          sortable: true,
+          type: 'numericColumn',
+          valueFormatter,
+        } as ColDef));
+      }
+      const seen = new Set<string>();
+      const groups: ColGroupDef[] = [];
+      for (const ck of filtered) {
+        if (!seen.has(ck[level])) {
+          seen.add(ck[level]);
+          groups.push({
+            headerName: fmtDimVal(ck[level], colDims[level]),
+            children: buildColGroup(keys, level + 1, [...prefix, ck[level]]),
+          });
+        }
+      }
+      return groups;
     };
 
-    const DIM_COL_WIDTH = 120;
-    const thStyle: React.CSSProperties = { padding: '4px 10px', borderBottom: '2px solid var(--color-border)', textAlign: 'right', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', background: 'var(--color-surface)', cursor: 'pointer', userSelect: 'none' };
-    const thLeftStyle: React.CSSProperties = { ...thStyle, textAlign: 'left', position: 'sticky', zIndex: 2, minWidth: DIM_COL_WIDTH };
-    const tdStyle: React.CSSProperties = { padding: '3px 10px', borderBottom: '1px solid var(--color-border)', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
-    const tdLeftStyle: React.CSSProperties = { ...tdStyle, textAlign: 'left', position: 'sticky', zIndex: 1, background: 'var(--color-surface)', minWidth: DIM_COL_WIDTH };
-    const totalStyle: React.CSSProperties = { ...tdStyle, fontWeight: 700, background: 'var(--color-surface-raised, rgba(0,0,0,0.04))' };
-    const totalLeftStyle: React.CSSProperties = { ...totalStyle, textAlign: 'left', position: 'sticky', left: 0, zIndex: 1 };
+    const dimColDefs: ColDef[] = rowDims.map((d, i) => ({
+      headerName: dimLabel(d),
+      field: `_dim_${i}`,
+      pinned: 'left' as const,
+      sortable: true,
+      width: 120,
+    }));
+
+    const valueColDefs: (ColDef | ColGroupDef)[] = hasColDims
+      ? buildColGroup(pivot.colKeys, 0, [])
+      : [{ headerName: config.aggregate === 'count' ? 'Count' : (config.yColumn ? dimLabel(config.yColumn) : 'Value'), field: '_val', sortable: true, type: 'numericColumn', valueFormatter } as ColDef];
+
+    const colDefs: (ColDef | ColGroupDef)[] = [
+      ...dimColDefs,
+      ...valueColDefs,
+      { headerName: 'Total', field: '_total', sortable: true, type: 'numericColumn', valueFormatter } as ColDef,
+    ];
+
+    const pivotGridTheme = themeQuartz.withParams({
+      cellHorizontalPaddingScale: 0.5,
+      headerFontSize: 11,
+      fontSize: 12,
+      rowHeight: 24,
+      headerHeight: 26,
+    });
+
     return (
-      <div style={{ overflow: 'auto', height: '100%', fontSize: 12 }}>
-        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 160 }}>
-          <thead>
-            <tr>
-              {rowDims.map((d, i) => (
-                <th key={i} style={{ ...thLeftStyle, left: i * DIM_COL_WIDTH }} onClick={() => handleSort(`dim:${i}`)}>
-                  {dimLabel(d)}{sortIcon(`dim:${i}`)}
-                </th>
-              ))}
-              {hasColDims
-                ? pivot.colKeys.map((ck, ci) => {
-                  const colJoined = ck.join('\0');
-                  const key = `val:${colJoined}`;
-                  return (
-                    <th key={ci} style={thStyle} onClick={() => handleSort(key)}>
-                      {ck.map((v, i) => fmtDimVal(v, colDims[i])).join(' / ')}{sortIcon(key)}
-                    </th>
-                  );
-                })
-                : <th style={thStyle} onClick={() => handleSort('val:')}>
-                    {config.aggregate === 'count' ? 'Count' : (config.yColumn ? dimLabel(config.yColumn) : 'Value')}{sortIcon('val:')}
-                  </th>
-              }
-              <th style={{ ...thStyle, color: 'var(--color-text)' }} onClick={() => handleSort('total')}>
-                Total{sortIcon('total')}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedRowKeys.map((rk, ri) => {
-              const rowJoined = rk.join('\0');
-              const rowBg = ri % 2 === 0 ? 'var(--color-surface)' : 'var(--color-surface-raised, rgba(0,0,0,0.03))';
-              return (
-                <tr key={ri} style={{ background: rowBg }}>
-                  {rk.map((v, i) => <td key={i} style={{ ...tdLeftStyle, left: i * DIM_COL_WIDTH, background: rowBg }}>{fmtDimVal(v, rowDims[i])}</td>)}
-                  {hasColDims
-                    ? pivot.colKeys.map((ck, ci) => {
-                      const colJoined = ck.join('\0');
-                      const val = pivot.cells.get(`${rowJoined}\x01${colJoined}`);
-                      return <td key={ci} style={tdStyle}>{val !== undefined ? formatValue(val, config.yModifier) : ''}</td>;
-                    })
-                    : <td style={tdStyle}>{formatValue(pivot.cells.get(`${rowJoined}\x01`) ?? pivot.rowTotals.get(rowJoined) ?? 0, config.yModifier)}</td>
-                  }
-                  <td style={totalStyle}>{formatValue(pivot.rowTotals.get(rowJoined) ?? 0, config.yModifier)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td style={totalLeftStyle} colSpan={rowDims.length}>Total</td>
-              {hasColDims
-                ? pivot.colKeys.map((ck, ci) => {
-                  const colJoined = ck.join('\0');
-                  return <td key={ci} style={totalStyle}>{formatValue(pivot.colTotals.get(colJoined) ?? 0, config.yModifier)}</td>;
-                })
-                : null
-              }
-              <td style={totalStyle}>{formatValue(pivot.grandTotal, config.yModifier)}</td>
-            </tr>
-          </tfoot>
-        </table>
+      <div style={{ height: '100%' }}>
+        <AgGridReact
+          theme={pivotGridTheme}
+          modules={[AllCommunityModule]}
+          rowData={rowData}
+          columnDefs={colDefs}
+          pinnedBottomRowData={[totalRow]}
+          defaultColDef={{ resizable: true }}
+          suppressCellFocus
+        />
       </div>
     );
   }
