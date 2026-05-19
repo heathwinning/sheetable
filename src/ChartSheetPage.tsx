@@ -15,7 +15,7 @@ import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
 import type { ColDef, ColGroupDef, CellStyle } from 'ag-grid-community';
 import { sharedDefaultColDef } from './gridDefaults';
 import type { UseAppStateReturn } from './useAppState';
-import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature, FilterOperator } from './types';
+import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature } from './types';
 import { applyChartValueFormat } from './chartFormat';
 
 const RGL = WidthProvider(GridLayout);
@@ -23,47 +23,16 @@ const CHART_COLORS = ['#6366f1', '#22d3ee', '#f59e0b', '#10b981', '#ef4444', '#8
 
 // ── Row filtering ─────────────────────────────────────────────────────────────
 
-function filterOperatorLabel(op: FilterOperator): string {
-  switch (op) {
-    case 'eq': return '=';
-    case 'neq': return '≠';
-    case 'gt': return '>';
-    case 'gte': return '≥';
-    case 'lt': return '<';
-    case 'lte': return '≤';
-    case 'contains': return 'contains';
-    case 'is_empty': return 'is empty';
-    case 'is_not_empty': return 'is not empty';
-    default: return '=';
-  }
-}
-
 function applyChartFilter(
   rows: Row[],
   col: string | undefined,
-  op: FilterOperator | undefined,
-  value: string,
+  values: string[],
   resolve: (table: string, row: Row, path: string) => string,
   table: string,
 ): Row[] {
-  if (!col || !op) return rows;
-  const needsValue = op !== 'is_empty' && op !== 'is_not_empty';
-  if (needsValue && !value.trim()) return rows;
-  return rows.filter(row => {
-    const raw = resolve(table, row, col)?.trim() ?? '';
-    switch (op) {
-      case 'eq': return raw.toLowerCase() === value.toLowerCase();
-      case 'neq': return raw.toLowerCase() !== value.toLowerCase();
-      case 'contains': return raw.toLowerCase().includes(value.toLowerCase());
-      case 'gt': { const a = parseFloat(raw), b = parseFloat(value); return isNaN(a) || isNaN(b) ? raw > value : a > b; }
-      case 'gte': { const a = parseFloat(raw), b = parseFloat(value); return isNaN(a) || isNaN(b) ? raw >= value : a >= b; }
-      case 'lt': { const a = parseFloat(raw), b = parseFloat(value); return isNaN(a) || isNaN(b) ? raw < value : a < b; }
-      case 'lte': { const a = parseFloat(raw), b = parseFloat(value); return isNaN(a) || isNaN(b) ? raw <= value : a <= b; }
-      case 'is_empty': return !raw;
-      case 'is_not_empty': return !!raw;
-      default: return true;
-    }
-  });
+  if (!col || values.length === 0) return rows;
+  const lower = values.map(v => v.toLowerCase());
+  return rows.filter(row => lower.includes((resolve(table, row, col)?.trim() ?? '').toLowerCase()));
 }
 
 // ── Aggregation ──────────────────────────────────────────────────────────────
@@ -694,17 +663,6 @@ const AGGREGATE_OPTIONS = [
   { value: 'none', label: 'None (raw)' },
 ];
 
-const FILTER_OPERATOR_OPTIONS: { value: FilterOperator; label: string }[] = [
-  { value: 'eq', label: '= Equals' },
-  { value: 'neq', label: '≠ Not equals' },
-  { value: 'contains', label: 'Contains' },
-  { value: 'gt', label: '> Greater than' },
-  { value: 'gte', label: '≥ Greater or equal' },
-  { value: 'lt', label: '< Less than' },
-  { value: 'lte', label: '≤ Less or equal' },
-  { value: 'is_empty', label: 'Is empty' },
-  { value: 'is_not_empty', label: 'Is not empty' },
-];
 
 const ROW_ORDER_OPTIONS: { value: ChartConfig['rowOrder']; label: string }[] = [
   { value: 'natural', label: 'Natural (data order)' },
@@ -1106,35 +1064,11 @@ const ChartConfigModal: React.FC<{
                   placeholder="— column —"
                   value={colOptionsFlatXYG.find(o => o.value === draft.filterColumn) ?? null}
                   options={colOptionsXYG}
-                  onChange={opt => setDraft(d => ({ ...d, filterColumn: opt?.value || undefined, filterOperator: d.filterOperator ?? 'eq', filterValue: undefined }))}
+                  onChange={opt => setDraft(d => ({ ...d, filterColumn: opt?.value || undefined, filterValue: undefined }))}
                   menuPortalTarget={document.body}
                   menuPlacement="auto"
                 />
               </div>
-              {draft.filterColumn && (
-                <div style={{ flex: 1, minWidth: 100 }}>
-                  <Select
-                    styles={dialogSelectStyles}
-                    isSearchable={false}
-                    value={FILTER_OPERATOR_OPTIONS.find(o => o.value === (draft.filterOperator ?? 'eq')) ?? null}
-                    options={FILTER_OPERATOR_OPTIONS}
-                    onChange={opt => set('filterOperator', (opt?.value ?? 'eq') as FilterOperator)}
-                    menuPortalTarget={document.body}
-                    menuPlacement="auto"
-                  />
-                </div>
-              )}
-              {draft.filterColumn && draft.filterOperator !== 'is_empty' && draft.filterOperator !== 'is_not_empty' && (
-                <div style={{ flex: 2, minWidth: 100 }}>
-                  <input
-                    className="app-dialog-input"
-                    style={{ marginBottom: 0 }}
-                    value={draft.filterValue ?? ''}
-                    onChange={e => set('filterValue', e.target.value || undefined)}
-                    placeholder="Default value (optional)"
-                  />
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -1159,10 +1093,10 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
   const [layout, setLayout] = useState<ChartLayoutItem[]>(() => chartSheet?.layout ?? []);
   const [editingChart, setEditingChart] = useState<ChartConfig | null>(null);
   const [isNewChart, setIsNewChart] = useState(false);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
-    const init: Record<string, string> = {};
+  const [filterValues, setFilterValues] = useState<Record<string, string[]>>(() => {
+    const init: Record<string, string[]> = {};
     for (const c of (chartSheet?.charts ?? [])) {
-      if (c.filterValue) init[c.id] = c.filterValue;
+      if (c.filterValue) init[c.id] = [c.filterValue];
     }
     return init;
   });
@@ -1186,9 +1120,9 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
       setCharts(chartSheet.charts);
       setLayout(chartSheet.layout);
       setFilterValues(() => {
-        const init: Record<string, string> = {};
+        const init: Record<string, string[]> = {};
         for (const c of chartSheet.charts) {
-          if (c.filterValue) init[c.id] = c.filterValue;
+          if (c.filterValue) init[c.id] = [c.filterValue];
         }
         return init;
       });
@@ -1328,8 +1262,8 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           >
             {charts.map(chart => {
               const rows = state.getRows(chart.table);
-              const activeFilterValue = filterValues[chart.id] ?? chart.filterValue ?? '';
-              const filteredRows = applyChartFilter(rows, chart.filterColumn, chart.filterOperator, activeFilterValue, state.resolveColumnPath, chart.table);
+              const activeFilterValues = filterValues[chart.id] ?? (chart.filterValue ? [chart.filterValue] : []);
+              const filteredRows = applyChartFilter(rows, chart.filterColumn, activeFilterValues, state.resolveColumnPath, chart.table);
               const { data, seriesKeys } = chart.type === 'table'
                 ? { data: [], seriesKeys: [] }
                 : aggregateData(filteredRows, chart.xColumn, chart.yColumn, chart.aggregate, chart.groupBy, state.resolveColumnPath, chart.table);
@@ -1382,39 +1316,29 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                     {chart.filterColumn && (() => {
                       const fullLabel = getColumnPathsForTable(chart.table).find(p => p.path === chart.filterColumn)?.label ?? chart.filterColumn;
                       const colLabel = fullLabel.includes(' → ') ? fullLabel.split(' → ').pop()! : fullLabel;
-                      const op = chart.filterOperator ?? 'eq';
-                      const needsInput = op !== 'is_empty' && op !== 'is_not_empty';
-                      const curVal = filterValues[chart.id] ?? '';
-                      const distinctValues = needsInput
-                        ? [...new Set(
-                            rows
-                              .map(row => state.resolveColumnPath(chart.table, row, chart.filterColumn!).trim())
-                              .filter(v => !!v)
-                          )].sort((a, b) => a.localeCompare(b))
-                        : [];
+                      const curVals = filterValues[chart.id] ?? [];
+                      const distinctValues = [...new Set(
+                        rows
+                          .map(row => state.resolveColumnPath(chart.table, row, chart.filterColumn!).trim())
+                          .filter(v => !!v)
+                      )].sort((a, b) => a.localeCompare(b));
                       return (
                         <div
                           style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, flexWrap: 'wrap' }}
                           onMouseDown={e => e.stopPropagation()}
                           onTouchStart={e => e.stopPropagation()}
                         >
-                          {needsInput && (
-                            <Select
-                              styles={dialogSelectStyles}
-                              value={curVal ? { value: curVal, label: curVal } : null}
-                              options={distinctValues.map(v => ({ value: v, label: v }))}
-                              onChange={opt => setFilterValues(prev => ({ ...prev, [chart.id]: opt?.value ?? '' }))}
-                              placeholder={`— ${colLabel} —`}
-                              isClearable
-                              menuPortalTarget={document.body}
-                              menuPlacement="auto"
-                            />
-                          )}
-                          {!needsInput && (
-                            <span style={{ color: 'var(--color-text-muted)', fontSize: 12, userSelect: 'none' }}>
-                              ⊟ {colLabel} {filterOperatorLabel(op)}
-                            </span>
-                          )}
+                          <Select
+                            styles={dialogSelectStyles}
+                            isMulti
+                            value={curVals.map(v => ({ value: v, label: v }))}
+                            options={distinctValues.map(v => ({ value: v, label: v }))}
+                            onChange={opts => setFilterValues(prev => ({ ...prev, [chart.id]: opts.map(o => o.value) }))}
+                            placeholder={`— ${colLabel} —`}
+                            isClearable
+                            menuPortalTarget={document.body}
+                            menuPlacement="auto"
+                          />
                         </div>
                       );
                     })()}
