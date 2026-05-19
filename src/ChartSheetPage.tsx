@@ -842,7 +842,7 @@ const ChartConfigModal: React.FC<{
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       <label className="app-dialog-label" style={{ marginBottom: 0, fontWeight: 400 }}>Display format <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional)</span></label>
-                      <input type="text" className="app-dialog-input" style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12 }} placeholder="{{value}}" value={draft.valueFormat ?? ''} onChange={e => set('valueFormat', e.target.value || undefined)} />
+                      <input type="text" className="app-dialog-input" style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12 }} value={draft.valueFormat ?? ''} onChange={e => set('valueFormat', e.target.value || undefined)} />
                     </div>
                     <FormatHint />
                   </div>
@@ -920,7 +920,7 @@ const ChartConfigModal: React.FC<{
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       <label className="app-dialog-label" style={{ marginBottom: 0, fontWeight: 400 }}>Display format <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional)</span></label>
-                      <input type="text" className="app-dialog-input" style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12 }} placeholder="{{value}}" value={draft.valueFormat ?? ''} onChange={e => set('valueFormat', e.target.value || undefined)} />
+                      <input type="text" className="app-dialog-input" style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12 }} value={draft.valueFormat ?? ''} onChange={e => set('valueFormat', e.target.value || undefined)} />
                     </div>
                     <FormatHint />
                   </div>
