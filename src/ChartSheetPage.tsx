@@ -391,13 +391,16 @@ const ChartRenderer: React.FC<{
             headerName: fmtDimVal(ck[level], colDims[level]),
             children: [
               ...buildColGroup(keys, level + 1, groupPrefix),
-              { headerName: 'Subtotal', field: stKey, sortable: true, type: 'numericColumn', valueFormatter } as ColDef,
+              { headerName: 'Subtotal', field: stKey, sortable: true, type: 'numericColumn', valueFormatter, cellStyle: subtotalCellStyle } as ColDef,
             ],
           } as ColGroupDef);
         }
       }
       return groups;
     };
+
+    const totalCellStyle: React.CSSProperties = { background: 'var(--color-surface-2)', fontWeight: 600 };
+    const subtotalCellStyle: React.CSSProperties = { background: 'var(--color-surface-2)', fontWeight: 500 };
 
     const dimColDefs: ColDef[] = rowDims.map((d, i) => ({
       headerName: dimLabel(d),
@@ -419,7 +422,7 @@ const ChartRenderer: React.FC<{
     const colDefs: (ColDef | ColGroupDef)[] = [
       ...dimColDefs,
       ...valueColDefs,
-      { headerName: 'Total', field: '_total', sortable: true, type: 'numericColumn', valueFormatter } as ColDef,
+      { headerName: 'Total', field: '_total', sortable: true, type: 'numericColumn', valueFormatter, cellStyle: totalCellStyle } as ColDef,
     ];
 
     const pivotGridTheme = themeQuartz.withParams({
@@ -439,6 +442,7 @@ const ChartRenderer: React.FC<{
           columnDefs={colDefs}
           pinnedBottomRowData={[totalRow]}
           defaultColDef={{ ...sharedDefaultColDef, resizable: true, suppressMovable: true }}
+          getRowStyle={params => params.node.rowPinned === 'bottom' ? { background: 'var(--color-surface-2)', fontWeight: 600 } : undefined}
           suppressCellFocus
           suppressColumnVirtualisation
           onFirstDataRendered={e => e.api.autoSizeAllColumns()}
