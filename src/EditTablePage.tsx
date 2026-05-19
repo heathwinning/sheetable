@@ -328,6 +328,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       displayName: col.displayName ?? '',
       type: col.type,
       isKey: uniqueKeys.includes(col.name.trim()),
+      truncate: col.truncate ?? false,
       sortDir: (() => {
         const entry = defaultSort.find(s => s.column === col.name.trim());
         return entry ? entry.direction : '';
@@ -509,6 +510,17 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
           requestAnimationFrame(() => setCalcDialogCol(idx));
         }
         return true;
+      },
+    },
+    {
+      headerName: 'Trunc',
+      field: 'truncate',
+      width: 65,
+      maxWidth: 65,
+      cellRenderer: (params: { value: boolean }) => params.value ? '✓' : '',
+      cellStyle: () => ({ textAlign: 'center', cursor: 'pointer' }),
+      onCellClicked: (params: CellClickedEvent) => {
+        updateColumn(params.data._idx, { truncate: !params.data.truncate });
       },
     },
     {

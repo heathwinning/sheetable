@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Routes, Route, useNavigate, useParams, Link, useLocation, Navigate, useSearchParams } from 'react-router-dom';
 import { useAppState } from './useAppState';
 import { SpreadsheetGrid } from './SpreadsheetGrid';
@@ -9,9 +9,10 @@ import { ImportPage } from './ImportPage';
 import { rowsToCSV } from './csv';
 import * as api from './api';
 import type { UseAppStateReturn } from './useAppState';
-import type { BookMember, BookInvite } from './types';
+import type { BookMember, BookInvite, Row } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { CalendarView } from './CalendarView';
+import { RecordCard } from './RecordCard';
 import './App.css';
 
 const bookPrefix = (bookName?: string) => (bookName ? `/book/${encodeURIComponent(bookName)}` : '');
@@ -281,6 +282,8 @@ const ImportMenu: React.FC<{ bookId?: string; tableId: string }> = ({ bookId, ta
 const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { tableId, bookId } = useParams<{ tableId: string; bookId?: string }>();
   const showAlert = useAlert();
+  const [openRecordRow, setOpenRecordRow] = useState<Row | null>(null);
+  const [openRecordRowIndex, setOpenRecordRowIndex] = useState<number | null>(null);
 
   // Sync URL param to active table
   useEffect(() => {
@@ -291,6 +294,28 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
   const activeSchema = tableId ? state.getSchema(tableId) : null;
   const activeRows = tableId ? state.getRows(tableId) : [];
+
+  const handleOpenRecord = useCallback((row: Row) => {
+    const idx = activeRows.findIndex(r => r[INTERNAL_ROW_ID] === row[INTERNAL_ROW_ID]);
+    setOpenRecordRow(row);
+    setOpenRecordRowIndex(idx >= 0 ? idx : null);
+  }, [activeRows]);
+
+  const handleRecordCardSave = useCallback((values: Row): import('./types').ValidationError[] => {
+    if (!tableId || openRecordRowIndex === null) return [];
+    for (const col of (activeSchema?.columns ?? [])) {
+      if (col.name === INTERNAL_ROW_ID) continue;
+      const newVal = values[col.name] ?? '';
+      const oldVal = activeRows[openRecordRowIndex]?.[col.name] ?? '';
+      if (newVal !== oldVal) {
+        const errs = state.applyEdit(tableId, openRecordRowIndex, col.name, newVal);
+        if (errs.length > 0) return errs;
+      }
+    }
+    setOpenRecordRow(null);
+    setOpenRecordRowIndex(null);
+    return [];
+  }, [tableId, openRecordRowIndex, activeSchema, activeRows, state]);
 
   const runUndo = () => {
     const errors = state.undo();
@@ -319,33 +344,48 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
       {/* Main content */}
       <div className="main-content">
         {tableId && activeSchema ? (
-          <SpreadsheetGrid
-            key={tableId}
-            schema={activeSchema}
-            rows={activeRows}
-            readOnly={state.activeBookRole === 'viewer'}
-            onEdit={(rowIndex, columnName, newValue) =>
-              state.applyEdit(tableId, rowIndex, columnName, newValue)
-            }
-            onInsert={(row) => state.insertRow(tableId, row)}
-            onDeleteRow={(rowIndex) => state.deleteRow(tableId, rowIndex)}
-            onColumnWidthChange={(widths) => {
-              const updated = activeSchema.columns.map(c =>
-                widths[c.name] !== undefined ? { ...c, width: Math.round(widths[c.name]) } : c
-              );
-              if (updated.every((c, i) => c.width === activeSchema.columns[i].width)) return;
-              state.updateSchema(tableId, {
-                ...activeSchema,
-                columns: updated,
-              });
-            }}
-            revision={state.revision}
-            bookId={state.activeBookId ?? null}
-            getReferencedRow={state.getReferencedRow}
-            getReferenceRows={state.getReferenceRows}
-            resolveColumnPath={state.resolveColumnPath}
-            resolveColumnPathLabel={state.resolveColumnPathLabel}
-          />
+          <>
+            <SpreadsheetGrid
+              key={tableId}
+              schema={activeSchema}
+              rows={activeRows}
+              readOnly={state.activeBookRole === 'viewer'}
+              onEdit={(rowIndex, columnName, newValue) =>
+                state.applyEdit(tableId, rowIndex, columnName, newValue)
+              }
+              onInsert={(row) => state.insertRow(tableId, row)}
+              onDeleteRow={(rowIndex) => state.deleteRow(tableId, rowIndex)}
+              onColumnWidthChange={(widths) => {
+                const updated = activeSchema.columns.map(c =>
+                  widths[c.name] !== undefined ? { ...c, width: Math.round(widths[c.name]) } : c
+                );
+                if (updated.every((c, i) => c.width === activeSchema.columns[i].width)) return;
+                state.updateSchema(tableId, {
+                  ...activeSchema,
+                  columns: updated,
+                });
+              }}
+              onOpenRecord={state.activeBookRole !== 'viewer' ? handleOpenRecord : undefined}
+              revision={state.revision}
+              bookId={state.activeBookId ?? null}
+              getReferencedRow={state.getReferencedRow}
+              getReferenceRows={state.getReferenceRows}
+              resolveColumnPath={state.resolveColumnPath}
+              resolveColumnPathLabel={state.resolveColumnPathLabel}
+            />
+            {openRecordRow && activeSchema && (
+              <RecordCard
+                schema={activeSchema}
+                title={openRecordRow[activeSchema.columns[0]?.name] || 'Record'}
+                initialValues={openRecordRow}
+                readOnly={state.activeBookRole === 'viewer'}
+                onSave={handleRecordCardSave}
+                onClose={() => { setOpenRecordRow(null); setOpenRecordRowIndex(null); }}
+                getReferenceRows={state.getReferenceRows}
+                bookId={state.activeBookId}
+              />
+            )}
+          </>
         ) : (
           <div className="empty-state-main">
             <h2>No table selected</h2>

@@ -4,7 +4,7 @@ import { INTERNAL_ROW_ID } from './types';
 import { log } from './DebugLogger';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnResizedEvent, FirstDataRenderedEvent } from 'ag-grid-community';
+import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnResizedEvent, FirstDataRenderedEvent, ICellRendererParams } from 'ag-grid-community';
 import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
@@ -28,6 +28,8 @@ interface SpreadsheetGridProps {
   onInsert: (row: Row) => ValidationError[];
   onDeleteRow: (rowIndex: number) => ValidationError[];
   onColumnWidthChange?: (columnWidths: Record<string, number>) => void;
+  /** Called when the user clicks the open-record button on a row. */
+  onOpenRecord?: (row: Row) => void;
   revision: number;
   bookId: string | null;
   readOnly?: boolean;
@@ -54,6 +56,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   onInsert,
   onDeleteRow,
   onColumnWidthChange,
+  onOpenRecord,
   revision,
   bookId,
   readOnly,
@@ -119,14 +122,50 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     setDisplayedRowCount(isFiltered ? event.api.getDisplayedRowCount() : null);
   }, []);
 
-  const onFirstDataRendered = useCallback((event: FirstDataRenderedEvent) => {
-    // If draft row is configured at bottom, open the table with viewport at the bottom.
-    if (draftPosition !== 'bottom') return;
-    const displayedCount = event.api.getDisplayedRowCount();
-    if (displayedCount > 0) {
-      event.api.ensureIndexVisible(displayedCount - 1, 'bottom');
+  const autosizeGridColumns = useCallback((api: FirstDataRenderedEvent['api']) => {
+    // Autosize columns that lack an explicit user-set width and aren't truncate-mode.
+    // Pass skipHeader=false so header text is also considered.
+    const colIds: string[] = [];
+    for (const col of schema.columns) {
+      if (col.width || col.truncate || col.type === 'image') continue;
+      if (col.type === 'reference' && col.refDisplayColumns && col.refDisplayColumns.length > 0) {
+        for (const dp of col.refDisplayColumns) colIds.push(`${col.name}::${dp}`);
+      } else if (col.type !== 'calculated') {
+        colIds.push(col.name);
+      } else if (col.showInGrid) {
+        colIds.push(`__calc__${col.name}`);
+      }
     }
-  }, [draftPosition]);
+    if (colIds.length > 0) api.autoSizeColumns(colIds, false);
+  }, [schema.columns]);
+
+  const onFirstDataRendered = useCallback((event: FirstDataRenderedEvent) => {
+    // Scroll to bottom if draft is pinned there.
+    if (draftPosition === 'bottom') {
+      const displayedCount = event.api.getDisplayedRowCount();
+      if (displayedCount > 0) {
+        event.api.ensureIndexVisible(displayedCount - 1, 'bottom');
+      }
+    }
+    autosizeGridColumns(event.api);
+  }, [draftPosition, autosizeGridColumns]);
+
+  const autofitAll = useCallback(() => {
+    const api = gridRef.current?.api;
+    if (!api) return;
+    const colIds: string[] = [];
+    for (const col of schema.columns) {
+      if (col.truncate || col.type === 'image') continue;
+      if (col.type === 'reference' && col.refDisplayColumns && col.refDisplayColumns.length > 0) {
+        for (const dp of col.refDisplayColumns) colIds.push(`${col.name}::${dp}`);
+      } else if (col.type !== 'calculated') {
+        colIds.push(col.name);
+      } else if (col.showInGrid) {
+        colIds.push(`__calc__${col.name}`);
+      }
+    }
+    if (colIds.length > 0) api.autoSizeColumns(colIds, false);
+  }, [schema.columns]);
 
   const clearAllFilters = useCallback(() => {
     gridRef.current?.api.setFilterModel(null);
@@ -428,6 +467,12 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         def.cellEditorPopupPosition = 'under';
       }
 
+      // Truncate mode: fixed display width, ellipsis for overflow (AG Grid default cell behaviour)
+      if (col.truncate) {
+        if (!col.width) def.width = 160;
+        def.maxWidth = col.width ?? 160;
+      }
+
       // Image columns: icon indicator in-cell, click to open upload/preview dialog
       if (col.type === 'image') {
         def.cellRenderer = ImageCellRenderer;
@@ -477,9 +522,37 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       });
     }
 
+    // Open-record button column (leading, narrow)
+    if (onOpenRecord) {
+      cols.unshift({
+        colId: '__open_record__',
+        headerName: '',
+        width: 32,
+        maxWidth: 32,
+        minWidth: 32,
+        resizable: false,
+        sortable: false,
+        filter: false,
+        editable: false,
+        suppressMovable: true,
+        cellRenderer: (params: ICellRendererParams) => {
+          if (params.data?.[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return null;
+          const btn = document.createElement('button');
+          btn.title = 'Open record';
+          btn.textContent = '⤢';
+          btn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:13px;padding:0;line-height:1;color:var(--color-text-muted,#888);width:100%;height:100%;display:flex;align-items:center;justify-content:center;';
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onOpenRecord(params.data as Row);
+          });
+          return btn;
+        },
+      });
+    }
+
     return cols;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schema, revision, rowIdToIndex, onEdit, onInsert, bookId, getReferencedRow, getReferenceRows, resolveColumnPath, resolveColumnPathLabel]);
+  }, [schema, revision, rowIdToIndex, onEdit, onInsert, bookId, onOpenRecord, getReferencedRow, getReferenceRows, resolveColumnPath, resolveColumnPathLabel]);
 
   // Style draft row with dimmer text
   const getRowClass = useCallback((params: RowClassParams) => {
@@ -497,9 +570,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     }
   }, [error]);
 
-  const autoSizeStrategy = useMemo(() => ({
-    type: 'fitCellContents' as const,
-  }), []);
+
 
   const isRowSelectable = useCallback((params: { data?: Row }) => {
     return params.data?.[INTERNAL_ROW_ID] !== DRAFT_ROW_ID;
@@ -645,6 +716,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           {rows.length} row{rows.length !== 1 ? 's' : ''}{displayedRowCount !== null ? ` (${displayedRowCount} shown)` : ''}
         </span>
         <span className="grid-status-spacer" />
+        <button className="btn-secondary btn-sm" onClick={autofitAll} title="Autofit all columns to content">
+          ⇔ Autofit
+        </button>
       </div>
       <div className="grid-wrapper" ref={gridWrapperRef} style={{ flex: 1, minHeight: 0, zoom, touchAction: 'pan-x pan-y' }}>
         <AgGridReact
@@ -656,7 +730,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           columnDefs={columnDefs}
           getRowId={getRowId}
           getRowClass={getRowClass}
-          autoSizeStrategy={autoSizeStrategy}
           singleClickEdit={true}
           stopEditingWhenCellsLoseFocus={true}
           enterNavigatesVertically={true}

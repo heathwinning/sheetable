@@ -9,6 +9,8 @@ export interface ColumnDef {
   displayName?: string;
   type: ColumnType;
   width?: number;
+  /** When true, the column keeps a fixed width and truncates long content with ellipsis rather than auto-fitting. */
+  truncate?: boolean;
   // Reference columns
   refTable?: string;
   refDisplayColumns?: string[];
