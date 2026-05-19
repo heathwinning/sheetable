@@ -415,12 +415,6 @@ export function useAppState(): UseAppStateReturn {
           walk(col.refTable, path, label, depth + 1);
         }
       }
-      // Add calculated columns (only at the root table level, no nesting)
-      if (!prefix) {
-        for (const calc of schema.columns.filter(c => c.type === 'calculated')) {
-          result.push({ path: calc.name, label: calc.name });
-        }
-      }
       seen.delete(table);
     };
 
