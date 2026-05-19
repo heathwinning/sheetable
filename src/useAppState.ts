@@ -3,6 +3,7 @@ import type { TableSchema, Row, ValidationError, ChartSheet, ChartConfig, ChartL
 import { INTERNAL_ROW_ID } from './types';
 import * as api from './api';
 import { log } from './DebugLogger';
+import { applyChartValueFormat } from './chartFormat';
 
 export interface UseAppStateReturn {
   // Auth
@@ -339,6 +340,20 @@ export function useAppState(): UseAppStateReturn {
     const colName = parts[0];
     const value = row[colName] ?? '';
 
+    // Check if this is a calculated column (only at root level, non-dotted)
+    if (parts.length === 1) {
+      const calcCol = (schema.calculatedColumns ?? []).find(c => c.name === colName);
+      if (calcCol) {
+        // Build a context with all numeric column values from the row
+        const ctx: Record<string, number> = {};
+        for (const col of schema.columns) {
+          const v = Number(row[col.name]);
+          ctx[col.name] = isNaN(v) ? 0 : v;
+        }
+        return applyChartValueFormat(0, { valueCalc: calcCol.expression }, ctx);
+      }
+    }
+
     if (parts.length === 1) {
       const col = schema.columns.find(c => c.name === colName);
       if (col?.type === 'reference' && col.refTable && value) {
@@ -398,6 +413,12 @@ export function useAppState(): UseAppStateReturn {
         result.push({ path, label });
         if (col.type === 'reference' && col.refTable) {
           walk(col.refTable, path, label, depth + 1);
+        }
+      }
+      // Add calculated columns (only at the root table level, no nesting)
+      if (!prefix) {
+        for (const calc of schema.calculatedColumns ?? []) {
+          result.push({ path: calc.name, label: calc.displayName || calc.name });
         }
       }
       seen.delete(table);

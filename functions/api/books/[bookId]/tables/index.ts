@@ -27,8 +27,8 @@ export const onRequestGet: PagesFunction<Env, 'bookId', RequestData> = async (co
   const bookId = context.params.bookId as string;
 
   const { results: tables } = await context.env.DB.prepare(
-    'SELECT id, name, display_order, unique_keys, default_sort, draft_position FROM _tables WHERE book_id = ? ORDER BY display_order'
-  ).bind(bookId).all<{ id: number; name: string; display_order: number; unique_keys: string; default_sort: string | null; draft_position: string }>();
+    'SELECT id, name, display_order, unique_keys, default_sort, draft_position, calculated_columns FROM _tables WHERE book_id = ? ORDER BY display_order'
+  ).bind(bookId).all<{ id: number; name: string; display_order: number; unique_keys: string; default_sort: string | null; draft_position: string; calculated_columns: string | null }>();
 
   const { results: allCols } = await context.env.DB.prepare(
     `SELECT c.table_id, c.name, c.display_name, c.type, c.display_order, c.width, c.ref_table, c.ref_display, c.ref_search
@@ -51,6 +51,7 @@ export const onRequestGet: PagesFunction<Env, 'bookId', RequestData> = async (co
     uniqueKeys: JSON.parse(t.unique_keys) as string[],
     defaultSort: t.default_sort ? JSON.parse(t.default_sort) : undefined,
     draftRowPosition: t.draft_position,
+    calculatedColumns: t.calculated_columns ? JSON.parse(t.calculated_columns) : undefined,
     columns: (colsByTable.get(t.id) ?? []).map(c => ({
       name: c.name as string,
       displayName: c.display_name as string | undefined,

@@ -14,7 +14,8 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
 import type { ColDef, ColGroupDef } from 'ag-grid-community';
 import type { UseAppStateReturn } from './useAppState';
-import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature, ColumnModifier } from './types';
+import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature } from './types';
+import { applyChartValueFormat } from './chartFormat';
 import { useConfirm } from './DialogProvider';
 
 const RGL = WidthProvider(GridLayout);
@@ -55,24 +56,9 @@ function getFeature(col: string): DateFeature | undefined {
   return VALID_DATE_FEATURES.includes(f) ? f : undefined;
 }
 
-// Format a numeric value with a ColumnModifier
-function formatValue(n: number, mod?: ColumnModifier): string {
-  let v = n;
-  if (mod?.multiplier != null) v = n * mod.multiplier;
-  else if (mod?.divisor) v = n / mod.divisor; // legacy
-  const dec = mod?.decimals;
-  let str: string;
-  if (dec !== undefined) {
-    str = v.toFixed(dec);
-  } else {
-    str = Number.isInteger(v) ? String(v) : v.toFixed(2);
-  }
-  if (mod?.thousands) {
-    const parts = str.split('.');
-    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    str = parts.join('.');
-  }
-  return (mod?.prefix ?? '') + str + (mod?.suffix ?? '');
+// Format a numeric value using chartFormat (calc + template), falling back to legacy ColumnModifier
+function formatValue(n: number, config: Pick<ChartConfig, 'valueFormat' | 'yModifier'>): string {
+  return applyChartValueFormat(n, config);
 }
 
 function aggregateData(
@@ -315,13 +301,34 @@ const ChartRenderer: React.FC<{
     const dimLabel = (dim: string) => {
       const path = stripFeature(dim);
       const feature = getFeature(dim);
-      const base = pathLabels.get(path) ?? (path.includes(':') ? path.split(':')[0] : path);
+      const fullLabel = pathLabels.get(path) ?? (path.includes(':') ? path.split(':')[0] : path);
+      // Use only the last segment of the reference chain for brevity
+      const base = fullLabel.includes(' → ') ? fullLabel.split(' → ').pop()! : fullLabel;
       const feat = feature ? DATE_FEATURES.find(f => f.value === feature)?.label : undefined;
       return feat ? `${base} (${feat})` : base;
     };
 
     const valueFormatter = (p: { value: number | null | undefined }) =>
-      p.value !== null && p.value !== undefined ? formatValue(p.value, config.yModifier) : '';
+      p.value !== null && p.value !== undefined ? formatValue(p.value, config) : '';
+
+    // Precompute subtotal fields for each group prefix at non-leaf levels
+    // field key: `_subtotal_<prefix joined with \x01>`; value: array of _col_N indices in that group
+    const subtotalMap = new Map<string, number[]>();
+    if (hasColDims && colDims.length > 1) {
+      const prefixSeen = new Set<string>();
+      for (const ck of pivot.colKeys) {
+        for (let lvl = 0; lvl < colDims.length - 1; lvl++) {
+          const prefix = ck.slice(0, lvl + 1);
+          const stKey = `_subtotal_${prefix.join('\x01')}`;
+          if (!prefixSeen.has(stKey)) {
+            prefixSeen.add(stKey);
+            subtotalMap.set(stKey, pivot.colKeys
+              .map((ck2, ci2) => prefix.every((v, i) => ck2[i] === v) ? ci2 : -1)
+              .filter(i => i >= 0));
+          }
+        }
+      }
+    }
 
     // Build AG Grid rowData
     const rowData = pivot.rowKeys.map(rk => {
@@ -334,6 +341,9 @@ const ChartRenderer: React.FC<{
           const val = pivot.cells.get(`${rowJoined}\x01${colJoined}`);
           row[`_col_${ci}`] = val ?? null;
         });
+        for (const [stKey, indices] of subtotalMap) {
+          row[stKey] = indices.reduce((s, ci) => { const v = row[`_col_${ci}`]; return s + (typeof v === 'number' ? v : 0); }, 0);
+        }
       } else {
         row['_val'] = pivot.cells.get(`${rowJoined}\x01`) ?? pivot.rowTotals.get(rowJoined) ?? 0;
       }
@@ -348,12 +358,16 @@ const ChartRenderer: React.FC<{
       pivot.colKeys.forEach((ck, ci) => {
         totalRow[`_col_${ci}`] = pivot.colTotals.get(ck.join('\0')) ?? null;
       });
+      for (const [stKey, indices] of subtotalMap) {
+        totalRow[stKey] = indices.reduce((s, ci) => { const v = totalRow[`_col_${ci}`]; return s + (typeof v === 'number' ? v : 0); }, 0);
+      }
     } else {
       totalRow['_val'] = pivot.grandTotal;
     }
     totalRow['_total'] = pivot.grandTotal;
 
     // Recursively build nested column defs for multi-level column dimensions
+    // Adds a Subtotal column at the end of each group when colDims.length > 1
     const buildColGroup = (keys: string[][], level: number, prefix: string[]): (ColDef | ColGroupDef)[] => {
       const filtered = keys.filter(ck => prefix.every((v, i) => ck[i] === v));
       if (level === colDims.length - 1) {
@@ -370,10 +384,15 @@ const ChartRenderer: React.FC<{
       for (const ck of filtered) {
         if (!seen.has(ck[level])) {
           seen.add(ck[level]);
+          const groupPrefix = [...prefix, ck[level]];
+          const stKey = `_subtotal_${groupPrefix.join('\x01')}`;
           groups.push({
             headerName: fmtDimVal(ck[level], colDims[level]),
-            children: buildColGroup(keys, level + 1, [...prefix, ck[level]]),
-          });
+            children: [
+              ...buildColGroup(keys, level + 1, groupPrefix),
+              { headerName: 'Subtotal', field: stKey, sortable: true, type: 'numericColumn', valueFormatter } as ColDef,
+            ],
+          } as ColGroupDef);
         }
       }
       return groups;
@@ -384,12 +403,17 @@ const ChartRenderer: React.FC<{
       field: `_dim_${i}`,
       pinned: 'left' as const,
       sortable: true,
-      width: 120,
     }));
 
     const valueColDefs: (ColDef | ColGroupDef)[] = hasColDims
       ? buildColGroup(pivot.colKeys, 0, [])
-      : [{ headerName: config.aggregate === 'count' ? 'Count' : (config.yColumn ? dimLabel(config.yColumn) : 'Value'), field: '_val', sortable: true, type: 'numericColumn', valueFormatter } as ColDef];
+      : [{
+          headerName: config.aggregate === 'count' ? 'Count' : (config.yColumn ? dimLabel(config.yColumn) : 'Value'),
+          field: '_val',
+          sortable: true,
+          type: 'numericColumn',
+          valueFormatter,
+        } as ColDef];
 
     const colDefs: (ColDef | ColGroupDef)[] = [
       ...dimColDefs,
@@ -415,6 +439,7 @@ const ChartRenderer: React.FC<{
           pinnedBottomRowData={[totalRow]}
           defaultColDef={{ resizable: true }}
           suppressCellFocus
+          onFirstDataRendered={e => e.api.autoSizeAllColumns()}
         />
       </div>
     );
@@ -441,10 +466,10 @@ const ChartRenderer: React.FC<{
     : undefined;
   const xAxisLabel = xLabel ? { value: xLabel, position: 'insideBottom' as const, offset: -8, fontSize: 11, fill: 'var(--color-text-muted)' } : undefined;
   const yAxisLabel = yLabel ? { value: yLabel, angle: -90, position: 'insideLeft' as const, offset: 8, fontSize: 11, fill: 'var(--color-text-muted)' } : undefined;
-  const yMod = config.yModifier;
-  const yTickFormatter = yMod ? (v: number) => formatValue(v, yMod) : undefined;
+  const hasValueFormat = !!(config.valueFormat || config.yModifier);
+  const yTickFormatter = hasValueFormat ? (v: number) => formatValue(v, config) : undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tooltipFormatter = yMod ? (v: any) => [formatValue(Number(v), yMod), undefined] : undefined;
+  const tooltipFormatter = hasValueFormat ? (v: any) => [formatValue(Number(v), config), undefined] : undefined;
 
   if (config.type === 'pie') {
     const pieData = data.map((d, i) => ({
@@ -479,8 +504,7 @@ const ChartRenderer: React.FC<{
     );
   }
 
-  if (config.type === 'bar' || config.type === 'bar-stacked') {
-    const stacked = config.type === 'bar-stacked';
+  if (config.type === 'bar') {
     return (
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={margin}>
@@ -490,7 +514,7 @@ const ChartRenderer: React.FC<{
           <Tooltip formatter={tooltipFormatter} />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
-            <Bar key={k} dataKey={k} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={stacked ? undefined : [3, 3, 0, 0]} stackId={stacked ? 'stack' : undefined} />
+            <Bar key={k} dataKey={k} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={config.stacked ? undefined : [3, 3, 0, 0]} stackId={config.stacked ? 'stack' : undefined} />
           ))}
         </BarChart>
       </ResponsiveContainer>
@@ -544,7 +568,6 @@ const ChartRenderer: React.FC<{
 
 const CHART_TYPE_OPTIONS = [
   { value: 'bar', label: 'Bar' },
-  { value: 'bar-stacked', label: 'Bar (stacked)' },
   { value: 'line', label: 'Line' },
   { value: 'area', label: 'Area' },
   { value: 'area-stacked', label: 'Area (stacked)' },
@@ -577,10 +600,12 @@ const ChartConfigModal: React.FC<{
   isNew: boolean;
   tableIds: string[];
   getColumnPaths: (tableId: string) => { path: string; label: string; type?: string }[];
+  getSchema: (tableId: string) => import('./types').TableSchema | undefined;
+  updateSchema: (tableId: string, schema: import('./types').TableSchema) => Promise<void>;
   onSave: (config: ChartConfig) => void;
   onDelete?: () => void;
   onClose: () => void;
-}> = ({ config, isNew, tableIds, getColumnPaths, onSave, onDelete, onClose }) => {
+}> = ({ config, isNew, tableIds, getColumnPaths, getSchema, updateSchema, onSave, onDelete, onClose }) => {
   const [draft, setDraft] = useState<ChartConfig>(config);
   const allPaths = getColumnPaths(draft.table);
   // Only leaf paths (no further ref children) or non-ref columns are valid Y columns
@@ -590,7 +615,7 @@ const ChartConfigModal: React.FC<{
       .map(p => p.path)
   );
   const isTableType = draft.type === 'table';
-  const hasGroupBy = !isTableType && (draft.type === 'bar' || draft.type === 'bar-stacked' || draft.type === 'line' || draft.type === 'area' || draft.type === 'area-stacked');
+  const hasGroupBy = !isTableType && (draft.type === 'bar' || draft.type === 'line' || draft.type === 'area' || draft.type === 'area-stacked');
   const needsYCol = draft.aggregate !== 'count' && draft.aggregate !== 'none';
   const canSave = isTableType
     ? (draft.tableRows?.length ?? 0) > 0 && (!needsYCol || !!draft.yColumn)
@@ -660,14 +685,10 @@ const ChartConfigModal: React.FC<{
   const gbColType = allPaths.find(p => p.path === gbColPath)?.type;
   const gbIsDateCol = gbColType === 'date' || gbColType === 'datetime';
 
-  const setMod = (patch: Partial<ColumnModifier>) =>
-    setDraft(d => ({ ...d, yModifier: { ...d.yModifier, ...patch } }));
-
   const set = <K extends keyof ChartConfig>(key: K, val: ChartConfig[K]) =>
     setDraft(d => ({ ...d, [key]: val }));
 
   const modSectionStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 10px', background: 'var(--color-surface-raised, rgba(0,0,0,0.04))', borderRadius: 6, border: '1px solid var(--color-border)' };
-  const modRowStyle: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
   const modLabelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 };
 
   return (
@@ -778,17 +799,12 @@ const ChartConfigModal: React.FC<{
               </div>
               {needsYCol && draft.yColumn && (
                 <div style={modSectionStyle}>
-                  <div style={modLabelStyle}>Value format</div>
-                  <div style={modRowStyle}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>×</label>
-                    <input type="number" placeholder="Multiplier" className="app-dialog-input" style={{ marginBottom: 0, width: 100 }} value={draft.yModifier?.multiplier ?? ''} onChange={e => setMod({ multiplier: e.target.value !== '' ? Number(e.target.value) : undefined })} />
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>
-                      <input type="checkbox" checked={draft.yModifier?.thousands ?? false} onChange={e => setMod({ thousands: e.target.checked || undefined })} />
-                      , sep
-                    </label>
-                    <input type="number" min={0} max={10} placeholder="Decimals" className="app-dialog-input" style={{ marginBottom: 0, width: 80 }} value={draft.yModifier?.decimals ?? ''} onChange={e => setMod({ decimals: e.target.value !== '' ? Number(e.target.value) : undefined })} />
-                    <input type="text" placeholder="Prefix" className="app-dialog-input" style={{ marginBottom: 0, width: 64 }} value={draft.yModifier?.prefix ?? ''} onChange={e => setMod({ prefix: e.target.value || undefined })} />
-                    <input type="text" placeholder="Suffix" className="app-dialog-input" style={{ marginBottom: 0, width: 64 }} value={draft.yModifier?.suffix ?? ''} onChange={e => setMod({ suffix: e.target.value || undefined })} />
+                  <div style={modLabelStyle}>Value options</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <label className="app-dialog-label" style={{ marginBottom: 0, fontWeight: 400 }}>Display format <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional — e.g. <code>{'{{value}} km'}</code>)</span></label>
+                      <input type="text" className="app-dialog-input" style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12 }} placeholder="{{value}}" value={draft.valueFormat ?? ''} onChange={e => set('valueFormat', e.target.value || undefined)} />
+                    </div>
                   </div>
                 </div>
               )}
@@ -860,18 +876,24 @@ const ChartConfigModal: React.FC<{
               )}
               {needsYCol && draft.yColumn && (
                 <div style={modSectionStyle}>
-                  <div style={modLabelStyle}>Value format</div>
-                  <div style={modRowStyle}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>×</label>
-                    <input type="number" placeholder="Multiplier" className="app-dialog-input" style={{ marginBottom: 0, width: 100 }} value={draft.yModifier?.multiplier ?? ''} onChange={e => setMod({ multiplier: e.target.value !== '' ? Number(e.target.value) : undefined })} />
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>
-                      <input type="checkbox" checked={draft.yModifier?.thousands ?? false} onChange={e => setMod({ thousands: e.target.checked || undefined })} />
-                      , sep
-                    </label>
-                    <input type="number" min={0} max={10} placeholder="Decimals" className="app-dialog-input" style={{ marginBottom: 0, width: 80 }} value={draft.yModifier?.decimals ?? ''} onChange={e => setMod({ decimals: e.target.value !== '' ? Number(e.target.value) : undefined })} />
-                    <input type="text" placeholder="Prefix" className="app-dialog-input" style={{ marginBottom: 0, width: 64 }} value={draft.yModifier?.prefix ?? ''} onChange={e => setMod({ prefix: e.target.value || undefined })} />
-                    <input type="text" placeholder="Suffix" className="app-dialog-input" style={{ marginBottom: 0, width: 64 }} value={draft.yModifier?.suffix ?? ''} onChange={e => setMod({ suffix: e.target.value || undefined })} />
+                  <div style={modLabelStyle}>Value options</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <label className="app-dialog-label" style={{ marginBottom: 0, fontWeight: 400 }}>Display format <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional — e.g. <code>{'{{value}} km'}</code>)</span></label>
+                      <input type="text" className="app-dialog-input" style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12 }} placeholder="{{value}}" value={draft.valueFormat ?? ''} onChange={e => set('valueFormat', e.target.value || undefined)} />
+                    </div>
                   </div>
+                </div>
+              )}
+              {draft.type === 'bar' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    id="chart-stacked-cb"
+                    checked={!!draft.stacked}
+                    onChange={e => set('stacked', e.target.checked || undefined)}
+                  />
+                  <label htmlFor="chart-stacked-cb" className="app-dialog-label" style={{ marginBottom: 0 }}>Stacked bars</label>
                 </div>
               )}
               {hasGroupBy && (
@@ -915,6 +937,71 @@ const ChartConfigModal: React.FC<{
               )}
             </>
           )}
+          {draft.table && (() => {
+            const schema = getSchema(draft.table);
+            if (!schema) return null;
+            const calcCols = schema.calculatedColumns ?? [];
+            return (
+              <div style={modSectionStyle}>
+                <div style={modLabelStyle}>Calculated columns</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {calcCols.map((calc, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                      <div style={{ flex: '0 0 110px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <input
+                          className="app-dialog-input"
+                          style={{ marginBottom: 0, fontSize: 12 }}
+                          placeholder="name"
+                          value={calc.name}
+                          onChange={e => {
+                            const updated = calcCols.map((c, i) => i === idx ? { ...c, name: e.target.value } : c);
+                            void updateSchema(draft.table, { ...schema, calculatedColumns: updated });
+                          }}
+                        />
+                        <input
+                          className="app-dialog-input"
+                          style={{ marginBottom: 0, fontSize: 11 }}
+                          placeholder="display name"
+                          value={calc.displayName ?? ''}
+                          onChange={e => {
+                            const updated = calcCols.map((c, i) => i === idx ? { ...c, displayName: e.target.value || undefined } : c);
+                            void updateSchema(draft.table, { ...schema, calculatedColumns: updated });
+                          }}
+                        />
+                      </div>
+                      <input
+                        className="app-dialog-input"
+                        style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12, flex: 1 }}
+                        placeholder="expression (e.g. distance / 1000)"
+                        value={calc.expression}
+                        onChange={e => {
+                          const updated = calcCols.map((c, i) => i === idx ? { ...c, expression: e.target.value } : c);
+                          void updateSchema(draft.table, { ...schema, calculatedColumns: updated });
+                        }}
+                      />
+                      <button
+                        className="app-dialog-close"
+                        style={{ flexShrink: 0 }}
+                        onClick={() => {
+                          const updated = calcCols.filter((_, i) => i !== idx);
+                          void updateSchema(draft.table, { ...schema, calculatedColumns: updated });
+                        }}
+                        title="Remove"
+                      >×</button>
+                    </div>
+                  ))}
+                  <button
+                    className="btn-secondary btn-sm"
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() => {
+                      const updated = [...calcCols, { name: '', expression: '' }];
+                      void updateSchema(draft.table, { ...schema, calculatedColumns: updated });
+                    }}
+                  >+ Add column</button>
+                </div>
+              </div>
+            );
+          })()}
           {draft.type !== 'pie' && draft.type !== 'table' && (
             <div style={{ display: 'flex', gap: 12 }}>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -1100,6 +1187,8 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           isNew={isNewChart}
           tableIds={state.tableIds}
           getColumnPaths={getColumnPathsForTable}
+          getSchema={state.getSchema}
+          updateSchema={state.updateSchema}
           onSave={handleSaveChart}
           onDelete={!isNewChart ? () => { handleDeleteChart(editingChart.id); setEditingChart(null); } : undefined}
           onClose={() => setEditingChart(null)}

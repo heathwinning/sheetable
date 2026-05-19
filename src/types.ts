@@ -14,12 +14,21 @@ export interface ColumnDef {
   refSearchColumns?: string[];
 }
 
+export interface CalculatedColumn {
+  name: string;
+  displayName?: string;
+  /** expr-eval expression; variable `value` holds the raw column value (as a number).
+   *  May reference other columns by name, e.g. "distance / 1000" or "price * quantity". */
+  expression: string;
+}
+
 export interface TableSchema {
   name: string;
   columns: ColumnDef[];
   uniqueKeys: string[];
   defaultSort?: { column: string; direction: 'asc' | 'desc' }[];
   draftRowPosition?: 'top' | 'bottom';
+  calculatedColumns?: CalculatedColumn[];
 }
 
 export type Row = Record<string, string>;
@@ -36,19 +45,20 @@ export interface ValidationError {
 }
 
 // Chart types
-export type ChartType = 'bar' | 'bar-stacked' | 'line' | 'area' | 'area-stacked' | 'pie' | 'scatter' | 'table';
+export type ChartType = 'bar' | 'line' | 'area' | 'area-stacked' | 'pie' | 'scatter' | 'table';
 export type DateFeature = 'year' | 'quarter' | 'yearmonth' | 'month' | 'monthnum' | 'week' | 'dayofweek' | 'day' | 'hour';
 // Column expression encoding: plain column name, or "colname:datefeature" for date/datetime columns
 // e.g. "sale_date:year", "created_at:month"
 export type AggregateFunc = 'sum' | 'count' | 'avg' | 'min' | 'max' | 'none';
 
+/** @deprecated – replaced by valueCalc / valueFormat string fields on ChartConfig */
 export interface ColumnModifier {
-  multiplier?: number; // multiply value by this before display (e.g. 0.001 for g→kg, 100 for ratio→%)
-  /** @deprecated use multiplier=1/divisor */ divisor?: number;
-  thousands?: boolean; // thousands separator
-  decimals?: number;   // fixed decimal places (undefined = auto)
-  prefix?: string;     // display prefix (e.g. "$")
-  suffix?: string;     // display suffix (e.g. " kg")
+  multiplier?: number;
+  divisor?: number;
+  thousands?: boolean;
+  decimals?: number;
+  prefix?: string;
+  suffix?: string;
 }
 
 export interface ChartConfig {
@@ -65,7 +75,12 @@ export interface ChartConfig {
   tableRows?: string[];
   tableColumns?: string[];
   tableSort?: { key: string; dir: 'asc' | 'desc' };
-  yModifier?: ColumnModifier; // display transform/format for the value column
+  /** Handlebars template for display. Variables: `value` (the aggregated number), `date`, row fields.
+   *  Supports {{dateFormat date 'MMM D, YYYY'}}. e.g. "{{value}} kg" */
+  valueFormat?: string;
+  /** @deprecated use valueCalc / valueFormat */
+  yModifier?: ColumnModifier;
+  stacked?: boolean; // for bar charts only
 }
 
 export interface ChartLayoutItem {

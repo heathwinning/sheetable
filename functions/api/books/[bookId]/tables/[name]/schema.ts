@@ -16,6 +16,7 @@ interface SchemaBody {
   uniqueKeys?: string[];
   defaultSort?: { column: string; direction: string }[];
   draftRowPosition?: string;
+  calculatedColumns?: { name: string; displayName?: string; expression: string }[];
 }
 
 const VALID_TYPES = new Set(['text', 'integer', 'decimal', 'date', 'datetime', 'bool', 'reference', 'image']);
@@ -40,11 +41,12 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
   // Update table-level settings
   stmts.push(
     context.env.DB.prepare(
-      'UPDATE _tables SET unique_keys = ?, default_sort = ?, draft_position = ? WHERE id = ?'
+      'UPDATE _tables SET unique_keys = ?, default_sort = ?, draft_position = ?, calculated_columns = ? WHERE id = ?'
     ).bind(
       JSON.stringify(body.uniqueKeys ?? []),
       body.defaultSort ? JSON.stringify(body.defaultSort) : null,
       body.draftRowPosition ?? 'bottom',
+      body.calculatedColumns ? JSON.stringify(body.calculatedColumns) : null,
       table.id,
     )
   );

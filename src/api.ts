@@ -90,6 +90,7 @@ interface ApiTable {
   uniqueKeys: string[];
   defaultSort?: { column: string; direction: 'asc' | 'desc' }[];
   draftRowPosition: string;
+  calculatedColumns?: { name: string; displayName?: string; expression: string }[];
   columns: {
     name: string;
     displayName?: string;
@@ -115,6 +116,7 @@ export async function listTables(bookId: string): Promise<TableSchema[]> {
     uniqueKeys: t.uniqueKeys,
     defaultSort: t.defaultSort,
     draftRowPosition: t.draftRowPosition as 'top' | 'bottom',
+    calculatedColumns: t.calculatedColumns,
   }));
 }
 
@@ -178,6 +180,7 @@ export async function updateTableSchema(bookId: string, name: string, schema: Ta
       uniqueKeys: schema.uniqueKeys,
       defaultSort: schema.defaultSort,
       draftRowPosition: schema.draftRowPosition,
+      calculatedColumns: schema.calculatedColumns,
     }),
   });
 }
