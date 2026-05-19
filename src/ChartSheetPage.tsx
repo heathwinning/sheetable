@@ -1380,10 +1380,18 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                       )}
                     </div>
                     {chart.filterColumn && (() => {
-                      const colLabel = getColumnPathsForTable(chart.table).find(p => p.path === chart.filterColumn)?.label ?? chart.filterColumn;
+                      const fullLabel = getColumnPathsForTable(chart.table).find(p => p.path === chart.filterColumn)?.label ?? chart.filterColumn;
+                      const colLabel = fullLabel.includes(' → ') ? fullLabel.split(' → ').pop()! : fullLabel;
                       const op = chart.filterOperator ?? 'eq';
                       const needsInput = op !== 'is_empty' && op !== 'is_not_empty';
                       const curVal = filterValues[chart.id] ?? '';
+                      const distinctValues = needsInput
+                        ? [...new Set(
+                            rows
+                              .map(row => state.resolveColumnPath(chart.table, row, chart.filterColumn!).trim())
+                              .filter(v => !!v)
+                          )].sort((a, b) => a.localeCompare(b))
+                        : [];
                       return (
                         <div
                           style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, flexWrap: 'wrap' }}
@@ -1394,29 +1402,23 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                             ⊟ {colLabel} {filterOperatorLabel(op)}
                           </span>
                           {needsInput && (
-                            <input
-                              type="text"
+                            <select
                               value={curVal}
                               onChange={e => setFilterValues(prev => ({ ...prev, [chart.id]: e.target.value }))}
-                              placeholder="filter…"
                               style={{
                                 fontSize: 12,
-                                padding: '2px 7px',
+                                padding: '2px 6px',
                                 border: '1px solid var(--color-border)',
                                 borderRadius: 4,
                                 background: 'var(--color-surface)',
                                 color: 'var(--color-text)',
-                                width: 130,
+                                cursor: 'pointer',
                                 outline: 'none',
                               }}
-                            />
-                          )}
-                          {needsInput && curVal && (
-                            <button
-                              onClick={() => setFilterValues(prev => ({ ...prev, [chart.id]: '' }))}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 12, padding: '0 3px', lineHeight: 1 }}
-                              title="Clear filter"
-                            >×</button>
+                            >
+                              <option value="">— all —</option>
+                              {distinctValues.map(v => <option key={v} value={v}>{v}</option>)}
+                            </select>
                           )}
                         </div>
                       );
