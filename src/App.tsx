@@ -1548,11 +1548,11 @@ const App: React.FC = () => {
             };
             return (
               <div className="header-actions">
-                {editLayout && state.tableIds.length > 0 && (
-                  <button className="btn-primary btn-sm" onClick={handleAddChart}>+ Add chart</button>
-                )}
                 {editLayout && (
                   <button className="header-action-btn" style={{ color: 'var(--color-danger)' }} onClick={() => { void handleDeleteSheet(); }} title="Delete sheet">Delete sheet</button>
+                )}
+                {editLayout && state.tableIds.length > 0 && (
+                  <button className="btn-primary btn-sm" onClick={handleAddChart}>+ Add chart</button>
                 )}
                 <ChartLayoutToggle />
               </div>

@@ -292,6 +292,21 @@ const ChartRenderer: React.FC<{
       );
     }
     const pivot = buildPivotTable(rows, rowDims, colDims, config.yColumn, config.aggregate, resolveColumnPath, config.table);
+
+    // Apply row ordering
+    const rowOrder = config.rowOrder ?? 'natural';
+    if (rowOrder !== 'natural') {
+      pivot.rowKeys.sort((a, b) => {
+        if (rowOrder === 'label-asc' || rowOrder === 'label-desc') {
+          const ka = a.map((v, i) => fmtDimVal(v, rowDims[i])).join('\0').toLowerCase();
+          const kb = b.map((v, i) => fmtDimVal(v, rowDims[i])).join('\0').toLowerCase();
+          return rowOrder === 'label-asc' ? ka.localeCompare(kb) : kb.localeCompare(ka);
+        }
+        const va = pivot.rowTotals.get(a.join('\0')) ?? 0;
+        const vb = pivot.rowTotals.get(b.join('\0')) ?? 0;
+        return rowOrder === 'value-asc' ? va - vb : vb - va;
+      });
+    }
     const hasColDims = pivot.colKeys.length > 0;
 
     // Build label lookup for column paths (strips :feature suffix before lookup)
@@ -634,6 +649,14 @@ const AGGREGATE_OPTIONS = [
   { value: 'none', label: 'None (raw)' },
 ];
 
+const ROW_ORDER_OPTIONS: { value: ChartConfig['rowOrder']; label: string }[] = [
+  { value: 'natural', label: 'Natural (data order)' },
+  { value: 'label-asc', label: 'Label A → Z' },
+  { value: 'label-desc', label: 'Label Z → A' },
+  { value: 'value-asc', label: 'Value ↑ (smallest first)' },
+  { value: 'value-desc', label: 'Value ↓ (largest first)' },
+];
+
 const DATE_FEATURES: { value: DateFeature; label: string }[] = [
   { value: 'year', label: 'Year' },
   { value: 'quarter', label: 'Quarter' },
@@ -833,6 +856,18 @@ const ChartConfigModal: React.FC<{
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Row order</label>
+                  <Select
+                    styles={dialogSelectStyles}
+                    isSearchable={false}
+                    value={ROW_ORDER_OPTIONS.find(o => o.value === (draft.rowOrder ?? 'natural')) ?? null}
+                    options={ROW_ORDER_OPTIONS}
+                    onChange={opt => set('rowOrder', (opt?.value ?? 'natural') as ChartConfig['rowOrder'])}
+                    menuPortalTarget={document.body}
+                    menuPlacement="auto"
+                  />
+                </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label className="app-dialog-label" style={{ marginBottom: 0 }}>Aggregate</label>
                   <Select
                     styles={dialogSelectStyles}
@@ -844,6 +879,8 @@ const ChartConfigModal: React.FC<{
                     menuPlacement="auto"
                   />
                 </div>
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
                 {needsYCol && (
                   <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <label className="app-dialog-label" style={{ marginBottom: 0 }}>Value column</label>
@@ -1211,10 +1248,6 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                     </span>
                     {canEdit && (
                       <div style={{ display: 'flex', gap: 4, flexShrink: 0 }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-                        <button
-                          onClick={() => { setEditingChart(chart); setIsNewChart(false); }}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '2px 6px', fontSize: 12, borderRadius: 4 }}
-                        >Edit</button>
                         {editLayout && (
                           <button
                             onClick={() => handleDeleteChart(chart.id)}
@@ -1222,6 +1255,10 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                             title="Delete chart"
                           >Delete</button>
                         )}
+                        <button
+                          onClick={() => { setEditingChart(chart); setIsNewChart(false); }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '2px 6px', fontSize: 12, borderRadius: 4 }}
+                        >Edit</button>
                       </div>
                     )}
                   </div>
