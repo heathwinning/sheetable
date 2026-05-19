@@ -1136,15 +1136,6 @@ const ChartConfigModal: React.FC<{
                 </div>
               )}
             </div>
-            {draft.filterColumn && (
-              <input
-                className="app-dialog-input"
-                style={{ marginBottom: 0, marginTop: 6 }}
-                value={draft.filterLabel ?? ''}
-                onChange={e => set('filterLabel', e.target.value || undefined)}
-                placeholder="Filter label (shown in title bar)"
-              />
-            )}
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
@@ -1390,7 +1381,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                     </div>
                     {chart.filterColumn && (() => {
                       const fullLabel = getColumnPathsForTable(chart.table).find(p => p.path === chart.filterColumn)?.label ?? chart.filterColumn;
-                      const colLabel = chart.filterLabel || (fullLabel.includes(' → ') ? fullLabel.split(' → ').pop()! : fullLabel);
+                      const colLabel = fullLabel.includes(' → ') ? fullLabel.split(' → ').pop()! : fullLabel;
                       const op = chart.filterOperator ?? 'eq';
                       const needsInput = op !== 'is_empty' && op !== 'is_not_empty';
                       const curVal = filterValues[chart.id] ?? '';
@@ -1407,9 +1398,6 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                           onMouseDown={e => e.stopPropagation()}
                           onTouchStart={e => e.stopPropagation()}
                         >
-                          <span style={{ color: 'var(--color-text-muted)', flexShrink: 0, userSelect: 'none' }}>
-                            ⊟ {colLabel} {filterOperatorLabel(op)}
-                          </span>
                           {needsInput && (
                             <select
                               value={curVal}
@@ -1420,14 +1408,19 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                                 border: '1px solid var(--color-border)',
                                 borderRadius: 4,
                                 background: 'var(--color-surface)',
-                                color: 'var(--color-text)',
+                                color: curVal ? 'var(--color-text)' : 'var(--color-text-muted)',
                                 cursor: 'pointer',
                                 outline: 'none',
                               }}
                             >
-                              <option value="">— all —</option>
+                              <option value="">— {colLabel} —</option>
                               {distinctValues.map(v => <option key={v} value={v}>{v}</option>)}
                             </select>
+                          )}
+                          {!needsInput && (
+                            <span style={{ color: 'var(--color-text-muted)', fontSize: 12, userSelect: 'none' }}>
+                              ⊟ {colLabel} {filterOperatorLabel(op)}
+                            </span>
                           )}
                         </div>
                       );

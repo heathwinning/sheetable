@@ -96,7 +96,6 @@ export interface ChartConfig {
   filterColumn?: string;
   filterOperator?: FilterOperator;
   filterValue?: string; // saved default; overridden at runtime
-  filterLabel?: string; // label shown in the title bar filter strip
 }
 
 export interface ChartLayoutItem {
