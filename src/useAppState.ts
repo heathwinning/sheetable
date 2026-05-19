@@ -418,7 +418,7 @@ export function useAppState(): UseAppStateReturn {
       // Add calculated columns (only at the root table level, no nesting)
       if (!prefix) {
         for (const calc of schema.calculatedColumns ?? []) {
-          result.push({ path: calc.name, label: calc.displayName || calc.name });
+          result.push({ path: calc.name, label: calc.name });
         }
       }
       seen.delete(table);
