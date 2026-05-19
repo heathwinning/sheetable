@@ -9,6 +9,10 @@ import { parseCSV } from './csv';
 import * as api from './api';
 import { useAlert } from './DialogProvider';
 import { slugify } from './EditTablePage';
+import { AgGridReact } from 'ag-grid-react';
+import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
+import type { ColDef } from 'ag-grid-community';
+import { sharedDefaultColDef } from './gridDefaults';
 
 interface ImportPageProps {
   state: UseAppStateReturn;
@@ -196,6 +200,8 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
   const [showUrlDialog, setShowUrlDialog] = useState(false);
   const [csvUrl, setCsvUrl] = useState('');
   const [urlLoading, setUrlLoading] = useState(false);
+  // Which column's ref config dialog is open in new-table grid (-1 = none)
+  const [importRefDialogCol, setImportRefDialogCol] = useState<number>(-1);
 
   const schema = tableId ? state.getSchema(tableId) : undefined;
 
@@ -213,6 +219,25 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
     sourceHeaders.map(h => ({ value: h, label: h })),
     [sourceHeaders]
   );
+
+  // AG Grid theme for import column config grid
+  const importGridTheme = useMemo(() => {
+    const getColor = (v: string) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+    return themeQuartz.withParams({
+      backgroundColor: getColor('--color-surface'),
+      foregroundColor: getColor('--color-text'),
+      headerBackgroundColor: getColor('--color-surface-2'),
+      rowHoverColor: getColor('--color-cell-editing'),
+      selectedRowBackgroundColor: getColor('--color-cell-selected'),
+      borderColor: getColor('--color-border'),
+      cellHorizontalPaddingScale: 0.8,
+      headerFontSize: 12,
+      fontSize: 13,
+      rowHeight: 36,
+      headerHeight: 32,
+      columnBorder: true,
+    });
+  }, []);
 
   // Parse uploaded CSV
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -421,7 +446,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
     }));
   };
 
-  const updateNewTableColumn = (index: number, updates: Partial<NewTableColumn>) => {
+  const updateNewTableColumn = useCallback((index: number, updates: Partial<NewTableColumn>) => {
     setNewTableColumns(prev => prev.map((c, i) => {
       if (i !== index) return c;
       const updated = { ...c, ...updates };
@@ -464,7 +489,125 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
       }
       return updated;
     }));
-  };
+  }, [sourceHeaders, sourceRows, state]);
+
+  // Row data for new-table column config grid
+  const importRowData = useMemo(() =>
+    newTableColumns.map((col, i) => ({ ...col, _idx: i })),
+    [newTableColumns]
+  );
+
+  // Column defs for new-table column config grid
+  const importColDefs = useMemo((): ColDef[] => [
+    {
+      headerName: '',
+      field: 'enabled',
+      width: 44,
+      resizable: false,
+      editable: false,
+      cellStyle: { display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 },
+      cellRenderer: (params: { data: NewTableColumn & { _idx: number } }) =>
+        React.createElement('input', {
+          type: 'checkbox',
+          checked: params.data.enabled,
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+            updateNewTableColumn(params.data._idx, { enabled: e.target.checked }),
+          style: { cursor: 'pointer' },
+        }),
+    },
+    {
+      headerName: 'Source Column',
+      field: 'sourceColumn',
+      flex: 2,
+      minWidth: 110,
+      editable: false,
+      cellRenderer: (params: { data: NewTableColumn & { _idx: number } }) => {
+        const sample = sourceRows[0]?.[sourceHeaders.indexOf(params.data.sourceColumn)] ?? '';
+        return React.createElement('div', { style: { lineHeight: 1.2 } },
+          React.createElement('div', null, params.data.sourceColumn),
+          sample ? React.createElement('div', {
+            style: { fontSize: 11, color: 'var(--color-text-muted, #888)', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+          }, `e.g. "${sample}"`) : null,
+        );
+      },
+    },
+    {
+      headerName: 'Column ID',
+      field: 'name',
+      flex: 2,
+      minWidth: 100,
+      editable: true,
+      valueSetter: (params) => {
+        updateNewTableColumn(params.data._idx, { name: params.newValue ?? '' });
+        return true;
+      },
+    },
+    {
+      headerName: 'Display Name',
+      field: 'displayName',
+      flex: 2,
+      minWidth: 100,
+      editable: true,
+      valueSetter: (params) => {
+        updateNewTableColumn(params.data._idx, { displayName: params.newValue || undefined });
+        return true;
+      },
+    },
+    {
+      headerName: 'Type',
+      field: 'type',
+      flex: 2,
+      minWidth: 120,
+      editable: false,
+      cellStyle: { overflow: 'visible' },
+      cellRenderer: (params: { data: NewTableColumn & { _idx: number } }) => {
+        const isRef = params.data.type === 'reference';
+        return React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 4, width: '100%', overflow: 'visible' } },
+          React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+            React.createElement(Select as React.ComponentType<any>, {
+              options: typeOptions,
+              value: typeOptions.find((o: { value: string }) => o.value === params.data.type) ?? null,
+              onChange: (opt: { value: ColumnType } | null) =>
+                updateNewTableColumn(params.data._idx, { type: opt?.value ?? 'text' }),
+              styles: selectStyles,
+              isClearable: false,
+              menuPortalTarget: document.body,
+              menuPosition: 'fixed',
+            }),
+          ),
+          isRef && React.createElement('span', {
+            onMouseDown: (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); setImportRefDialogCol(params.data._idx); },
+            title: 'Configure reference',
+            style: { cursor: 'pointer', color: 'var(--ref-color, #2563eb)', fontSize: 14, flexShrink: 0, padding: '0 2px' },
+          }, '✎'),
+        );
+      },
+    },
+    {
+      headerName: 'Options',
+      field: 'dateFormat',
+      flex: 2,
+      minWidth: 140,
+      editable: false,
+      cellStyle: { overflow: 'visible' },
+      cellRenderer: (params: { data: NewTableColumn & { _idx: number } }) => {
+        if (params.data.type !== 'date' && params.data.type !== 'datetime') return null;
+        const fmtOptions = DATE_FORMATS.map(f => ({ value: f.value, label: f.label }));
+        return React.createElement('div', { style: { width: '100%', overflow: 'visible' } },
+          React.createElement(Select as React.ComponentType<any>, {
+            options: fmtOptions,
+            value: fmtOptions.find((o: { value: string }) => o.value === params.data.dateFormat) ?? null,
+            onChange: (opt: { value: string } | null) =>
+              updateNewTableColumn(params.data._idx, { dateFormat: opt?.value ?? 'yyyy-mm-dd' }),
+            styles: selectStyles,
+            isClearable: false,
+            menuPortalTarget: document.body,
+            menuPosition: 'fixed',
+          }),
+        );
+      },
+    },
+  ], [updateNewTableColumn, sourceRows, sourceHeaders, newTableColumns]);
 
   // Resolve a reference to a _rowId by matching multiple source→ref column pairs
   const resolveReference = useCallback(
@@ -1080,152 +1223,30 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
             <h3>{isNewTable ? '2. Configure Columns' : '2. Map Columns'}</h3>
             <div className="import-mapping-table">
               {isNewTable ? (
-                <>
-                  <div className="import-mapping-header">
-                    <span className="import-mapping-cell">Import</span>
-                    <span className="import-mapping-cell">Source Column</span>
-                    <span className="import-mapping-cell">→</span>
-                    <span className="import-mapping-cell import-mapping-cell-wide">Column Name</span>
-                    <span className="import-mapping-cell">Type</span>
-                    <span className="import-mapping-cell import-mapping-cell-wide">Options</span>
-                  </div>
-                  {newTableColumns.map((col, i) => (
-                    <div key={i} className="import-mapping-row">
-                      <span className="import-mapping-cell import-mapping-cell-check">
-                        <input
-                          type="checkbox"
-                          checked={col.enabled}
-                          onChange={(e) => updateNewTableColumn(i, { enabled: e.target.checked })}
-                        />
-                      </span>
-                      <span className="import-mapping-cell import-mapping-source">
-                        {col.sourceColumn}
-                        <span className="import-sample-value">
-                          e.g. "{sourceRows[0]?.[sourceHeaders.indexOf(col.sourceColumn)] ?? ''}"
-                        </span>
-                      </span>
-                      <span className="import-mapping-cell import-mapping-cell-arrow">→</span>
-                      <span className="import-mapping-cell import-mapping-cell-wide import-mapping-cell-name">
-                        <input
-                          className="import-col-name-input"
-                          type="text"
-                          value={col.name}
-                          onChange={(e) => updateNewTableColumn(i, { name: e.target.value })}
-                        />
-                      </span>
-                      <span className="import-mapping-cell import-mapping-cell-type">
-                        <Select
-                          options={typeOptions}
-                          value={typeOptions.find(o => o.value === col.type) ?? null}
-                          onChange={(opt) => updateNewTableColumn(i, { type: opt?.value ?? 'text' })}
-                          styles={selectStyles}
-                          isClearable={false}
-                          menuPortalTarget={document.body}
-                        />
-                      </span>
-                      <span className="import-mapping-cell import-mapping-cell-wide import-mapping-cell-options">
-                        {(col.type === 'date' || col.type === 'datetime') && (
-                          <Select
-                            options={DATE_FORMATS.map(f => ({ value: f.value, label: f.label }))}
-                            value={DATE_FORMATS.map(f => ({ value: f.value, label: f.label })).find(
-                              o => o.value === col.dateFormat
-                            )}
-                            onChange={(opt) => updateNewTableColumn(i, { dateFormat: opt?.value ?? 'yyyy-mm-dd' })}
-                            styles={selectStyles}
-                            isClearable={false}
-                            menuPortalTarget={document.body}
-                          />
-                        )}
-                        {col.type === 'reference' && (
-                          <div className="import-ref-config">
-                            <span className="import-ref-label">Table:</span>
-                            <Select
-                              options={tableOptions}
-                              value={tableOptions.find(o => o.value === col.refTable) ?? null}
-                              onChange={(opt) => updateNewTableColumn(i, { refTable: opt?.value ?? '' })}
-                              styles={selectStyles}
-                              isClearable={false}
-                              menuPortalTarget={document.body}
-                            />
-                            {col.refTable && (
-                              <div className="import-ref-pairs">
-                                <span className="import-ref-label">Match columns:</span>
-                                {(col.refSourceMappings ?? []).map((pair, pi) => {
-                                  const refSchema = state.getSchema(col.refTable!);
-                                  const refColOptions = (refSchema?.columns ?? []).map(rc => ({
-                                    value: rc.name,
-                                    label: rc.displayName || rc.name,
-                                  }));
-                                  return (
-                                    <div key={pi} className="import-ref-pair">
-                                      <Select
-                                        options={sourceColumnOptions}
-                                        value={sourceColumnOptions.find(o => o.value === pair.sourceColumn) ?? null}
-                                        onChange={(opt) => {
-                                          const newMappings = [...(col.refSourceMappings ?? [])];
-                                          newMappings[pi] = { ...newMappings[pi], sourceColumn: opt?.value ?? '' };
-                                          updateNewTableColumn(i, { refSourceMappings: newMappings });
-                                        }}
-                                        styles={selectStyles}
-                                        placeholder="Source column"
-                                        menuPortalTarget={document.body}
-                                      />
-                                      <span className="import-ref-pair-arrow">→</span>
-                                      <Select
-                                        options={refColOptions}
-                                        value={refColOptions.find(o => o.value === pair.refColumn) ?? null}
-                                        onChange={(opt) => {
-                                          const newMappings = [...(col.refSourceMappings ?? [])];
-                                          newMappings[pi] = { ...newMappings[pi], refColumn: opt?.value ?? '' };
-                                          updateNewTableColumn(i, { refSourceMappings: newMappings });
-                                        }}
-                                        styles={selectStyles}
-                                        placeholder="Ref column"
-                                        menuPortalTarget={document.body}
-                                      />
-                                      <button
-                                        className="import-ref-pair-remove"
-                                        onClick={() => {
-                                          const newMappings = (col.refSourceMappings ?? []).filter((_, j) => j !== pi);
-                                          updateNewTableColumn(i, { refSourceMappings: newMappings });
-                                        }}
-                                        title="Remove"
-                                      >×</button>
-                                    </div>
-                                  );
-                                })}
-                                <button
-                                  className="import-ref-pair-add"
-                                  onClick={() => {
-                                    const refSchema = state.getSchema(col.refTable!);
-                                    const usedRefCols = (col.refSourceMappings ?? []).map(m => m.refColumn);
-                                    const usedSourceCols = (col.refSourceMappings ?? []).map(m => m.sourceColumn);
-                                    const nextRefCol = refSchema?.columns.find(rc => !usedRefCols.includes(rc.name))?.name ?? '';
-                                    const nextSourceCol = sourceHeaders.find(h => !usedSourceCols.includes(h)) ?? '';
-                                    updateNewTableColumn(i, {
-                                      refSourceMappings: [
-                                        ...(col.refSourceMappings ?? []),
-                                        { sourceColumn: nextSourceCol, refColumn: nextRefCol },
-                                      ],
-                                    });
-                                  }}
-                                >+ Add column match</button>
-                                <label className="import-ref-create-missing">
-                                  <input
-                                    type="checkbox"
-                                    checked={col.createMissing ?? false}
-                                    onChange={(e) => updateNewTableColumn(i, { createMissing: e.target.checked })}
-                                  />
-                                  Create missing entries
-                                </label>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </span>
-                    </div>
-                  ))}
-                </>
+                <div style={{ width: '100%' }}>
+                  <AgGridReact
+                    theme={importGridTheme}
+                    modules={[AllCommunityModule]}
+                    rowData={importRowData}
+                    columnDefs={importColDefs}
+                    defaultColDef={{ ...sharedDefaultColDef, suppressMovable: true, sortable: false }}
+                    domLayout="autoHeight"
+                    singleClickEdit={true}
+                    stopEditingWhenCellsLoseFocus={true}
+                    getRowId={(p) => String(p.data._idx)}
+                  />
+                  {importRefDialogCol >= 0 && newTableColumns[importRefDialogCol] && (
+                    <ImportRefConfigDialog
+                      col={newTableColumns[importRefDialogCol]}
+                      colIndex={importRefDialogCol}
+                      sourceColumnOptions={sourceColumnOptions}
+                      tableOptions={tableOptions}
+                      state={state}
+                      onUpdate={updateNewTableColumn}
+                      onClose={() => setImportRefDialogCol(-1)}
+                    />
+                  )}
+                </div>
               ) : (
                 <>
                   <div className="import-mapping-header">
@@ -1447,6 +1468,109 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+};
+
+interface ImportRefConfigDialogProps {
+  col: NewTableColumn;
+  colIndex: number;
+  sourceColumnOptions: { value: string; label: string }[];
+  tableOptions: { value: string; label: string }[];
+  state: UseAppStateReturn;
+  onUpdate: (index: number, updates: Partial<NewTableColumn>) => void;
+  onClose: () => void;
+}
+
+const ImportRefConfigDialog: React.FC<ImportRefConfigDialogProps> = ({
+  col, colIndex, sourceColumnOptions, tableOptions, state, onUpdate, onClose,
+}) => {
+  const refSchema = col.refTable ? state.getSchema(col.refTable) : undefined;
+  const refColOptions = (refSchema?.columns ?? []).map(rc => ({ value: rc.name, label: rc.displayName || rc.name }));
+
+  return (
+    <div className="app-dialog-overlay" onClick={onClose}>
+      <div className="app-dialog" style={{ minWidth: 380 }} onClick={e => e.stopPropagation()}>
+        <button className="app-dialog-close" onClick={onClose}>×</button>
+        <h3 className="app-dialog-title">Reference Config — {col.sourceColumn}</h3>
+        <label className="app-dialog-label" style={{ marginBottom: 0 }}>Reference Table</label>
+        <div style={{ marginBottom: 12 }}>
+          <Select
+            options={tableOptions}
+            value={tableOptions.find(o => o.value === col.refTable) ?? null}
+            onChange={(opt) => onUpdate(colIndex, { refTable: opt?.value ?? '' })}
+            styles={dialogSelectStyles}
+            isClearable={false}
+            menuPortalTarget={document.body}
+          />
+        </div>
+        {col.refTable && (
+          <>
+            <label className="app-dialog-label" style={{ marginBottom: 4 }}>Match columns</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+              {(col.refSourceMappings ?? []).map((pair, pi) => (
+                <div key={pi} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ flex: 1 }}>
+                    <Select
+                      options={sourceColumnOptions}
+                      value={sourceColumnOptions.find(o => o.value === pair.sourceColumn) ?? null}
+                      onChange={(opt) => {
+                        const ms = [...(col.refSourceMappings ?? [])];
+                        ms[pi] = { ...ms[pi], sourceColumn: opt?.value ?? '' };
+                        onUpdate(colIndex, { refSourceMappings: ms });
+                      }}
+                      styles={dialogSelectStyles}
+                      placeholder="Source column"
+                      menuPortalTarget={document.body}
+                    />
+                  </div>
+                  <span>→</span>
+                  <div style={{ flex: 1 }}>
+                    <Select
+                      options={refColOptions}
+                      value={refColOptions.find(o => o.value === pair.refColumn) ?? null}
+                      onChange={(opt) => {
+                        const ms = [...(col.refSourceMappings ?? [])];
+                        ms[pi] = { ...ms[pi], refColumn: opt?.value ?? '' };
+                        onUpdate(colIndex, { refSourceMappings: ms });
+                      }}
+                      styles={dialogSelectStyles}
+                      placeholder="Ref column"
+                      menuPortalTarget={document.body}
+                    />
+                  </div>
+                  <button
+                    className="app-dialog-close"
+                    style={{ position: 'static', fontSize: 14, lineHeight: 1 }}
+                    onClick={() => onUpdate(colIndex, { refSourceMappings: (col.refSourceMappings ?? []).filter((_, j) => j !== pi) })}
+                  >×</button>
+                </div>
+              ))}
+              <button
+                className="btn-secondary btn-sm"
+                onClick={() => {
+                  const usedRef = (col.refSourceMappings ?? []).map(m => m.refColumn);
+                  const usedSrc = (col.refSourceMappings ?? []).map(m => m.sourceColumn);
+                  const nextRef = refSchema?.columns.find(rc => !usedRef.includes(rc.name))?.name ?? '';
+                  const nextSrc = sourceColumnOptions.find(o => !usedSrc.includes(o.value))?.value ?? '';
+                  onUpdate(colIndex, { refSourceMappings: [...(col.refSourceMappings ?? []), { sourceColumn: nextSrc, refColumn: nextRef }] });
+                }}
+              >+ Add column match</button>
+            </div>
+            <label className="app-dialog-label" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={col.createMissing ?? false}
+                onChange={(e) => onUpdate(colIndex, { createMissing: e.target.checked })}
+              />
+              Create missing entries
+            </label>
+          </>
+        )}
+        <div className="app-dialog-actions" style={{ marginTop: 16 }}>
+          <button className="app-dialog-btn app-dialog-btn-primary" onClick={onClose}>Done</button>
+        </div>
       </div>
     </div>
   );
