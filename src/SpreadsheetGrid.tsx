@@ -737,6 +737,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           rowSelection={rowSelectionConfig}
           selectionColumnDef={{ width: 28, maxWidth: 28, minWidth: 28, pinned: false, suppressHeaderMenuButton: true }}
           onSelectionChanged={onSelectionChanged}
+          onFilterChanged={onFilterChanged}
           onFirstDataRendered={onFirstDataRendered}
           onRowDataUpdated={onRowDataUpdated}
           defaultColDef={{ ...sharedDefaultColDef, suppressMovable: true }}
