@@ -1009,13 +1009,13 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               modules={[AllCommunityModule]}
               rowData={columnRowData}
               columnDefs={columnGridDefs}
-              defaultColDef={{ ...sharedDefaultColDef, suppressMovable: true }}
+              defaultColDef={{ ...sharedDefaultColDef, suppressMovable: true, sortable: false }}
               domLayout="autoHeight"
               singleClickEdit={true}
               stopEditingWhenCellsLoseFocus={true}
               getRowId={(params) => String(params.data._idx)}
               onRowDragEnd={onColumnRowDragEnd}
-              rowDragManaged={true}
+              rowDragManaged={false}
             />
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
