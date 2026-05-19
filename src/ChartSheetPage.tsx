@@ -1272,6 +1272,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'hidden',
+                    maxHeight: 'calc(100dvh - 80px)',
                   }}
                 >
                   <div
