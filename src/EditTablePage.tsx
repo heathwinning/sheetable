@@ -762,9 +762,14 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     });
   };
 
-  const applyTrimNormalizationNow = (columnNames: string[]) => {
+  const [trimConflictDialog, setTrimConflictDialog] = useState<{
+    columnNames: string[];
+    conflictCount: number;
+    keyColNames: string[];
+  } | null>(null);
+
+  const doTrimNormalization = (columnNames: string[]) => {
     if (!tableId) return;
-    if (!state.getSchema(tableId)) return;
     const trimRows = state.getRows(tableId);
     let trimmed = 0;
     for (const row of trimRows) {
@@ -785,6 +790,38 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         ? `Trimmed whitespace in ${trimmed} cell${trimmed !== 1 ? 's' : ''}.`
         : 'No whitespace to trim.',
     });
+  };
+
+  const applyTrimNormalizationNow = (columnNames: string[]) => {
+    if (!tableId) return;
+    if (!state.getSchema(tableId)) return;
+
+    // Check if any trimmed columns are part of the unique key
+    const keyColsAffected = columnNames.filter(c => uniqueKeys.includes(c));
+    if (keyColsAffected.length > 0) {
+      const rows = state.getRows(tableId);
+      // Simulate the trim and detect duplicate key tuples
+      const seen = new Map<string, number>();
+      let conflictCount = 0;
+      for (let i = 0; i < rows.length; i++) {
+        const keyTuple = uniqueKeys.map(kc => {
+          const v = rows[i][kc] ?? '';
+          return keyColsAffected.includes(kc) ? v.trim() : v;
+        });
+        const keyStr = JSON.stringify(keyTuple);
+        if (seen.has(keyStr)) {
+          conflictCount++;
+        } else {
+          seen.set(keyStr, i);
+        }
+      }
+      if (conflictCount > 0) {
+        setTrimConflictDialog({ columnNames, conflictCount, keyColNames: keyColsAffected });
+        return;
+      }
+    }
+
+    doTrimNormalization(columnNames);
   };
 
   // Extract unique tuples from selected columns into a new reference table
@@ -1195,6 +1232,33 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             onUpdate={(idx, updates) => updateColumn(idx, updates)}
             onClose={() => setListDialogCol(null)}
           />
+        )}
+
+        {trimConflictDialog && (
+          <div className="app-dialog-overlay" onClick={() => setTrimConflictDialog(null)}>
+            <div className="app-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+              <h3 className="app-dialog-title">Unique Key Conflict</h3>
+              <p className="app-dialog-message">
+                Trimming whitespace in <strong>{trimConflictDialog.keyColNames.join(', ')}</strong> would
+                create <strong>{trimConflictDialog.conflictCount} duplicate value{trimConflictDialog.conflictCount !== 1 ? 's' : ''}</strong> that
+                violate the unique key constraint. These duplicates will need to be resolved manually.
+              </p>
+              <p className="app-dialog-message">Apply the trim anyway?</p>
+              <div className="app-dialog-actions">
+                <button className="btn-secondary" onClick={() => setTrimConflictDialog(null)}>Cancel</button>
+                <button
+                  className="btn-danger"
+                  onClick={() => {
+                    const cols = trimConflictDialog.columnNames;
+                    setTrimConflictDialog(null);
+                    doTrimNormalization(cols);
+                  }}
+                >
+                  Apply Anyway
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         <div className="edit-table-actions">
