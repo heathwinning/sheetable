@@ -1136,6 +1136,15 @@ const ChartConfigModal: React.FC<{
                 </div>
               )}
             </div>
+            {draft.filterColumn && (
+              <input
+                className="app-dialog-input"
+                style={{ marginBottom: 0, marginTop: 6 }}
+                value={draft.filterLabel ?? ''}
+                onChange={e => set('filterLabel', e.target.value || undefined)}
+                placeholder="Filter label (shown in title bar)"
+              />
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
@@ -1381,7 +1390,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                     </div>
                     {chart.filterColumn && (() => {
                       const fullLabel = getColumnPathsForTable(chart.table).find(p => p.path === chart.filterColumn)?.label ?? chart.filterColumn;
-                      const colLabel = fullLabel.includes(' → ') ? fullLabel.split(' → ').pop()! : fullLabel;
+                      const colLabel = chart.filterLabel || (fullLabel.includes(' → ') ? fullLabel.split(' → ').pop()! : fullLabel);
                       const op = chart.filterOperator ?? 'eq';
                       const needsInput = op !== 'is_empty' && op !== 'is_not_empty';
                       const curVal = filterValues[chart.id] ?? '';
