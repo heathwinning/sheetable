@@ -524,7 +524,7 @@ const ChartRenderer: React.FC<{
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
           <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
           <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
-          <Tooltip formatter={tooltipFormatter} contentStyle={tooltipStyle} cursor={{ fill: 'rgba(128,128,128,0.08)' }} />
+          <Tooltip formatter={tooltipFormatter} contentStyle={tooltipStyle} cursor={false} />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
             <Bar key={k} dataKey={k} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={config.stacked ? undefined : [3, 3, 0, 0]} stackId={config.stacked ? 'stack' : undefined} />
