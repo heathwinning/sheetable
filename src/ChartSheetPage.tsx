@@ -12,7 +12,7 @@ import {
 } from 'recharts';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, ColGroupDef } from 'ag-grid-community';
+import type { ColDef, ColGroupDef, CellStyle } from 'ag-grid-community';
 import { sharedDefaultColDef } from './gridDefaults';
 import type { UseAppStateReturn } from './useAppState';
 import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature } from './types';
@@ -399,8 +399,8 @@ const ChartRenderer: React.FC<{
       return groups;
     };
 
-    const totalCellStyle: React.CSSProperties = { background: 'var(--color-surface-2)', fontWeight: 600 };
-    const subtotalCellStyle: React.CSSProperties = { background: 'var(--color-surface-2)', fontWeight: 500 };
+    const totalCellStyle: CellStyle = { background: 'var(--color-surface-2)', fontWeight: 600 };
+    const subtotalCellStyle: CellStyle = { background: 'var(--color-surface-2)', fontWeight: 500 };
 
     const dimColDefs: ColDef[] = rowDims.map((d, i) => ({
       headerName: dimLabel(d),
