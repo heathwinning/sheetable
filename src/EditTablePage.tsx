@@ -1495,6 +1495,23 @@ const RefConfigDialog: React.FC<{
 
 const refDialogSelectStyles = dialogSelectStyles;
 
+type MigrationSection = 'menu' | 'normalize' | 'reference' | 'consolidate' | 'merge';
+
+const MIGRATION_MENU_ITEMS: { id: MigrationSection; title: string; description: string }[] = [
+  { id: 'normalize',    title: 'Normalize (Trim Whitespace)', description: 'Strip leading/trailing whitespace from selected column values.' },
+  { id: 'reference',   title: 'Text to Reference Migration',  description: 'Convert text columns into reference pointers to another table.' },
+  { id: 'consolidate', title: 'Consolidate Duplicate Keys',   description: 'Auto-merge rows that share the same unique key value.' },
+  { id: 'merge',       title: 'Merge Records',                description: 'Manually merge different spellings or aliases into one canonical record.' },
+];
+
+const MIGRATION_SECTION_TITLES: Record<MigrationSection, string> = {
+  menu:        'Migrations & Normalizations',
+  normalize:   'Normalize (Trim Whitespace)',
+  reference:   'Text to Reference Migration',
+  consolidate: 'Consolidate Duplicate Keys',
+  merge:       'Merge Records',
+};
+
 const MigrationsToolsDialog: React.FC<{
   columns: ColumnDef[];
   rows: Row[];
@@ -1526,28 +1543,65 @@ const MigrationsToolsDialog: React.FC<{
   onRunMerge,
   onClose,
 }) => {
-  const [consolidating, setConsolidating] = React.useState(false);
-  const [merging, setMerging] = React.useState(false);
-  const [mergeCanonical, setMergeCanonical] = React.useState<string | null>(null);
-  const [mergeTargets, setMergeTargets] = React.useState<string[]>([]);
+  const [section, setSection] = useState<MigrationSection>(
+    initialTargetColIdx !== null ? 'reference' : 'menu'
+  );
 
-  // Build labeled options for every row, using unique key cols or first cols
-  const rowOptions = React.useMemo(() => {
-    const labelCols = uniqueKeys.length > 0
-      ? uniqueKeys
-      : columns.filter(c => c.type === 'text' || c.type === 'integer' || c.type === 'decimal').slice(0, 3).map(c => c.name);
-    return rows.map(row => {
-      const label = labelCols.map(k => row[k] ?? '').filter(Boolean).join(' · ') || row[INTERNAL_ROW_ID];
-      return { value: row[INTERNAL_ROW_ID], label };
-    });
-  }, [rows, columns, uniqueKeys]);
+  // --- Normalize state ---
+  const [normalizeCols, setNormalizeCols] = useState<string[]>([]);
 
-  // Count duplicate key groups from current rows
-  const duplicatePreview = React.useMemo(() => {
+  // --- Reference migration state ---
+  const namedCols = useMemo(
+    () => columns.map((c, i) => ({ idx: i, name: c.name.trim(), type: c.type })).filter(c => c.name),
+    [columns]
+  );
+  const [resultColName, setResultColName] = useState(initialResultColName);
+  const [refTable, setRefTable] = useState(otherTableIds[0] ?? '');
+  const [pairs, setPairs] = useState<{ sourceColumn: string; refColumn: string }[]>([]);
+  const sourceColOptions = useMemo(
+    () => namedCols.filter(c => c.type !== 'image').map(c => ({ value: c.name, label: c.name })),
+    [namedCols]
+  );
+  const refColOptions = useMemo(
+    () => (refTable ? getRefTableColumns(refTable) : []).map(c => ({ value: c, label: c })),
+    [refTable, getRefTableColumns]
+  );
+  useEffect(() => {
+    if (!refTable) { setPairs([]); return; }
+    const firstSource = sourceColOptions[0]?.value ?? '';
+    const firstRef = refColOptions[0]?.value ?? '';
+    if (pairs.length === 0 && firstRef) {
+      const initialSource = initialTargetColIdx !== null
+        ? (columns[initialTargetColIdx]?.name.trim() || firstSource)
+        : firstSource;
+      if (initialSource) setPairs([{ sourceColumn: initialSource, refColumn: firstRef }]);
+    }
+  }, [refTable, sourceColOptions, refColOptions, pairs.length, initialTargetColIdx, columns]);
+  const validPairs = pairs.filter(p => p.sourceColumn && p.refColumn);
+  const canRunReference = !!resultColName.trim() && !!refTable && validPairs.length > 0;
+  const referencePreview = useMemo(() => {
+    if (!refTable || validPairs.length === 0) return { matched: 0, unmatched: 0, empty: 0, total: rows.length };
+    const refRows = getRefTableRows(refTable);
+    let matched = 0, unmatched = 0, empty = 0;
+    for (const row of rows) {
+      const sourceValues = validPairs.map(p => String(row[p.sourceColumn] ?? '').trim());
+      if (sourceValues.every(v => v === '')) { empty++; continue; }
+      const refMatch = refRows.find(refRow =>
+        validPairs.every((p, i) =>
+          sourceValues[i].toLowerCase() === String(resolveRefPathValue(refTable, refRow, p.refColumn) ?? '').trim().toLowerCase()
+        )
+      );
+      if (refMatch) matched++; else unmatched++;
+    }
+    return { matched, unmatched, empty, total: rows.length };
+  }, [refTable, validPairs, rows, getRefTableRows, resolveRefPathValue]);
+
+  // --- Consolidate state ---
+  const [consolidating, setConsolidating] = useState(false);
+  const duplicatePreview = useMemo(() => {
     if (uniqueKeys.length === 0) return null;
     const seen = new Map<string, number>();
-    let groups = 0;
-    let extraRows = 0;
+    let groups = 0, extraRows = 0;
     for (const row of rows) {
       const keyStr = JSON.stringify(uniqueKeys.map(kc => row[kc] ?? ''));
       const count = (seen.get(keyStr) ?? 0) + 1;
@@ -1557,111 +1611,92 @@ const MigrationsToolsDialog: React.FC<{
     }
     return { groups, extraRows };
   }, [rows, uniqueKeys]);
-  const namedCols = useMemo(
-    () => columns.map((c, i) => ({ idx: i, name: c.name.trim(), type: c.type })).filter(c => c.name),
-    [columns]
-  );
 
-  const [normalizeCols, setNormalizeCols] = useState<string[]>([]);
-  const [resultColName, setResultColName] = useState(initialResultColName);
-  const [refTable, setRefTable] = useState(otherTableIds[0] ?? '');
-  const [pairs, setPairs] = useState<{ sourceColumn: string; refColumn: string }[]>([]);
+  // --- Merge state ---
+  const [merging, setMerging] = useState(false);
+  const [mergeCanonical, setMergeCanonical] = useState<string | null>(null);
+  const [mergeTargets, setMergeTargets] = useState<string[]>([]);
+  const rowOptions = useMemo(() => {
+    const labelCols = uniqueKeys.length > 0
+      ? uniqueKeys
+      : columns.filter(c => c.type === 'text' || c.type === 'integer' || c.type === 'decimal').slice(0, 3).map(c => c.name);
+    return rows.map(row => ({
+      value: row[INTERNAL_ROW_ID],
+      label: labelCols.map(k => row[k] ?? '').filter(Boolean).join(' · ') || row[INTERNAL_ROW_ID],
+    }));
+  }, [rows, columns, uniqueKeys]);
 
-  const sourceColOptions = useMemo(
-    () => namedCols.filter(c => c.type !== 'image').map(c => ({ value: c.name, label: c.name })),
-    [namedCols]
-  );
-
-  const refColOptions = useMemo(
-    () => (refTable ? getRefTableColumns(refTable) : []).map(c => ({ value: c, label: c })),
-    [refTable, getRefTableColumns]
-  );
-
-  useEffect(() => {
-    if (!refTable) {
-      setPairs([]);
-      return;
-    }
-    const firstSource = sourceColOptions[0]?.value ?? '';
-    const firstRef = refColOptions[0]?.value ?? '';
-    if (pairs.length === 0 && firstRef) {
-      const initialSource = initialTargetColIdx !== null
-        ? (columns[initialTargetColIdx]?.name.trim() || firstSource)
-        : firstSource;
-      if (initialSource) {
-        setPairs([{ sourceColumn: initialSource, refColumn: firstRef }]);
-      }
-    }
-  }, [refTable, sourceColOptions, refColOptions, pairs.length, initialTargetColIdx, columns]);
-
-  const validPairs = pairs.filter(p => p.sourceColumn && p.refColumn);
-  const canRunReference = !!resultColName.trim() && !!refTable && validPairs.length > 0;
-
-  const referencePreview = useMemo(() => {
-    if (!refTable || validPairs.length === 0) {
-      return { matched: 0, unmatched: 0, empty: 0, total: rows.length };
-    }
-
-    const refRows = getRefTableRows(refTable);
-    let matched = 0;
-    let unmatched = 0;
-    let empty = 0;
-
-    for (const row of rows) {
-      const sourceValues = validPairs.map(p => String(row[p.sourceColumn] ?? '').trim());
-      if (sourceValues.every(v => v === '')) {
-        empty++;
-        continue;
-      }
-
-      const refMatch = refRows.find(refRow =>
-        validPairs.every((p, i) => {
-          const left = sourceValues[i].toLowerCase();
-          const right = String(resolveRefPathValue(refTable, refRow, p.refColumn) ?? '').trim().toLowerCase();
-          return left === right;
-        })
-      );
-
-      if (refMatch) matched++;
-      else unmatched++;
-    }
-
-    return { matched, unmatched, empty, total: rows.length };
-  }, [refTable, validPairs, rows, getRefTableRows, resolveRefPathValue]);
+  const goBack = () => setSection('menu');
 
   return (
     <div className="app-dialog-overlay" onClick={onClose}>
-      <div className="app-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640, maxHeight: '90dvh', display: 'flex', flexDirection: 'column' }}>
-        <h3 className="app-dialog-title">Migrations & Normalize</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0', overflowY: 'auto', flex: 1 }}>
-          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Normalize (Trim Whitespace)</div>
-            <Select
-              isMulti
-              options={sourceColOptions}
-              value={sourceColOptions.filter(o => normalizeCols.includes(o.value))}
-              onChange={opts => setNormalizeCols(opts.map(o => o.value))}
-              styles={refDialogSelectStyles}
-              placeholder="Select columns to trim..."
-              menuPlacement="auto"
-            />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-              <button
-                className="app-dialog-btn app-dialog-btn-primary"
-                disabled={normalizeCols.length === 0}
-                onClick={() => {
-                  onRunNormalize(normalizeCols);
-                  onClose();
-                }}
-              >
-                Run Normalize
-              </button>
-            </div>
-          </div>
+      <div className="app-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560, maxHeight: '90dvh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          {section !== 'menu' && (
+            <button
+              className="app-dialog-btn app-dialog-btn-secondary"
+              onClick={goBack}
+              style={{ padding: '4px 10px', fontSize: 13, flexShrink: 0 }}
+            >
+              ← Back
+            </button>
+          )}
+          <h3 className="app-dialog-title" style={{ margin: 0, flex: 1 }}>
+            {MIGRATION_SECTION_TITLES[section]}
+          </h3>
+          <button className="app-dialog-close" onClick={onClose}>×</button>
+        </div>
 
-          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Text to Reference Migration</div>
-            <div style={{ display: 'grid', gap: 10 }}>
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+
+          {/* ── Menu ── */}
+          {section === 'menu' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {MIGRATION_MENU_ITEMS.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => setSection(item.id)}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                    gap: 2, padding: '12px 14px', borderRadius: 8, cursor: 'pointer',
+                    border: '1px solid var(--border)', background: 'var(--bg-card, var(--bg))',
+                    textAlign: 'left', width: '100%',
+                  }}
+                >
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{item.title}</span>
+                  <span style={{ fontSize: 12, color: 'var(--color-text-muted, #666)' }}>{item.description}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* ── Normalize ── */}
+          {section === 'normalize' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <Select
+                isMulti
+                options={sourceColOptions}
+                value={sourceColOptions.filter(o => normalizeCols.includes(o.value))}
+                onChange={opts => setNormalizeCols(opts.map(o => o.value))}
+                styles={refDialogSelectStyles}
+                placeholder="Select columns to trim…"
+                menuPlacement="auto"
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  className="app-dialog-btn app-dialog-btn-primary"
+                  disabled={normalizeCols.length === 0}
+                  onClick={() => { onRunNormalize(normalizeCols); onClose(); }}
+                >
+                  Run Normalize
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Text to Reference ── */}
+          {section === 'reference' && (
+            <div style={{ display: 'grid', gap: 12 }}>
               <div>
                 <label className="app-dialog-label" style={{ marginBottom: 4 }}>Resulting Reference Column Name</label>
                 <input
@@ -1677,10 +1712,7 @@ const MigrationsToolsDialog: React.FC<{
                 <Select
                   options={otherTableIds.map(id => ({ value: id, label: id }))}
                   value={refTable ? { value: refTable, label: refTable } : null}
-                  onChange={opt => {
-                    setRefTable(opt?.value ?? '');
-                    setPairs([]);
-                  }}
+                  onChange={opt => { setRefTable(opt?.value ?? ''); setPairs([]); }}
                   styles={refDialogSelectStyles}
                   isClearable
                   menuPlacement="auto"
@@ -1736,116 +1768,100 @@ const MigrationsToolsDialog: React.FC<{
               <div style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px' }}>
                 Preview: {referencePreview.matched} matched, {referencePreview.unmatched} unmatched, {referencePreview.empty} empty of {referencePreview.total} rows.
               </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  className="app-dialog-btn app-dialog-btn-primary"
+                  disabled={!canRunReference}
+                  onClick={() => { onRunReference(resultColName.trim(), refTable, validPairs); onClose(); }}
+                >
+                  Run Reference Migration
+                </button>
+              </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-              <button
-                className="app-dialog-btn app-dialog-btn-primary"
-                disabled={!canRunReference}
-                onClick={() => {
-                  onRunReference(resultColName.trim(), refTable, validPairs);
-                  onClose();
-                }}
-              >
-                Run Reference Migration
-              </button>
-            </div>
-          </div>
-        </div>
+          )}
 
-        {uniqueKeys.length > 0 && (
-          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginTop: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Consolidate Duplicate Keys</div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-muted, #666)', marginBottom: 10 }}>
-              {duplicatePreview && duplicatePreview.groups > 0 ? (
-                <>
-                  Found <strong>{duplicatePreview.groups} duplicate group{duplicatePreview.groups !== 1 ? 's' : ''}</strong> ({duplicatePreview.extraRows} extra row{duplicatePreview.extraRows !== 1 ? 's' : ''}).
-                  {' '}Keeps the first row in each group, updates all referencing tables, then removes the duplicates.
-                </>
-              ) : duplicatePreview ? (
-                'No duplicate key values found in this table.'
+          {/* ── Consolidate Duplicate Keys ── */}
+          {section === 'consolidate' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {uniqueKeys.length === 0 ? (
+                <p style={{ fontSize: 13, color: 'var(--color-text-muted, #666)', margin: 0 }}>
+                  No unique key columns are defined on this table.
+                </p>
               ) : (
-                'No unique key columns defined on this table.'
+                <p style={{ fontSize: 13, color: 'var(--color-text-muted, #666)', margin: 0 }}>
+                  {duplicatePreview && duplicatePreview.groups > 0 ? (
+                    <>
+                      Found <strong>{duplicatePreview.groups} duplicate group{duplicatePreview.groups !== 1 ? 's' : ''}</strong> ({duplicatePreview.extraRows} extra row{duplicatePreview.extraRows !== 1 ? 's' : ''}).
+                      {' '}Keeps the first row in each group, updates all referencing tables, then removes the duplicates.
+                    </>
+                  ) : (
+                    'No duplicate key values found in this table.'
+                  )}
+                </p>
               )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  className="app-dialog-btn app-dialog-btn-primary"
+                  disabled={!duplicatePreview || duplicatePreview.groups === 0 || consolidating}
+                  onClick={async () => {
+                    setConsolidating(true);
+                    try { await onRunConsolidate(); onClose(); }
+                    finally { setConsolidating(false); }
+                  }}
+                >
+                  {consolidating ? 'Consolidating…' : 'Run Consolidate'}
+                </button>
+              </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                className="app-dialog-btn app-dialog-btn-primary"
-                disabled={!duplicatePreview || duplicatePreview.groups === 0 || consolidating}
-                onClick={async () => {
-                  setConsolidating(true);
-                  try {
-                    await onRunConsolidate();
-                    onClose();
-                  } finally {
-                    setConsolidating(false);
-                  }
-                }}
-              >
-                {consolidating ? 'Consolidating…' : 'Run Consolidate'}
-              </button>
-            </div>
-          </div>
-        )}
+          )}
 
-        <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginTop: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Merge Records</div>
-          <div style={{ fontSize: 12, color: 'var(--color-text-muted, #666)', marginBottom: 10 }}>
-            Pick a canonical record to keep, then select one or more records to merge into it.
-            All references to merged records are repointed to the canonical, then the merged rows are deleted.
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div>
-              <label className="app-dialog-label" style={{ marginBottom: 0 }}>Keep (canonical)</label>
-              <Select
-                options={rowOptions}
-                value={rowOptions.find(o => o.value === mergeCanonical) ?? null}
-                onChange={opt => {
-                  setMergeCanonical(opt?.value ?? null);
-                  setMergeTargets(prev => prev.filter(id => id !== opt?.value));
-                }}
-                styles={refDialogSelectStyles}
-                placeholder="Select canonical record…"
-                isClearable
-                menuPlacement="auto"
-              />
+          {/* ── Merge Records ── */}
+          {section === 'merge' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label className="app-dialog-label" style={{ marginBottom: 0 }}>Keep (canonical)</label>
+                <Select
+                  options={rowOptions}
+                  value={rowOptions.find(o => o.value === mergeCanonical) ?? null}
+                  onChange={opt => {
+                    setMergeCanonical(opt?.value ?? null);
+                    setMergeTargets(prev => prev.filter(id => id !== opt?.value));
+                  }}
+                  styles={refDialogSelectStyles}
+                  placeholder="Select canonical record…"
+                  isClearable
+                  menuPlacement="auto"
+                />
+              </div>
+              <div>
+                <label className="app-dialog-label" style={{ marginBottom: 0 }}>Merge into canonical</label>
+                <Select
+                  isMulti
+                  options={rowOptions.filter(o => o.value !== mergeCanonical)}
+                  value={rowOptions.filter(o => mergeTargets.includes(o.value))}
+                  onChange={opts => setMergeTargets(Array.from(opts as readonly { value: string }[]).map(o => o.value))}
+                  styles={refDialogSelectStyles}
+                  placeholder="Select records to merge…"
+                  menuPlacement="auto"
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  className="app-dialog-btn app-dialog-btn-primary"
+                  disabled={!mergeCanonical || mergeTargets.length === 0 || merging}
+                  onClick={async () => {
+                    if (!mergeCanonical || mergeTargets.length === 0) return;
+                    setMerging(true);
+                    try { await onRunMerge(mergeCanonical, mergeTargets); onClose(); }
+                    finally { setMerging(false); }
+                  }}
+                >
+                  {merging ? 'Merging…' : `Merge ${mergeTargets.length > 0 ? mergeTargets.length + ' record' + (mergeTargets.length !== 1 ? 's' : '') : ''}`}
+                </button>
+              </div>
             </div>
-            <div>
-              <label className="app-dialog-label" style={{ marginBottom: 0 }}>Merge into canonical</label>
-              <Select
-                isMulti
-                options={rowOptions.filter(o => o.value !== mergeCanonical)}
-                value={rowOptions.filter(o => mergeTargets.includes(o.value))}
-                onChange={opts => setMergeTargets(Array.from(opts as readonly { value: string }[]).map(o => o.value))}
-                styles={refDialogSelectStyles}
-                placeholder="Select records to merge…"
-                menuPlacement="auto"
-              />
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-            <button
-              className="app-dialog-btn app-dialog-btn-primary"
-              disabled={!mergeCanonical || mergeTargets.length === 0 || merging}
-              onClick={async () => {
-                if (!mergeCanonical || mergeTargets.length === 0) return;
-                setMerging(true);
-                try {
-                  await onRunMerge(mergeCanonical, mergeTargets);
-                  onClose();
-                } finally {
-                  setMerging(false);
-                }
-              }}
-            >
-              {merging ? 'Merging…' : `Merge ${mergeTargets.length > 0 ? mergeTargets.length + ' record' + (mergeTargets.length !== 1 ? 's' : '') : ''}`}
-            </button>
-          </div>
-        </div>
+          )}
 
-        <div className="app-dialog-actions">
-          <button className="app-dialog-btn app-dialog-btn-secondary" onClick={onClose}>
-            Close
-          </button>
         </div>
       </div>
     </div>
