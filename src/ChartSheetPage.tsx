@@ -819,7 +819,7 @@ const ChartConfigModal: React.FC<{
                   />
                 </div>
                 {needsYCol && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <label className="app-dialog-label" style={{ marginBottom: 0 }}>Value column</label>
                     <Select
                       styles={dialogSelectStyles}
@@ -836,12 +836,9 @@ const ChartConfigModal: React.FC<{
               </div>
               {needsYCol && draft.yColumn && (
                 <div style={modSectionStyle}>
-                  <div style={modLabelStyle}>Value options</div>
+                  <div style={modLabelStyle}>Value display format <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <label className="app-dialog-label" style={{ marginBottom: 0, fontWeight: 400 }}>Display format <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional)</span></label>
-                      <input type="text" className="app-dialog-input" style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12 }} value={draft.valueFormat ?? ''} onChange={e => set('valueFormat', e.target.value || undefined)} />
-                    </div>
+                    <input type="text" className="app-dialog-input" style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12 }} value={draft.valueFormat ?? ''} onChange={e => set('valueFormat', e.target.value || undefined)} placeholder="e.g. {value:,.2f} or ${value:,.0f}" />
                     <FormatHint />
                   </div>
                 </div>
@@ -884,6 +881,8 @@ const ChartConfigModal: React.FC<{
                     />
                   )}
                 </div>
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label className="app-dialog-label" style={{ marginBottom: 0 }}>Aggregate</label>
                   <Select
@@ -896,51 +895,22 @@ const ChartConfigModal: React.FC<{
                     menuPlacement="auto"
                   />
                 </div>
-              </div>
-              {needsYCol && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Y column</label>
-                  <Select
-                    styles={dialogSelectStyles}
-                    value={colOptionsFlatXYG.find(o => o.value === draft.yColumn) ?? null}
-                    options={yColOptionsXYG}
-                    onChange={opt => set('yColumn', opt?.value ?? '')}
-                    placeholder="— select —"
-                    isClearable
-                    menuPortalTarget={document.body}
-                    menuPlacement="auto"
-                  />
-                </div>
-              )}
-              {needsYCol && draft.yColumn && (
-                <div style={modSectionStyle}>
-                  <div style={modLabelStyle}>Value options</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <label className="app-dialog-label" style={{ marginBottom: 0, fontWeight: 400 }}>Display format <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional)</span></label>
-                      <input type="text" className="app-dialog-input" style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12 }} value={draft.valueFormat ?? ''} onChange={e => set('valueFormat', e.target.value || undefined)} />
-                    </div>
-                    <FormatHint />
+                {needsYCol && (
+                  <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label className="app-dialog-label" style={{ marginBottom: 0 }}>Y column</label>
+                    <Select
+                      styles={dialogSelectStyles}
+                      value={colOptionsFlatXYG.find(o => o.value === draft.yColumn) ?? null}
+                      options={yColOptionsXYG}
+                      onChange={opt => set('yColumn', opt?.value ?? '')}
+                      placeholder="— select —"
+                      isClearable
+                      menuPortalTarget={document.body}
+                      menuPlacement="auto"
+                    />
                   </div>
-                </div>
-              )}
-              {(draft.type === 'bar' || draft.type === 'area' || (draft.type as string) === 'area-stacked') && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    type="checkbox"
-                    id="chart-stacked-cb"
-                    checked={!!draft.stacked || (draft.type as string) === 'area-stacked'}
-                    onChange={e => {
-                      if ((draft.type as string) === 'area-stacked') {
-                        setDraft(d => ({ ...d, type: 'area', stacked: e.target.checked || undefined }));
-                      } else {
-                        set('stacked', e.target.checked || undefined);
-                      }
-                    }}
-                  />
-                  <label htmlFor="chart-stacked-cb" className="app-dialog-label" style={{ marginBottom: 0 }}>Stacked</label>
-                </div>
-              )}
+                )}
+              </div>
               {hasGroupBy && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label className="app-dialog-label" style={{ marginBottom: 0 }}>
@@ -980,35 +950,61 @@ const ChartConfigModal: React.FC<{
                   )}
                 </div>
               )}
+              {(draft.type === 'bar' || draft.type === 'area' || (draft.type as string) === 'area-stacked') && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    id="chart-stacked-cb"
+                    checked={!!draft.stacked || (draft.type as string) === 'area-stacked'}
+                    onChange={e => {
+                      if ((draft.type as string) === 'area-stacked') {
+                        setDraft(d => ({ ...d, type: 'area', stacked: e.target.checked || undefined }));
+                      } else {
+                        set('stacked', e.target.checked || undefined);
+                      }
+                    }}
+                  />
+                  <label htmlFor="chart-stacked-cb" className="app-dialog-label" style={{ marginBottom: 0 }}>Stacked</label>
+                </div>
+              )}
+              {needsYCol && draft.yColumn && (
+                <div style={modSectionStyle}>
+                  <div style={modLabelStyle}>Value display format <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <input type="text" className="app-dialog-input" style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12 }} value={draft.valueFormat ?? ''} onChange={e => set('valueFormat', e.target.value || undefined)} placeholder="e.g. {value:,.2f} or ${value:,.0f}" />
+                    <FormatHint />
+                  </div>
+                </div>
+              )}
+              {draft.type !== 'pie' && (
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label className="app-dialog-label" style={{ marginBottom: 0 }}>
+                      X axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
+                    </label>
+                    <input
+                      className="app-dialog-input"
+                      style={{ marginBottom: 0 }}
+                      value={draft.xLabel ?? ''}
+                      onChange={e => set('xLabel', e.target.value || undefined)}
+                      placeholder="X axis label"
+                    />
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label className="app-dialog-label" style={{ marginBottom: 0 }}>
+                      Y axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
+                    </label>
+                    <input
+                      className="app-dialog-input"
+                      style={{ marginBottom: 0 }}
+                      value={draft.yLabel ?? ''}
+                      onChange={e => set('yLabel', e.target.value || undefined)}
+                      placeholder="Y axis label"
+                    />
+                  </div>
+                </div>
+              )}
             </>
-          )}
-          {draft.type !== 'pie' && draft.type !== 'table' && (
-            <div style={{ display: 'flex', gap: 12 }}>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label className="app-dialog-label" style={{ marginBottom: 0 }}>
-                  X axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
-                </label>
-                <input
-                  className="app-dialog-input"
-                  style={{ marginBottom: 0 }}
-                  value={draft.xLabel ?? ''}
-                  onChange={e => set('xLabel', e.target.value || undefined)}
-                  placeholder="X axis label"
-                />
-              </div>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label className="app-dialog-label" style={{ marginBottom: 0 }}>
-                  Y axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
-                </label>
-                <input
-                  className="app-dialog-input"
-                  style={{ marginBottom: 0 }}
-                  value={draft.yLabel ?? ''}
-                  onChange={e => set('yLabel', e.target.value || undefined)}
-                  placeholder="Y axis label"
-                />
-              </div>
-            </div>
           )}
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
