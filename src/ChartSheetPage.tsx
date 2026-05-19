@@ -13,6 +13,7 @@ import {
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
 import type { ColDef, ColGroupDef } from 'ag-grid-community';
+import { sharedDefaultColDef } from './gridDefaults';
 import type { UseAppStateReturn } from './useAppState';
 import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature } from './types';
 import { applyChartValueFormat } from './chartFormat';
@@ -437,7 +438,7 @@ const ChartRenderer: React.FC<{
           rowData={rowData}
           columnDefs={colDefs}
           pinnedBottomRowData={[totalRow]}
-          defaultColDef={{ resizable: true, suppressMovable: true }}
+          defaultColDef={{ ...sharedDefaultColDef, resizable: true, suppressMovable: true }}
           suppressCellFocus
           suppressColumnVirtualisation
           onFirstDataRendered={e => e.api.autoSizeAllColumns()}

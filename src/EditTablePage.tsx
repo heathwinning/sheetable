@@ -13,6 +13,7 @@ import type { ColDef, ValueSetterParams, CellClickedEvent, RowDragEndEvent } fro
 import type { CustomCellEditorProps } from 'ag-grid-react';
 import { previewMigration, applyMigration, previewExtract } from './typeMigration';
 import type { MigrationPreview } from './typeMigration';
+import { sharedDefaultColDef } from './gridDefaults';
 import * as api from './api';
 
 const typeOptions: { value: ColumnType; label: string }[] = [
@@ -1008,7 +1009,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               modules={[AllCommunityModule]}
               rowData={columnRowData}
               columnDefs={columnGridDefs}
-              defaultColDef={{ suppressMovable: true }}
+              defaultColDef={{ ...sharedDefaultColDef, suppressMovable: true }}
               domLayout="autoHeight"
               singleClickEdit={true}
               stopEditingWhenCellsLoseFocus={true}

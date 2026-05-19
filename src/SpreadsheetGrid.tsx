@@ -10,6 +10,7 @@ import DateCellEditor from './DateCellEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
 import { normalizeTemporalString, parseTemporalUnknown } from './dateFormat';
 import { getCalc } from './chartFormat';
+import { sharedDefaultColDef } from './gridDefaults';
 
 const DRAFT_ROW_ID = '_draft';
 
@@ -665,7 +666,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           onSelectionChanged={onSelectionChanged}
           onFilterChanged={onFilterChanged}
           onFirstDataRendered={onFirstDataRendered}
-          defaultColDef={{ suppressMovable: true }}
+          defaultColDef={{ ...sharedDefaultColDef, suppressMovable: true }}
           onColumnResized={onColumnResized}
         />
       </div>
