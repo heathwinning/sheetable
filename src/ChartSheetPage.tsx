@@ -15,11 +15,56 @@ import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
 import type { ColDef, ColGroupDef, CellStyle } from 'ag-grid-community';
 import { sharedDefaultColDef } from './gridDefaults';
 import type { UseAppStateReturn } from './useAppState';
-import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature } from './types';
+import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature, FilterOperator } from './types';
 import { applyChartValueFormat } from './chartFormat';
 
 const RGL = WidthProvider(GridLayout);
 const CHART_COLORS = ['#6366f1', '#22d3ee', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#f97316', '#06b6d4'];
+
+// ── Row filtering ─────────────────────────────────────────────────────────────
+
+function filterOperatorLabel(op: FilterOperator): string {
+  switch (op) {
+    case 'eq': return '=';
+    case 'neq': return '≠';
+    case 'gt': return '>';
+    case 'gte': return '≥';
+    case 'lt': return '<';
+    case 'lte': return '≤';
+    case 'contains': return 'contains';
+    case 'is_empty': return 'is empty';
+    case 'is_not_empty': return 'is not empty';
+    default: return '=';
+  }
+}
+
+function applyChartFilter(
+  rows: Row[],
+  col: string | undefined,
+  op: FilterOperator | undefined,
+  value: string,
+  resolve: (table: string, row: Row, path: string) => string,
+  table: string,
+): Row[] {
+  if (!col || !op) return rows;
+  const needsValue = op !== 'is_empty' && op !== 'is_not_empty';
+  if (needsValue && !value.trim()) return rows;
+  return rows.filter(row => {
+    const raw = resolve(table, row, col)?.trim() ?? '';
+    switch (op) {
+      case 'eq': return raw.toLowerCase() === value.toLowerCase();
+      case 'neq': return raw.toLowerCase() !== value.toLowerCase();
+      case 'contains': return raw.toLowerCase().includes(value.toLowerCase());
+      case 'gt': { const a = parseFloat(raw), b = parseFloat(value); return isNaN(a) || isNaN(b) ? raw > value : a > b; }
+      case 'gte': { const a = parseFloat(raw), b = parseFloat(value); return isNaN(a) || isNaN(b) ? raw >= value : a >= b; }
+      case 'lt': { const a = parseFloat(raw), b = parseFloat(value); return isNaN(a) || isNaN(b) ? raw < value : a < b; }
+      case 'lte': { const a = parseFloat(raw), b = parseFloat(value); return isNaN(a) || isNaN(b) ? raw <= value : a <= b; }
+      case 'is_empty': return !raw;
+      case 'is_not_empty': return !!raw;
+      default: return true;
+    }
+  });
+}
 
 // ── Aggregation ──────────────────────────────────────────────────────────────
 
@@ -649,6 +694,18 @@ const AGGREGATE_OPTIONS = [
   { value: 'none', label: 'None (raw)' },
 ];
 
+const FILTER_OPERATOR_OPTIONS: { value: FilterOperator; label: string }[] = [
+  { value: 'eq', label: '= Equals' },
+  { value: 'neq', label: '≠ Not equals' },
+  { value: 'contains', label: 'Contains' },
+  { value: 'gt', label: '> Greater than' },
+  { value: 'gte', label: '≥ Greater or equal' },
+  { value: 'lt', label: '< Less than' },
+  { value: 'lte', label: '≤ Less or equal' },
+  { value: 'is_empty', label: 'Is empty' },
+  { value: 'is_not_empty', label: 'Is not empty' },
+];
+
 const ROW_ORDER_OPTIONS: { value: ChartConfig['rowOrder']; label: string }[] = [
   { value: 'natural', label: 'Natural (data order)' },
   { value: 'label-asc', label: 'Label A → Z' },
@@ -1037,6 +1094,48 @@ const ChartConfigModal: React.FC<{
 
             </>
           )}
+          {/* ── Filter ── */}
+          <div style={modSectionStyle}>
+            <div style={modLabelStyle}>Filter <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ flex: 2, minWidth: 120 }}>
+                <Select
+                  styles={dialogSelectStyles}
+                  isClearable
+                  placeholder="— column —"
+                  value={colOptionsFlatXYG.find(o => o.value === draft.filterColumn) ?? null}
+                  options={colOptionsXYG}
+                  onChange={opt => setDraft(d => ({ ...d, filterColumn: opt?.value || undefined, filterOperator: d.filterOperator ?? 'eq', filterValue: undefined }))}
+                  menuPortalTarget={document.body}
+                  menuPlacement="auto"
+                />
+              </div>
+              {draft.filterColumn && (
+                <div style={{ flex: 1, minWidth: 100 }}>
+                  <Select
+                    styles={dialogSelectStyles}
+                    isSearchable={false}
+                    value={FILTER_OPERATOR_OPTIONS.find(o => o.value === (draft.filterOperator ?? 'eq')) ?? null}
+                    options={FILTER_OPERATOR_OPTIONS}
+                    onChange={opt => set('filterOperator', (opt?.value ?? 'eq') as FilterOperator)}
+                    menuPortalTarget={document.body}
+                    menuPlacement="auto"
+                  />
+                </div>
+              )}
+              {draft.filterColumn && draft.filterOperator !== 'is_empty' && draft.filterOperator !== 'is_not_empty' && (
+                <div style={{ flex: 2, minWidth: 100 }}>
+                  <input
+                    className="app-dialog-input"
+                    style={{ marginBottom: 0 }}
+                    value={draft.filterValue ?? ''}
+                    onChange={e => set('filterValue', e.target.value || undefined)}
+                    placeholder="Default value (optional)"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
@@ -1059,6 +1158,13 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
   const [layout, setLayout] = useState<ChartLayoutItem[]>(() => chartSheet?.layout ?? []);
   const [editingChart, setEditingChart] = useState<ChartConfig | null>(null);
   const [isNewChart, setIsNewChart] = useState(false);
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const c of (chartSheet?.charts ?? [])) {
+      if (c.filterValue) init[c.id] = c.filterValue;
+    }
+    return init;
+  });
 
   const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1078,6 +1184,13 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
     if (chartSheet) {
       setCharts(chartSheet.charts);
       setLayout(chartSheet.layout);
+      setFilterValues(() => {
+        const init: Record<string, string> = {};
+        for (const c of chartSheet.charts) {
+          if (c.filterValue) init[c.id] = c.filterValue;
+        }
+        return init;
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartId, !!chartSheet]);
@@ -1214,9 +1327,11 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           >
             {charts.map(chart => {
               const rows = state.getRows(chart.table);
+              const activeFilterValue = filterValues[chart.id] ?? chart.filterValue ?? '';
+              const filteredRows = applyChartFilter(rows, chart.filterColumn, chart.filterOperator, activeFilterValue, state.resolveColumnPath, chart.table);
               const { data, seriesKeys } = chart.type === 'table'
                 ? { data: [], seriesKeys: [] }
-                : aggregateData(rows, chart.xColumn, chart.yColumn, chart.aggregate, chart.groupBy, state.resolveColumnPath, chart.table);
+                : aggregateData(filteredRows, chart.xColumn, chart.yColumn, chart.aggregate, chart.groupBy, state.resolveColumnPath, chart.table);
               return (
                 <div
                   key={chart.id}
@@ -1233,41 +1348,85 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                   <div
                     className="chart-drag-handle"
                     style={{
-                      padding: '8px 12px',
+                      padding: '6px 12px',
                       borderBottom: '1px solid var(--color-border)',
                       display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
+                      flexDirection: 'column',
+                      gap: 4,
                       cursor: editLayout ? 'grab' : 'default',
                       flexShrink: 0,
                       userSelect: 'none',
                     }}
                   >
-                    <span style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {chart.title}
-                    </span>
-                    {canEdit && (
-                      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-                        {editLayout && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {chart.title}
+                      </span>
+                      {canEdit && (
+                        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+                          {editLayout && (
+                            <button
+                              onClick={() => handleDeleteChart(chart.id)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-danger)', padding: '2px 6px', fontSize: 12, borderRadius: 4 }}
+                              title="Delete chart"
+                            >Delete</button>
+                          )}
                           <button
-                            onClick={() => handleDeleteChart(chart.id)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-danger)', padding: '2px 6px', fontSize: 12, borderRadius: 4 }}
-                            title="Delete chart"
-                          >Delete</button>
-                        )}
-                        <button
-                          onClick={() => { setEditingChart(chart); setIsNewChart(false); }}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '2px 6px', fontSize: 12, borderRadius: 4 }}
-                        >Edit</button>
-                      </div>
-                    )}
+                            onClick={() => { setEditingChart(chart); setIsNewChart(false); }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '2px 6px', fontSize: 12, borderRadius: 4 }}
+                          >Edit</button>
+                        </div>
+                      )}
+                    </div>
+                    {chart.filterColumn && (() => {
+                      const colLabel = getColumnPathsForTable(chart.table).find(p => p.path === chart.filterColumn)?.label ?? chart.filterColumn;
+                      const op = chart.filterOperator ?? 'eq';
+                      const needsInput = op !== 'is_empty' && op !== 'is_not_empty';
+                      const curVal = filterValues[chart.id] ?? '';
+                      return (
+                        <div
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, flexWrap: 'wrap' }}
+                          onMouseDown={e => e.stopPropagation()}
+                          onTouchStart={e => e.stopPropagation()}
+                        >
+                          <span style={{ color: 'var(--color-text-muted)', flexShrink: 0, userSelect: 'none' }}>
+                            ⊟ {colLabel} {filterOperatorLabel(op)}
+                          </span>
+                          {needsInput && (
+                            <input
+                              type="text"
+                              value={curVal}
+                              onChange={e => setFilterValues(prev => ({ ...prev, [chart.id]: e.target.value }))}
+                              placeholder="filter…"
+                              style={{
+                                fontSize: 12,
+                                padding: '2px 7px',
+                                border: '1px solid var(--color-border)',
+                                borderRadius: 4,
+                                background: 'var(--color-surface)',
+                                color: 'var(--color-text)',
+                                width: 130,
+                                outline: 'none',
+                              }}
+                            />
+                          )}
+                          {needsInput && curVal && (
+                            <button
+                              onClick={() => setFilterValues(prev => ({ ...prev, [chart.id]: '' }))}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 12, padding: '0 3px', lineHeight: 1 }}
+                              title="Clear filter"
+                            >×</button>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div style={{ flex: 1, minHeight: 0, padding: '8px 4px 4px' }}>
                     <ChartRenderer
                       config={chart}
                       data={data}
                       seriesKeys={seriesKeys}
-                      rows={rows}
+                      rows={filteredRows}
                       resolveColumnPath={state.resolveColumnPath}
                       getColumnPaths={getColumnPathsForTable}
                       onSortChange={sort => {

@@ -60,6 +60,7 @@ export type DateFeature = 'year' | 'quarter' | 'yearmonth' | 'month' | 'monthnum
 // Column expression encoding: plain column name, or "colname:datefeature" for date/datetime columns
 // e.g. "sale_date:year", "created_at:month"
 export type AggregateFunc = 'sum' | 'count' | 'avg' | 'min' | 'max' | 'none';
+export type FilterOperator = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'is_empty' | 'is_not_empty';
 
 /** @deprecated – replaced by valueCalc / valueFormat string fields on ChartConfig */
 export interface ColumnModifier {
@@ -92,6 +93,9 @@ export interface ChartConfig {
   /** @deprecated use valueCalc / valueFormat */
   yModifier?: ColumnModifier;
   stacked?: boolean; // for bar charts only
+  filterColumn?: string;
+  filterOperator?: FilterOperator;
+  filterValue?: string; // saved default; overridden at runtime
 }
 
 export interface ChartLayoutItem {
