@@ -994,6 +994,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               modules={[AllCommunityModule]}
               rowData={columnRowData}
               columnDefs={columnGridDefs}
+              defaultColDef={{ suppressMovable: true }}
               domLayout="autoHeight"
               singleClickEdit={true}
               stopEditingWhenCellsLoseFocus={true}
