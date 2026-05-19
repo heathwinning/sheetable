@@ -488,6 +488,23 @@ export function useAppState(): UseAppStateReturn {
         if (col.refTable === oldName) col.refTable = newName;
       }
     }
+    // Update view sheets
+    for (const [, view] of viewSheetsRef.current) {
+      if (view.tableName === oldName) {
+        view.tableName = newName;
+        api.updateView(activeBookId, view.name, { tableName: newName }).catch(console.error);
+      }
+    }
+    // Update chart sheets
+    for (const [, sheet] of chartSheetsRef.current) {
+      let dirty = false;
+      for (const chart of sheet.charts) {
+        if (chart.table === oldName) { chart.table = newName; dirty = true; }
+      }
+      if (dirty) {
+        api.updateChart(activeBookId, sheet.name, { charts: { charts: sheet.charts, layout: sheet.layout } }).catch(console.error);
+      }
+    }
     setTableOrder(prev => prev.map(id => id === oldName ? newName : id));
     if (activeTableId === oldName) setActiveTableId(newName);
     bump();
@@ -531,7 +548,32 @@ export function useAppState(): UseAppStateReturn {
       }
     }
 
-    // Note: no API call here — the caller (handleSave) follows with updateSchema which persists everything.
+    // Update view sheets
+    for (const [, view] of viewSheetsRef.current) {
+      if (view.tableName === tableId && view.dateColumn === oldName) {
+        view.dateColumn = newName;
+        api.updateView(activeBookId, view.name, { dateColumn: newName }).catch(console.error);
+      }
+    }
+    // Update chart sheets
+    for (const [, sheet] of chartSheetsRef.current) {
+      let dirty = false;
+      for (const chart of sheet.charts) {
+        if (chart.table !== tableId) continue;
+        const rw = (s: string) => rewriteColumnExpr(s, oldName, newName);
+        if (chart.xColumn) { const r = rw(chart.xColumn); if (r !== chart.xColumn) { chart.xColumn = r; dirty = true; } }
+        if (chart.yColumn) { const r = rw(chart.yColumn); if (r !== chart.yColumn) { chart.yColumn = r; dirty = true; } }
+        if (chart.groupBy) { const r = rw(chart.groupBy); if (r !== chart.groupBy) { chart.groupBy = r; dirty = true; } }
+        if (chart.filterColumn) { const r = rw(chart.filterColumn); if (r !== chart.filterColumn) { chart.filterColumn = r; dirty = true; } }
+        if (chart.tableRows) { const rr = chart.tableRows.map(rw); if (rr.some((v, i) => v !== chart.tableRows![i])) { chart.tableRows = rr; dirty = true; } }
+        if (chart.tableColumns) { const rc = chart.tableColumns.map(rw); if (rc.some((v, i) => v !== chart.tableColumns![i])) { chart.tableColumns = rc; dirty = true; } }
+        if (chart.tableSort) { const rk = rw(chart.tableSort.key); if (rk !== chart.tableSort.key) { chart.tableSort = { ...chart.tableSort, key: rk }; dirty = true; } }
+      }
+      if (dirty) {
+        api.updateChart(activeBookId, sheet.name, { charts: { charts: sheet.charts, layout: sheet.layout } }).catch(console.error);
+      }
+    }
+    // Note: no API call for schemas here — the caller (handleSave) follows with updateSchema which persists everything.
     bump();
   }, [activeBookId, bump]);
 
@@ -1037,4 +1079,11 @@ export function useAppState(): UseAppStateReturn {
 
 function rewritePath(path: string, oldName: string, newName: string): string {
   return path.split('.').map(p => p === oldName ? newName : p).join('.');
+}
+
+// Rewrites a column expression that may include a date feature suffix, e.g. "col:year" or "ref.col:month"
+function rewriteColumnExpr(expr: string, oldName: string, newName: string): string {
+  const colonIdx = expr.indexOf(':');
+  if (colonIdx === -1) return rewritePath(expr, oldName, newName);
+  return rewritePath(expr.slice(0, colonIdx), oldName, newName) + expr.slice(colonIdx);
 }
