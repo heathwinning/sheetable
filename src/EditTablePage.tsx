@@ -95,13 +95,92 @@ function slugify(s: string): string {
 const VALID_COL_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 const CALC_HINT_ROWS = [
-  { expr: 'distance / 1000', desc: 'Divide a column by a constant' },
-  { expr: 'price * quantity', desc: 'Multiply two columns' },
-  { expr: 'revenue - cost', desc: 'Subtract two columns' },
-  { expr: 'round(value * 1.1, 2)', desc: 'Round to 2 decimal places' },
-  { expr: 'abs(balance)', desc: 'Absolute value' },
-  { expr: 'max(a, b)', desc: 'Larger of two columns' },
+  { expr: '{distance} / 1000', desc: 'Divide a column by a constant' },
+  { expr: '{price} * {quantity}', desc: 'Multiply two columns' },
+  { expr: '{revenue} - {cost}', desc: 'Subtract two columns' },
+  { expr: 'round({value} * 1.1, 2)', desc: 'Round to 2 decimal places' },
+  { expr: 'abs({balance})', desc: 'Absolute value' },
+  { expr: 'max({a}, {b})', desc: 'Larger of two columns' },
 ];
+
+const ExprInput: React.FC<{
+  value: string;
+  columnIds: string[];
+  onChange: (val: string) => void;
+  placeholder?: string;
+  style?: React.CSSProperties;
+  className?: string;
+}> = ({ value, columnIds, onChange, placeholder, style, className }) => {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const [dropdownCols, setDropdownCols] = React.useState<string[]>([]);
+  const [braceStart, setBraceStart] = React.useState(-1);
+
+  const closeDropdown = () => { setDropdownCols([]); setBraceStart(-1); };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const cursor = e.target.selectionStart ?? val.length;
+    onChange(val);
+    const before = val.slice(0, cursor);
+    const lastBrace = before.lastIndexOf('{');
+    if (lastBrace >= 0 && !before.slice(lastBrace).includes('}')) {
+      const filter = before.slice(lastBrace + 1).toLowerCase();
+      const filtered = columnIds.filter(c => c.toLowerCase().includes(filter));
+      if (filtered.length > 0) {
+        setDropdownCols(filtered);
+        setBraceStart(lastBrace);
+        return;
+      }
+    }
+    closeDropdown();
+  };
+
+  const insertColumn = (colId: string) => {
+    const el = inputRef.current;
+    if (!el) return;
+    const cursor = el.selectionStart ?? value.length;
+    const before = value.slice(0, braceStart);
+    const after = value.slice(cursor);
+    const newVal = `${before}{${colId}}${after}`;
+    onChange(newVal);
+    closeDropdown();
+    const newPos = braceStart + colId.length + 2;
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(newPos, newPos); });
+  };
+
+  return (
+    <div style={{ position: 'relative', flex: 1 }}>
+      <input
+        ref={inputRef}
+        className={className}
+        style={style}
+        value={value}
+        placeholder={placeholder}
+        onChange={handleChange}
+        onBlur={() => setTimeout(closeDropdown, 150)}
+        onKeyDown={e => { if (e.key === 'Escape') closeDropdown(); }}
+      />
+      {dropdownCols.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, zIndex: 200,
+          background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+          borderRadius: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          maxHeight: 160, overflowY: 'auto', minWidth: 160,
+        }}>
+          {dropdownCols.map(col => (
+            <div
+              key={col}
+              onMouseDown={e => { e.preventDefault(); insertColumn(col); }}
+              style={{ padding: '5px 10px', fontSize: 12, fontFamily: 'monospace', cursor: 'pointer' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-cell-selected, #e0e7ff)')}
+              onMouseLeave={e => (e.currentTarget.style.background = '')}
+            >{`{${col}}`}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const CalcHint: React.FC = () => {
   const [open, setOpen] = React.useState(false);
@@ -127,7 +206,7 @@ const CalcHint: React.FC = () => {
             </tbody>
           </table>
           <div style={{ marginTop: 4 }}>
-            Variables: all column names in the table (by Column ID). Column IDs are auto-generated as valid identifiers — e.g. <code>monthly_revenue</code>.{' '}
+            Reference columns with <code>{'{col_id}'}</code>. Type <code>{'{'}</code> in the expression box to pick a column. Column IDs are auto-generated identifiers — e.g. <code>monthly_revenue</code>.{' '}
             <a
               href="https://github.com/silentmatt/expr-eval#expression-syntax"
               target="_blank"
@@ -1046,12 +1125,13 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
                     onChange={e => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, displayName: e.target.value || undefined } : c))}
                   />
                 </div>
-                <input
+                <ExprInput
                   className="edit-table-input"
-                  style={{ flex: 1, fontFamily: 'monospace', fontSize: 12 }}
-                  placeholder="expression (e.g. distance / 1000)"
+                  style={{ fontFamily: 'monospace', fontSize: 12 }}
+                  placeholder="e.g. {distance} / 1000"
                   value={calc.expression}
-                  onChange={e => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, expression: e.target.value } : c))}
+                  columnIds={columns.map(c => c.name).filter(n => VALID_COL_NAME.test(n))}
+                  onChange={val => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, expression: val } : c))}
                 />
                 <button
                   className="btn-secondary btn-sm"

@@ -22,8 +22,10 @@ const dateFormatCache = new Map<string, (d: Date) => string>();
 const parser = new Parser();
 
 function buildCalc(expr: string) {
+  // Support {colName} syntax — strip braces so expr-eval sees bare identifiers
+  const normalized = expr.replace(/\{([^}]+)\}/g, (_, n: string) => n).trim();
   try {
-    const compiled = parser.parse(expr.trim());
+    const compiled = parser.parse(normalized);
     return (v: number, ctx?: Record<string, number>) => {
       try { return Number(compiled.evaluate({ value: v, ...ctx })); }
       catch { return v; }
