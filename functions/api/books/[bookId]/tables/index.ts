@@ -9,6 +9,7 @@ interface ColumnInput {
   refTable?: string;
   refDisplayColumns?: string[];
   refSearchColumns?: string[];
+  listOf?: string;
 }
 
 interface CreateTableBody {
@@ -19,7 +20,7 @@ interface CreateTableBody {
   draftRowPosition?: string;
 }
 
-const VALID_TYPES = new Set(['text', 'integer', 'decimal', 'date', 'datetime', 'bool', 'reference', 'image']);
+const VALID_TYPES = new Set(['text', 'integer', 'decimal', 'date', 'datetime', 'bool', 'reference', 'image', 'calculated', 'list']);
 
 // GET /api/books/:bookId/tables → list all tables with columns
 export const onRequestGet: PagesFunction<Env, 'bookId', RequestData> = async (context) => {
@@ -31,7 +32,7 @@ export const onRequestGet: PagesFunction<Env, 'bookId', RequestData> = async (co
   ).bind(bookId).all<{ id: number; name: string; display_order: number; unique_keys: string; default_sort: string | null; draft_position: string; calculated_columns: string | null }>();
 
   const { results: allCols } = await context.env.DB.prepare(
-    `SELECT c.table_id, c.name, c.display_name, c.type, c.display_order, c.width, c.ref_table, c.ref_display, c.ref_search, c.expression, c.show_in_grid
+    `SELECT c.table_id, c.name, c.display_name, c.type, c.display_order, c.width, c.ref_table, c.ref_display, c.ref_search, c.expression, c.show_in_grid, c.list_of
      FROM _columns c
      JOIN _tables t ON t.id = c.table_id
      WHERE t.book_id = ?
@@ -62,6 +63,7 @@ export const onRequestGet: PagesFunction<Env, 'bookId', RequestData> = async (co
       refSearchColumns: c.ref_search ? JSON.parse(c.ref_search as string) : undefined,
       expression: (c.expression as string | null) ?? undefined,
       showInGrid: c.show_in_grid ? true : undefined,
+      listOf: (c.list_of as string | null) ?? undefined,
     })),
   }));
 
@@ -108,8 +110,8 @@ export const onRequestPost: PagesFunction<Env, 'bookId', RequestData> = async (c
   // Insert column definitions
   const colStmts: D1PreparedStatement[] = body.columns.map((col, i) =>
     context.env.DB.prepare(
-      `INSERT INTO _columns (table_id, name, display_name, type, display_order, width, ref_table, ref_display, ref_search)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO _columns (table_id, name, display_name, type, display_order, width, ref_table, ref_display, ref_search, list_of)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       tableId,
       col.name.trim(),
@@ -120,6 +122,7 @@ export const onRequestPost: PagesFunction<Env, 'bookId', RequestData> = async (c
       col.refTable || null,
       col.refDisplayColumns ? JSON.stringify(col.refDisplayColumns) : null,
       col.refSearchColumns ? JSON.stringify(col.refSearchColumns) : null,
+      col.listOf || null,
     )
   );
 

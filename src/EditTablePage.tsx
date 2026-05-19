@@ -349,6 +349,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       refTable: col.refTable ?? '',
       refDisplayColumns: col.refDisplayColumns ?? [],
       refSearchColumns: col.refSearchColumns ?? [],
+      listOf: col.listOf,
     })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [columns, uniqueKeys, defaultSort]

@@ -11,6 +11,7 @@ interface ColumnInput {
   refSearchColumns?: string[];
   expression?: string;
   showInGrid?: boolean;
+  listOf?: string;
 }
 
 interface SchemaBody {
@@ -21,7 +22,7 @@ interface SchemaBody {
   calculatedColumns?: { name: string; displayName?: string; expression: string }[];
 }
 
-const VALID_TYPES = new Set(['text', 'integer', 'decimal', 'date', 'datetime', 'bool', 'reference', 'image', 'calculated']);
+const VALID_TYPES = new Set(['text', 'integer', 'decimal', 'date', 'datetime', 'bool', 'reference', 'image', 'calculated', 'list']);
 
 // PUT /api/books/:bookId/tables/:name/schema → update column definitions and table settings
 export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = async (context) => {
@@ -77,8 +78,8 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
       const col = body.columns[i];
       stmts.push(
         context.env.DB.prepare(
-          `INSERT INTO _columns (table_id, name, display_name, type, display_order, width, ref_table, ref_display, ref_search, expression, show_in_grid)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO _columns (table_id, name, display_name, type, display_order, width, ref_table, ref_display, ref_search, expression, show_in_grid, list_of)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           table.id,
           col.name.trim(),
@@ -91,6 +92,7 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
           col.refSearchColumns ? JSON.stringify(col.refSearchColumns) : null,
           col.expression || null,
           col.showInGrid ? 1 : 0,
+          col.listOf || null,
         )
       );
     }
