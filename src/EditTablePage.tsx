@@ -824,6 +824,82 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     doTrimNormalization(columnNames);
   };
 
+  const applyConsolidateDuplicatesNow = async () => {
+    if (!tableId || !state.activeBookId || uniqueKeys.length === 0) return;
+
+    const rows = state.getRows(tableId);
+
+    // Group rows by unique key tuple
+    const groups = new Map<string, Row[]>();
+    for (const row of rows) {
+      const keyStr = JSON.stringify(uniqueKeys.map(kc => row[kc] ?? ''));
+      if (!groups.has(keyStr)) groups.set(keyStr, []);
+      groups.get(keyStr)!.push(row);
+    }
+
+    const duplicateGroups = [...groups.values()].filter(g => g.length > 1);
+    if (duplicateGroups.length === 0) {
+      setNotice({ kind: 'info', message: 'No duplicate key values found.' });
+      return;
+    }
+
+    // Build remapping: deleted rowId → canonical rowId to keep
+    const rowIdRemap = new Map<string, string>();
+    const rowIdsToDelete: string[] = [];
+    for (const group of duplicateGroups) {
+      const keepId = group[0][INTERNAL_ROW_ID];
+      for (const dupRow of group.slice(1)) {
+        rowIdRemap.set(dupRow[INTERNAL_ROW_ID], keepId);
+        rowIdsToDelete.push(dupRow[INTERNAL_ROW_ID]);
+      }
+    }
+
+    // Update all other tables that have reference columns pointing to this table
+    for (const otherTableId of state.tableIds) {
+      if (otherTableId === tableId) continue;
+      const otherSchema = state.getSchema(otherTableId);
+      if (!otherSchema) continue;
+
+      const refCols = otherSchema.columns.filter(c => c.type === 'reference' && c.refTable === tableId);
+      if (refCols.length === 0) continue;
+
+      const otherRows = state.getRows(otherTableId);
+      const updateOps: { type: 'update'; rowId: string; data: Record<string, string> }[] = [];
+
+      for (const row of otherRows) {
+        const updates: Record<string, string> = {};
+        for (const col of refCols) {
+          const currentRef = row[col.name] ?? '';
+          if (rowIdRemap.has(currentRef)) {
+            updates[col.name] = rowIdRemap.get(currentRef)!;
+          }
+        }
+        if (Object.keys(updates).length > 0) {
+          for (const [k, v] of Object.entries(updates)) row[k] = v;
+          updateOps.push({ type: 'update', rowId: row[INTERNAL_ROW_ID], data: updates });
+        }
+      }
+
+      if (updateOps.length > 0) {
+        await api.bulkRowOps(state.activeBookId, otherTableId, updateOps);
+      }
+    }
+
+    // Delete the duplicate rows from this table
+    const deleteOps = rowIdsToDelete.map(rowId => ({ type: 'delete' as const, rowId }));
+    await api.bulkRowOps(state.activeBookId, tableId, deleteOps);
+
+    // Update in-memory rows for this table
+    const deleteSet = new Set(rowIdsToDelete);
+    state.setRows(tableId, rows.filter(r => !deleteSet.has(r[INTERNAL_ROW_ID])));
+
+    const mergedCount = rowIdsToDelete.length;
+    setNotice({
+      kind: 'success',
+      message: `Consolidated ${mergedCount} duplicate row${mergedCount !== 1 ? 's' : ''} across ${duplicateGroups.length} group${duplicateGroups.length !== 1 ? 's' : ''}.`,
+    });
+  };
+
   // Extract unique tuples from selected columns into a new reference table
   const applyExtractNow = async (selectedColIndices: number[], resultColumnNames: string[], newTableName: string, refColName: string) => {
     if (!tableId) return;
@@ -1154,6 +1230,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
           <MigrationsToolsDialog
             columns={columns}
             rows={state.getRows(tableId!)}
+            uniqueKeys={uniqueKeys}
             otherTableIds={otherTableIds}
             getRefTableColumns={getRefTableColumns}
             getRefTableRows={getRefTableRows}
@@ -1162,6 +1239,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             initialResultColName={migrationTargetColIdx !== null ? (columns[migrationTargetColIdx]?.name.trim() ?? '') : ''}
             onRunNormalize={applyTrimNormalizationNow}
             onRunReference={applyTextToReferenceMigrationNow}
+            onRunConsolidate={applyConsolidateDuplicatesNow}
             onClose={() => {
               setMigrationsDialogOpen(false);
               setMigrationTargetColIdx(null);
@@ -1370,6 +1448,7 @@ const refDialogSelectStyles = dialogSelectStyles;
 const MigrationsToolsDialog: React.FC<{
   columns: ColumnDef[];
   rows: Row[];
+  uniqueKeys: string[];
   otherTableIds: string[];
   getRefTableColumns: (tableId: string) => string[];
   getRefTableRows: (tableId: string) => Row[];
@@ -1378,10 +1457,12 @@ const MigrationsToolsDialog: React.FC<{
   initialResultColName: string;
   onRunNormalize: (columnNames: string[]) => void;
   onRunReference: (resultColName: string, refTableId: string, pairs: { sourceColumn: string; refColumn: string }[]) => void;
+  onRunConsolidate: () => Promise<void>;
   onClose: () => void;
 }> = ({
   columns,
   rows,
+  uniqueKeys,
   otherTableIds,
   getRefTableColumns,
   getRefTableRows,
@@ -1390,8 +1471,26 @@ const MigrationsToolsDialog: React.FC<{
   initialResultColName,
   onRunNormalize,
   onRunReference,
+  onRunConsolidate,
   onClose,
 }) => {
+  const [consolidating, setConsolidating] = React.useState(false);
+
+  // Count duplicate key groups from current rows
+  const duplicatePreview = React.useMemo(() => {
+    if (uniqueKeys.length === 0) return null;
+    const seen = new Map<string, number>();
+    let groups = 0;
+    let extraRows = 0;
+    for (const row of rows) {
+      const keyStr = JSON.stringify(uniqueKeys.map(kc => row[kc] ?? ''));
+      const count = (seen.get(keyStr) ?? 0) + 1;
+      seen.set(keyStr, count);
+      if (count === 2) groups++;
+      if (count >= 2) extraRows++;
+    }
+    return { groups, extraRows };
+  }, [rows, uniqueKeys]);
   const namedCols = useMemo(
     () => columns.map((c, i) => ({ idx: i, name: c.name.trim(), type: c.type })).filter(c => c.name),
     [columns]
@@ -1586,6 +1685,41 @@ const MigrationsToolsDialog: React.FC<{
             </div>
           </div>
         </div>
+
+        {uniqueKeys.length > 0 && (
+          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginTop: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Consolidate Duplicate Keys</div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-muted, #666)', marginBottom: 10 }}>
+              {duplicatePreview && duplicatePreview.groups > 0 ? (
+                <>
+                  Found <strong>{duplicatePreview.groups} duplicate group{duplicatePreview.groups !== 1 ? 's' : ''}</strong> ({duplicatePreview.extraRows} extra row{duplicatePreview.extraRows !== 1 ? 's' : ''}).
+                  {' '}Keeps the first row in each group, updates all referencing tables, then removes the duplicates.
+                </>
+              ) : duplicatePreview ? (
+                'No duplicate key values found in this table.'
+              ) : (
+                'No unique key columns defined on this table.'
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                className="app-dialog-btn app-dialog-btn-primary"
+                disabled={!duplicatePreview || duplicatePreview.groups === 0 || consolidating}
+                onClick={async () => {
+                  setConsolidating(true);
+                  try {
+                    await onRunConsolidate();
+                    onClose();
+                  } finally {
+                    setConsolidating(false);
+                  }
+                }}
+              >
+                {consolidating ? 'Consolidating…' : 'Run Consolidate'}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="app-dialog-actions">
           <button className="app-dialog-btn app-dialog-btn-secondary" onClick={onClose}>
