@@ -900,6 +900,55 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     });
   };
 
+  const applyMergeRecordsNow = async (canonicalRowId: string, mergeRowIds: string[]) => {
+    if (!tableId || !state.activeBookId) return;
+
+    const mergeSet = new Set(mergeRowIds);
+
+    // Update all other tables that reference this table
+    for (const otherTableId of state.tableIds) {
+      if (otherTableId === tableId) continue;
+      const otherSchema = state.getSchema(otherTableId);
+      if (!otherSchema) continue;
+
+      const refCols = otherSchema.columns.filter(c => c.type === 'reference' && c.refTable === tableId);
+      if (refCols.length === 0) continue;
+
+      const otherRows = state.getRows(otherTableId);
+      const updateOps: { type: 'update'; rowId: string; data: Record<string, string> }[] = [];
+
+      for (const row of otherRows) {
+        const updates: Record<string, string> = {};
+        for (const col of refCols) {
+          if (mergeSet.has(row[col.name] ?? '')) {
+            updates[col.name] = canonicalRowId;
+          }
+        }
+        if (Object.keys(updates).length > 0) {
+          for (const [k, v] of Object.entries(updates)) row[k] = v;
+          updateOps.push({ type: 'update', rowId: row[INTERNAL_ROW_ID], data: updates });
+        }
+      }
+
+      if (updateOps.length > 0) {
+        await api.bulkRowOps(state.activeBookId, otherTableId, updateOps);
+      }
+    }
+
+    // Delete the merged rows from this table
+    const deleteOps = mergeRowIds.map(rowId => ({ type: 'delete' as const, rowId }));
+    await api.bulkRowOps(state.activeBookId, tableId, deleteOps);
+
+    // Update in-memory rows
+    const rows = state.getRows(tableId);
+    state.setRows(tableId, rows.filter(r => !mergeSet.has(r[INTERNAL_ROW_ID])));
+
+    setNotice({
+      kind: 'success',
+      message: `Merged ${mergeRowIds.length} record${mergeRowIds.length !== 1 ? 's' : ''} into canonical row.`,
+    });
+  };
+
   // Extract unique tuples from selected columns into a new reference table
   const applyExtractNow = async (selectedColIndices: number[], resultColumnNames: string[], newTableName: string, refColName: string) => {
     if (!tableId) return;
@@ -1240,6 +1289,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             onRunNormalize={applyTrimNormalizationNow}
             onRunReference={applyTextToReferenceMigrationNow}
             onRunConsolidate={applyConsolidateDuplicatesNow}
+            onRunMerge={applyMergeRecordsNow}
             onClose={() => {
               setMigrationsDialogOpen(false);
               setMigrationTargetColIdx(null);
@@ -1458,6 +1508,7 @@ const MigrationsToolsDialog: React.FC<{
   onRunNormalize: (columnNames: string[]) => void;
   onRunReference: (resultColName: string, refTableId: string, pairs: { sourceColumn: string; refColumn: string }[]) => void;
   onRunConsolidate: () => Promise<void>;
+  onRunMerge: (canonicalRowId: string, mergeRowIds: string[]) => Promise<void>;
   onClose: () => void;
 }> = ({
   columns,
@@ -1472,9 +1523,24 @@ const MigrationsToolsDialog: React.FC<{
   onRunNormalize,
   onRunReference,
   onRunConsolidate,
+  onRunMerge,
   onClose,
 }) => {
   const [consolidating, setConsolidating] = React.useState(false);
+  const [merging, setMerging] = React.useState(false);
+  const [mergeCanonical, setMergeCanonical] = React.useState<string | null>(null);
+  const [mergeTargets, setMergeTargets] = React.useState<string[]>([]);
+
+  // Build labeled options for every row, using unique key cols or first cols
+  const rowOptions = React.useMemo(() => {
+    const labelCols = uniqueKeys.length > 0
+      ? uniqueKeys
+      : columns.filter(c => c.type === 'text' || c.type === 'integer' || c.type === 'decimal').slice(0, 3).map(c => c.name);
+    return rows.map(row => {
+      const label = labelCols.map(k => row[k] ?? '').filter(Boolean).join(' · ') || row[INTERNAL_ROW_ID];
+      return { value: row[INTERNAL_ROW_ID], label };
+    });
+  }, [rows, columns, uniqueKeys]);
 
   // Count duplicate key groups from current rows
   const duplicatePreview = React.useMemo(() => {
@@ -1720,6 +1786,61 @@ const MigrationsToolsDialog: React.FC<{
             </div>
           </div>
         )}
+
+        <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginTop: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Merge Records</div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-muted, #666)', marginBottom: 10 }}>
+            Pick a canonical record to keep, then select one or more records to merge into it.
+            All references to merged records are repointed to the canonical, then the merged rows are deleted.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>
+              <label className="app-dialog-label" style={{ marginBottom: 0 }}>Keep (canonical)</label>
+              <Select
+                options={rowOptions}
+                value={rowOptions.find(o => o.value === mergeCanonical) ?? null}
+                onChange={opt => {
+                  setMergeCanonical(opt?.value ?? null);
+                  setMergeTargets(prev => prev.filter(id => id !== opt?.value));
+                }}
+                styles={refDialogSelectStyles}
+                placeholder="Select canonical record…"
+                isClearable
+                menuPlacement="auto"
+              />
+            </div>
+            <div>
+              <label className="app-dialog-label" style={{ marginBottom: 0 }}>Merge into canonical</label>
+              <Select
+                isMulti
+                options={rowOptions.filter(o => o.value !== mergeCanonical)}
+                value={rowOptions.filter(o => mergeTargets.includes(o.value))}
+                onChange={opts => setMergeTargets(Array.from(opts as readonly { value: string }[]).map(o => o.value))}
+                styles={refDialogSelectStyles}
+                placeholder="Select records to merge…"
+                menuPlacement="auto"
+              />
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+            <button
+              className="app-dialog-btn app-dialog-btn-primary"
+              disabled={!mergeCanonical || mergeTargets.length === 0 || merging}
+              onClick={async () => {
+                if (!mergeCanonical || mergeTargets.length === 0) return;
+                setMerging(true);
+                try {
+                  await onRunMerge(mergeCanonical, mergeTargets);
+                  onClose();
+                } finally {
+                  setMerging(false);
+                }
+              }}
+            >
+              {merging ? 'Merging…' : `Merge ${mergeTargets.length > 0 ? mergeTargets.length + ' record' + (mergeTargets.length !== 1 ? 's' : '') : ''}`}
+            </button>
+          </div>
+        </div>
 
         <div className="app-dialog-actions">
           <button className="app-dialog-btn app-dialog-btn-secondary" onClick={onClose}>
