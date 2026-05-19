@@ -883,7 +883,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   );
 };
 
-type SheetOrderItem = { id: string; type: 'table' | 'chart' | 'view' };
+type SheetOrderItem = { id: string; type: 'table' | 'chart' | 'view'; hidden: boolean };
 
 const SHEET_TYPE_LABELS: Record<SheetOrderItem['type'], string> = {
   table: 'Table',
@@ -907,40 +907,75 @@ const SheetTypeBadge: React.FC<{ value: SheetOrderItem['type'] }> = ({ value }) 
 );
 
 const sheetOrderTheme = themeQuartz.withParams({ rowHeight: 32, fontSize: 13, spacing: 4 });
-const sheetOrderColDefs: ColDef<SheetOrderItem>[] = [
-  { field: 'id', headerName: 'Name', flex: 1, rowDrag: true, suppressMovable: true },
-  {
-    field: 'type', headerName: 'Type', width: 80, suppressMovable: true,
-    cellRenderer: ({ value }: { value: SheetOrderItem['type'] }) => <SheetTypeBadge value={value} />,
-  },
-];
 
 const SheetOrderGrid: React.FC<{
-  tableIds: string[];
-  chartIds: string[];
-  viewIds: string[];
-  onReorderAll: (items: { type: 'table' | 'chart' | 'view'; name: string }[]) => void;
-}> = ({ tableIds, chartIds, viewIds, onReorderAll }) => {
-  const rowData = useMemo<SheetOrderItem[]>(() => [
-    ...tableIds.map(id => ({ id, type: 'table' as const })),
-    ...chartIds.map(id => ({ id, type: 'chart' as const })),
-    ...viewIds.map(id => ({ id, type: 'view' as const })),
-  ], [tableIds, chartIds, viewIds]);
+  sheets: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[];
+  getViewSheet: (id: string) => { tableName: string; hideSourceTableTab?: boolean } | undefined;
+  viewSheetIds: string[];
+  onReorderAll: (items: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[]) => void;
+}> = ({ sheets, getViewSheet, viewSheetIds, onReorderAll }) => {
+  const rowData = useMemo<SheetOrderItem[]>(() =>
+    sheets.map(sheet => {
+      let hidden = sheet.hidden === true;
+      if (!hidden && sheet.type === 'table' && sheet.hidden !== false) {
+        hidden = viewSheetIds.some(viewId => {
+          const view = getViewSheet(viewId);
+          return view?.tableName === sheet.name && view?.hideSourceTableTab === true;
+        });
+      }
+      return { id: sheet.name, type: sheet.type, hidden };
+    }),
+  [sheets, viewSheetIds, getViewSheet]);
+
+  const handleToggle = useCallback((id: string, type: SheetOrderItem['type'], makeVisible: boolean) => {
+    const newItems = sheets.map(s =>
+      s.name === id && s.type === type
+        ? { ...s, hidden: makeVisible ? (false as boolean | undefined) : true as boolean | undefined }
+        : s
+    );
+    onReorderAll(newItems);
+  }, [sheets, onReorderAll]);
+
+  const colDefs = useMemo<ColDef<SheetOrderItem>[]>(() => [
+    { field: 'id', headerName: 'Name', flex: 1, rowDrag: true, suppressMovable: true },
+    {
+      field: 'type', headerName: 'Type', width: 80, suppressMovable: true,
+      cellRenderer: ({ value }: { value: SheetOrderItem['type'] }) => <SheetTypeBadge value={value} />,
+    },
+    {
+      field: 'hidden', headerName: 'Visible', width: 72, suppressMovable: true,
+      cellRenderer: ({ data, value }: { data?: SheetOrderItem; value: boolean }) => {
+        if (!data) return null;
+        return (
+          <input
+            type="checkbox"
+            checked={!value}
+            style={{ cursor: 'pointer', width: 15, height: 15, marginTop: 8 }}
+            onChange={(e) => handleToggle(data.id, data.type, e.target.checked)}
+          />
+        );
+      },
+    },
+  ], [handleToggle]);
 
   const onRowDragEnd = useCallback((e: RowDragEndEvent<SheetOrderItem>) => {
     const newOrder: SheetOrderItem[] = [];
     e.api.forEachNode(node => { if (node.data) newOrder.push(node.data); });
-    onReorderAll(newOrder.map(r => ({ type: r.type, name: r.id })));
-  }, [onReorderAll]);
+    const hiddenMap = new Map(rowData.map(r => [`${r.type}:${r.id}`, r.hidden]));
+    onReorderAll(newOrder.map(r => ({
+      type: r.type,
+      name: r.id,
+      hidden: hiddenMap.get(`${r.type}:${r.id}`) ? true : undefined,
+    })));
+  }, [onReorderAll, rowData]);
 
-  const totalRows = tableIds.length + chartIds.length + viewIds.length;
   return (
-    <div style={{ height: totalRows * 32 + 34 }}>
+    <div style={{ height: sheets.length * 32 + 34 }}>
       <AgGridReact<SheetOrderItem>
         theme={sheetOrderTheme}
         modules={[AllCommunityModule]}
         rowData={rowData}
-        columnDefs={sheetOrderColDefs}
+        columnDefs={colDefs}
         rowDragManaged
         suppressCellFocus
         onRowDragEnd={onRowDragEnd}
@@ -1253,9 +1288,9 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
             <label className="book-settings-label">Sheet Order</label>
             {(state.tableIds.length > 0 || state.chartSheetIds.length > 0 || state.viewSheetIds.length > 0) && (
               <SheetOrderGrid
-                tableIds={state.tableIds}
-                chartIds={state.chartSheetIds}
-                viewIds={state.viewSheetIds}
+                sheets={state.sortedSheets}
+                getViewSheet={state.getViewSheet}
+                viewSheetIds={state.viewSheetIds}
                 onReorderAll={state.reorderAllSheetsTo}
               />
             )}
@@ -1522,11 +1557,14 @@ const App: React.FC = () => {
             {state.sortedSheets.map(sheet => {
               if (sheet.type === 'table') {
                 const id = sheet.name;
-                const shouldHide = state.viewSheetIds.some(viewId => {
-                  const view = state.getViewSheet(viewId);
-                  return view?.tableName === id && view?.hideSourceTableTab === true;
-                });
-                if (shouldHide) return null;
+                if (sheet.hidden === true) return null;
+                if (sheet.hidden !== false) {
+                  const shouldHide = state.viewSheetIds.some(viewId => {
+                    const view = state.getViewSheet(viewId);
+                    return view?.tableName === id && view?.hideSourceTableTab === true;
+                  });
+                  if (shouldHide) return null;
+                }
                 const isActive = location.pathname.includes(`/table/${encodeURIComponent(id)}`);
                 return (
                   <Link
@@ -1540,6 +1578,7 @@ const App: React.FC = () => {
               }
               if (sheet.type === 'chart') {
                 const id = sheet.name;
+                if (sheet.hidden === true) return null;
                 const isActive = location.pathname.includes(`/chart/${encodeURIComponent(id)}`);
                 return (
                   <Link
@@ -1553,6 +1592,7 @@ const App: React.FC = () => {
               }
               if (sheet.type === 'view') {
                 const id = sheet.name;
+                if (sheet.hidden === true) return null;
                 const isActive = location.pathname.includes(`/view/${encodeURIComponent(id)}`);
                 return (
                   <Link

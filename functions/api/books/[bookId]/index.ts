@@ -10,7 +10,7 @@ export const onRequestPatch: PagesFunction<Env, 'bookId', RequestData> = async (
     name?: string;
     tableOrder?: string[];
     chartOrder?: string[];
-    sheetOrder?: { type: 'table' | 'chart' | 'view'; name: string }[];
+    sheetOrder?: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[];
   };
 
   // Renaming requires owner

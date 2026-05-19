@@ -40,8 +40,8 @@ export interface UseAppStateReturn {
   reorderTablesTo: (ids: string[]) => void;
   reorderChartsTo: (ids: string[]) => void;
   reorderViewsTo: (ids: string[]) => void;
-  sortedSheets: { type: 'table' | 'chart' | 'view'; name: string }[];
-  reorderAllSheetsTo: (items: { type: 'table' | 'chart' | 'view'; name: string }[]) => void;
+  sortedSheets: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[];
+  reorderAllSheetsTo: (items: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[]) => void;
   updateSchema: (tableId: string, schema: TableSchema) => Promise<void>;
 
   // Row operations
@@ -557,9 +557,9 @@ export function useAppState(): UseAppStateReturn {
     const raw = book?.sheet_order;
     if (raw) {
       try {
-        const parsed: { type: 'table' | 'chart' | 'view'; name: string }[] = JSON.parse(raw);
+        const parsed: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[] = JSON.parse(raw);
         const existing = new Set<string>();
-        const result: { type: 'table' | 'chart' | 'view'; name: string }[] = [];
+        const result: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[] = [];
         for (const item of parsed) {
           const key = `${item.type}:${item.name}`;
           if (
@@ -590,7 +590,7 @@ export function useAppState(): UseAppStateReturn {
     ];
   }, [books, activeBookId, tableOrder, chartSheetOrder, viewSheetOrder]);
 
-  const doReorderAllSheetsTo = useCallback((items: { type: 'table' | 'chart' | 'view'; name: string }[]) => {
+  const doReorderAllSheetsTo = useCallback((items: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[]) => {
     const newTableOrder = items.filter(i => i.type === 'table').map(i => i.name);
     const newChartOrder = items.filter(i => i.type === 'chart').map(i => i.name);
     const newViewOrder = items.filter(i => i.type === 'view').map(i => i.name);

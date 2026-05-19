@@ -56,7 +56,7 @@ export async function reorderSheets(bookId: string, tableOrder?: string[], chart
   });
 }
 
-export async function reorderAllSheets(bookId: string, sheetOrder: { type: 'table' | 'chart' | 'view'; name: string }[]): Promise<void> {
+export async function reorderAllSheets(bookId: string, sheetOrder: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[]): Promise<void> {
   await request(`/books/${bookId}`, {
     method: 'PATCH',
     body: JSON.stringify({ sheetOrder }),
