@@ -458,9 +458,12 @@ body {
 /* ============================================================
    Book Settings Page
    ============================================================ */
-.book-settings-page { @apply p-4; }
+.book-settings-page {
+  @apply flex-1 flex justify-center items-start overflow-y-auto;
+  padding: 20px 16px;
+}
 .book-settings-card {
-  @apply max-w-[1100px] mx-auto bg-surface border border-border rounded-lg
+  @apply w-full max-w-[1100px] mx-auto bg-surface border border-border rounded-lg
          flex flex-col gap-4;
   padding: 20px 24px;
 }
@@ -990,7 +993,7 @@ body {
 
   .edit-table-page { @apply p-3; padding-left: 8px; padding-right: 8px; }
   .import-page { @apply p-3; padding-left: 8px; padding-right: 8px; }
-  .book-settings-page { @apply p-3; padding-left: 8px; padding-right: 8px; }
+  .book-settings-page { padding: 12px 8px; }
 }
 
 /* ============================================================
