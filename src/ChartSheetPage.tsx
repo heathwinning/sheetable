@@ -647,9 +647,8 @@ const ChartConfigModal: React.FC<{
   tableIds: string[];
   getColumnPaths: (tableId: string) => { path: string; label: string; type?: string }[];
   onSave: (config: ChartConfig) => void;
-  onDelete?: () => void;
   onClose: () => void;
-}> = ({ config, isNew, tableIds, getColumnPaths, onSave, onDelete, onClose }) => {
+}> = ({ config, isNew, tableIds, getColumnPaths, onSave, onClose }) => {
   const [draft, setDraft] = useState<ChartConfig>(config);
   const allPaths = getColumnPaths(draft.table);
   // Only leaf paths (no further ref children) or non-ref columns are valid Y columns
@@ -1015,9 +1014,6 @@ const ChartConfigModal: React.FC<{
           )}
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
-          {!isNew && onDelete && (
-            <button className="btn-danger" style={{ marginRight: 'auto' }} onClick={onDelete}>Delete chart</button>
-          )}
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn-primary" onClick={() => onSave(draft)} disabled={!canSave}>
             {isNew ? 'Add Chart' : 'Save'}
@@ -1171,9 +1167,15 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           tableIds={state.tableIds}
           getColumnPaths={getColumnPathsForTable}
           onSave={handleSaveChart}
-          onDelete={!isNewChart ? () => { handleDeleteChart(editingChart.id); setEditingChart(null); } : undefined}
           onClose={() => setEditingChart(null)}
         />
+      )}
+      {canEdit && editLayout && (
+        <div style={{ padding: '6px 16px', borderBottom: '1px solid var(--color-border)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+          {state.tableIds.length > 0 && (
+            <button className="btn-primary btn-sm" onClick={handleAddChart}>+ Add chart</button>
+          )}
+        </div>
       )}
       <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
         {charts.length === 0 ? (
@@ -1237,6 +1239,13 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                           onClick={() => { setEditingChart(chart); setIsNewChart(false); }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '2px 6px', fontSize: 12, borderRadius: 4 }}
                         >Edit</button>
+                        {editLayout && (
+                          <button
+                            onClick={() => handleDeleteChart(chart.id)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-danger)', padding: '2px 6px', fontSize: 12, borderRadius: 4 }}
+                            title="Delete chart"
+                          >Delete</button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1265,9 +1274,6 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
       </div>
       {canEdit && (
         <div style={{ padding: '8px 16px', borderTop: '1px solid var(--color-border)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-          {state.tableIds.length > 0 && (
-            <button className="btn-primary btn-sm" onClick={handleAddChart}>+ Add chart</button>
-          )}
           <button
             className="btn-secondary btn-sm"
             style={{ color: 'var(--color-danger)', marginLeft: 'auto' }}
