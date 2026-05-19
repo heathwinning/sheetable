@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Routes, Route, useNavigate, useParams, Link, useLocation, Navigate, useSearchParams } from 'react-router-dom';
+import { AgGridReact } from 'ag-grid-react';
+import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
+import type { ColDef, RowDragEndEvent } from 'ag-grid-community';
 import { useAppState } from './useAppState';
 import { SpreadsheetGrid } from './SpreadsheetGrid';
 import { EditTablePage } from './EditTablePage';
@@ -880,6 +883,33 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   );
 };
 
+const sheetOrderTheme = themeQuartz.withParams({ rowHeight: 32, fontSize: 13, spacing: 4 });
+const sheetOrderColDefs: ColDef<{ id: string }>[] = [
+  { field: 'id', headerName: 'Name', flex: 1, rowDrag: true, suppressMovable: true },
+];
+
+const SheetOrderGrid: React.FC<{ ids: string[]; onReorder: (ids: string[]) => void }> = ({ ids, onReorder }) => {
+  const rowData = useMemo(() => ids.map(id => ({ id })), [ids]);
+  const onRowDragEnd = useCallback((e: RowDragEndEvent<{ id: string }>) => {
+    const newIds: string[] = [];
+    e.api.forEachNode(node => { if (node.data) newIds.push(node.data.id); });
+    onReorder(newIds);
+  }, [onReorder]);
+  return (
+    <div style={{ height: ids.length * 32 + 34, marginBottom: 8 }}>
+      <AgGridReact<{ id: string }>
+        theme={sheetOrderTheme}
+        modules={[AllCommunityModule]}
+        rowData={rowData}
+        columnDefs={sheetOrderColDefs}
+        rowDragManaged
+        suppressCellFocus
+        onRowDragEnd={onRowDragEnd}
+      />
+    </div>
+  );
+};
+
 const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolean }> = ({ state, createMode = false }) => {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
@@ -1178,6 +1208,32 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
           {createMode && <div className="book-settings-note">Create this book first, then add members.</div>}
           {!createMode && !state.user && <div className="book-settings-note">Sign in to manage members.</div>}
         </div>
+
+        {!createMode && (state.tableIds.length > 0 || state.chartSheetIds.length > 0 || state.viewSheetIds.length > 0) && (
+          <div className="book-settings-section">
+            <label className="book-settings-label">Sheet Order</label>
+            {state.tableIds.length > 0 && (
+              <>
+                {(state.chartSheetIds.length > 0 || state.viewSheetIds.length > 0) && (
+                  <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 4 }}>Spreadsheets</div>
+                )}
+                <SheetOrderGrid ids={state.tableIds} onReorder={state.reorderTablesTo} />
+              </>
+            )}
+            {state.chartSheetIds.length > 0 && (
+              <>
+                <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 4 }}>Charts</div>
+                <SheetOrderGrid ids={state.chartSheetIds} onReorder={state.reorderChartsTo} />
+              </>
+            )}
+            {state.viewSheetIds.length > 0 && (
+              <>
+                <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 4 }}>Views</div>
+                <SheetOrderGrid ids={state.viewSheetIds} onReorder={state.reorderViewsTo} />
+              </>
+            )}
+          </div>
+        )}
 
         {!createMode && currentBook && isOwner && (
           <div className="book-settings-section">
