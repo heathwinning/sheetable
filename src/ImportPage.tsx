@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Select from 'react-select';
-import { dialogSelectStyles } from './selectStyles';
+import { dialogSelectStyles, gridCellSelectStyles } from './selectStyles';
 import type { UseAppStateReturn } from './useAppState';
 import type { ColumnDef, ColumnType, Row, TableSchema } from './types';
 import { INTERNAL_ROW_ID } from './types';
@@ -103,6 +103,7 @@ interface ColumnMapping {
 }
 
 const selectStyles = dialogSelectStyles;
+const gridSelectStyles = gridCellSelectStyles;
 
 // Column type options for new table mode
 const typeOptions: { value: ColumnType; label: string }[] = [
@@ -569,7 +570,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
               value: typeOptions.find((o: { value: string }) => o.value === params.data.type) ?? null,
               onChange: (opt: { value: ColumnType } | null) =>
                 updateNewTableColumn(params.data._idx, { type: opt?.value ?? 'text' }),
-              styles: selectStyles,
+              styles: gridSelectStyles,
               isClearable: false,
               menuPortalTarget: document.body,
               menuPosition: 'fixed',
@@ -599,7 +600,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
             value: fmtOptions.find((o: { value: string }) => o.value === params.data.dateFormat) ?? null,
             onChange: (opt: { value: string } | null) =>
               updateNewTableColumn(params.data._idx, { dateFormat: opt?.value ?? 'yyyy-mm-dd' }),
-            styles: selectStyles,
+            styles: gridSelectStyles,
             isClearable: false,
             menuPortalTarget: document.body,
             menuPosition: 'fixed',
