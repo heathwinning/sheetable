@@ -21,7 +21,7 @@ const OpenRecordButton: React.FC<CustomCellRendererProps & { onOpen: (row: Row) 
     <button
       title="Open record"
       onClick={(e) => { e.stopPropagation(); onOpen(data as Row); }}
-      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1, color: 'var(--color-text-muted,#888)', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, padding: 0, lineHeight: 1, color: 'var(--color-text-muted,#888)', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
       ⤢
     </button>
@@ -136,6 +136,8 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     setDisplayedRowCount(isFiltered ? event.api.getDisplayedRowCount() : null);
   }, []);
 
+  const hasAutosized = useRef(false);
+
   const autosizeGridColumns = useCallback((api: FirstDataRenderedEvent['api']) => {
     // Autosize columns that lack an explicit user-set width and aren't truncate-mode.
     // Pass skipHeader=false so header text is also considered.
@@ -162,24 +164,17 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       }
     }
     autosizeGridColumns(event.api);
+    hasAutosized.current = true;
   }, [draftPosition, autosizeGridColumns]);
 
-  const autofitAll = useCallback(() => {
-    const api = gridRef.current?.api;
-    if (!api) return;
-    const colIds: string[] = [];
-    for (const col of schema.columns) {
-      if (col.truncate || col.type === 'image') continue;
-      if (col.type === 'reference' && col.refDisplayColumns && col.refDisplayColumns.length > 0) {
-        for (const dp of col.refDisplayColumns) colIds.push(`${col.name}::${dp}`);
-      } else if (col.type !== 'calculated') {
-        colIds.push(col.name);
-      } else if (col.showInGrid) {
-        colIds.push(`__calc__${col.name}`);
-      }
-    }
-    if (colIds.length > 0) api.autoSizeColumns(colIds, false);
-  }, [schema.columns]);
+  // Handle async data: if rows arrive after onFirstDataRendered (e.g. network load),
+  // run autosize once when the first non-empty batch appears.
+  const onRowDataUpdated = useCallback((event: { api: FirstDataRenderedEvent['api'] }) => {
+    if (hasAutosized.current) return;
+    if (event.api.getDisplayedRowCount() === 0) return;
+    autosizeGridColumns(event.api);
+    hasAutosized.current = true;
+  }, [autosizeGridColumns]);
 
   const clearAllFilters = useCallback(() => {
     gridRef.current?.api.setFilterModel(null);
@@ -187,7 +182,8 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   }, []);
 
   const onColumnResized = useCallback((event: ColumnResizedEvent) => {
-    if (!event.finished || !onColumnWidthChange || event.source === 'api') return;
+    // Only persist widths from explicit user drag-resizes, never from autosize or API calls.
+    if (!event.finished || !onColumnWidthChange || event.source !== 'uiColumnResized') return;
     const schemaColNames = new Set(schema.columns.map(c => c.name));
     const widths: Record<string, number> = {};
     for (const col of event.columns ?? []) {
@@ -721,9 +717,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           {rows.length} row{rows.length !== 1 ? 's' : ''}{displayedRowCount !== null ? ` (${displayedRowCount} shown)` : ''}
         </span>
         <span className="grid-status-spacer" />
-        <button className="btn-secondary btn-sm" onClick={autofitAll} title="Autofit all columns to content">
-          ⇔ Autofit
-        </button>
       </div>
       <div className="grid-wrapper" ref={gridWrapperRef} style={{ flex: 1, minHeight: 0, zoom, touchAction: 'pan-x pan-y' }}>
         <AgGridReact
@@ -742,9 +735,10 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           suppressNoRowsOverlay={true}
           postSortRows={postSortRows}
           rowSelection={rowSelectionConfig}
+          selectionColumnDef={{ width: 28, maxWidth: 28, minWidth: 28, pinned: false, suppressHeaderMenuButton: true }}
           onSelectionChanged={onSelectionChanged}
-          onFilterChanged={onFilterChanged}
           onFirstDataRendered={onFirstDataRendered}
+          onRowDataUpdated={onRowDataUpdated}
           defaultColDef={{ ...sharedDefaultColDef, suppressMovable: true }}
           onColumnResized={onColumnResized}
         />
