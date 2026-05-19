@@ -1427,6 +1427,18 @@ const App: React.FC = () => {
   const headerChartId = chartMatch ? decodeURIComponent(chartMatch[1]) : null;
   const isChartView = !!headerChartId;
 
+  // Update document title based on current sheet
+  useEffect(() => {
+    const sheetName = headerTableId ?? headerChartId ?? headerViewId;
+    if (sheetName && headerBookId) {
+      document.title = `${sheetName} — ${headerBookId}`;
+    } else if (headerBookId) {
+      document.title = headerBookId;
+    } else {
+      document.title = 'Sheetable';
+    }
+  }, [headerTableId, headerChartId, headerViewId, headerBookId]);
+
   const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
 
   const showAlert = useAlert();
