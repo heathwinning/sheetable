@@ -1344,6 +1344,8 @@ const App: React.FC = () => {
   const [tabOrderOpen, setTabOrderOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const confirm = useConfirm();
 
   // Sync AG Grid dark mode with system preference
   useEffect(() => {
@@ -1531,11 +1533,31 @@ const App: React.FC = () => {
           </div>
         )}
         <div className="header-right">
-          {isChartView && canEdit && (
-            <div className="header-actions">
-              <ChartLayoutToggle />
-            </div>
-          )}
+          {isChartView && canEdit && (() => {
+            const editLayout = searchParams.get('editLayout') === '1';
+            const handleAddChart = () => setSearchParams(prev => { const n = new URLSearchParams(prev); n.set('addChart', '1'); return n; }, { replace: true });
+            const handleDeleteSheet = async () => {
+              if (!headerChartId) return;
+              const ok = await confirm(`Delete chart sheet "${headerChartId}"?`, 'Delete');
+              if (!ok) return;
+              await state.deleteChartSheet(headerChartId);
+              const dest = state.tableIds[0] && headerBookId
+                ? `/book/${encodeURIComponent(headerBookId)}/table/${encodeURIComponent(state.tableIds[0])}`
+                : headerBookId ? `/book/${encodeURIComponent(headerBookId)}` : '/';
+              navigate(dest, { replace: true });
+            };
+            return (
+              <div className="header-actions">
+                {editLayout && state.tableIds.length > 0 && (
+                  <button className="btn-primary btn-sm" onClick={handleAddChart}>+ Add chart</button>
+                )}
+                {editLayout && (
+                  <button className="header-action-btn" style={{ color: 'var(--color-danger)' }} onClick={() => { void handleDeleteSheet(); }} title="Delete sheet">Delete sheet</button>
+                )}
+                <ChartLayoutToggle />
+              </div>
+            );
+          })()}
           {headerViewId && headerViewTableId && (
             <div className="header-actions">
               {canEdit && (

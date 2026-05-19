@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import Select from 'react-select';
 import { dialogSelectStyles } from './selectStyles';
 import GridLayout, { WidthProvider } from 'react-grid-layout/legacy';
@@ -17,12 +17,9 @@ import { sharedDefaultColDef } from './gridDefaults';
 import type { UseAppStateReturn } from './useAppState';
 import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature } from './types';
 import { applyChartValueFormat } from './chartFormat';
-import { useConfirm } from './DialogProvider';
 
 const RGL = WidthProvider(GridLayout);
 const CHART_COLORS = ['#6366f1', '#22d3ee', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#f97316', '#06b6d4'];
-
-const bookPrefix = (bookName?: string) => (bookName ? `/book/${encodeURIComponent(bookName)}` : '');
 
 // ── Aggregation ──────────────────────────────────────────────────────────────
 
@@ -1018,10 +1015,7 @@ const ChartConfigModal: React.FC<{
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
-  const { bookId, chartId } = useParams<{ bookId?: string; chartId: string }>();
-  const navigate = useNavigate();
-  const confirm = useConfirm();
-
+  const { chartId } = useParams<{ bookId?: string; chartId: string }>();
   const chartSheet = chartId ? state.getChartSheet(chartId) : undefined;
 
   const [charts, setCharts] = useState<ChartConfig[]>(() => chartSheet?.charts ?? []);
@@ -1030,8 +1024,17 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
   const [isNewChart, setIsNewChart] = useState(false);
 
   const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const editLayout = searchParams.get('editLayout') === '1';
+
+  // Trigger add-chart modal from header button via ?addChart=1 param
+  useEffect(() => {
+    if (searchParams.get('addChart') === '1') {
+      setSearchParams(prev => { const n = new URLSearchParams(prev); n.delete('addChart'); return n; }, { replace: true });
+      handleAddChart();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams.get('addChart')]);
 
   // Sync local state from app state when chartSheet first loads (async) or when navigating to a different chart
   useEffect(() => {
@@ -1103,17 +1106,6 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
     });
   }, [scheduleSave]);
 
-  const handleDeleteSheet = useCallback(async () => {
-    if (!chartId) return;
-    const confirmed = await confirm(`Delete chart sheet "${chartId}"?`, 'Delete');
-    if (!confirmed) return;
-    await state.deleteChartSheet(chartId);
-    const dest = state.tableIds[0]
-      ? `${bookPrefix(bookId)}/table/${encodeURIComponent(state.tableIds[0])}`
-      : bookPrefix(bookId);
-    navigate(dest, { replace: true });
-  }, [bookId, chartId, confirm, navigate, state]);
-
   const getColumnPathsForTable = useCallback((tableId: string) =>
     state.getColumnPaths(tableId).map(p => {
       // Attach type for the leaf column so date features can be offered
@@ -1160,13 +1152,6 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           onSave={handleSaveChart}
           onClose={() => setEditingChart(null)}
         />
-      )}
-      {canEdit && editLayout && (
-        <div style={{ padding: '6px 16px', borderBottom: '1px solid var(--color-border)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-          {state.tableIds.length > 0 && (
-            <button className="btn-primary btn-sm" onClick={handleAddChart}>+ Add chart</button>
-          )}
-        </div>
       )}
       <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
         {charts.length === 0 ? (
@@ -1263,15 +1248,6 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           </RGL>
         )}
       </div>
-      {canEdit && (
-        <div style={{ padding: '8px 16px', borderTop: '1px solid var(--color-border)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-          <button
-            className="btn-secondary btn-sm"
-            style={{ color: 'var(--color-danger)', marginLeft: 'auto' }}
-            onClick={() => void handleDeleteSheet()}
-          >Delete sheet</button>
-        </div>
-      )}
     </div>
   );
 };
