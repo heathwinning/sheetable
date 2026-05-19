@@ -526,8 +526,7 @@ export function useAppState(): UseAppStateReturn {
       }
     }
 
-    // Persist schema change to server
-    api.updateTableSchema(activeBookId, tableId, schema).catch(console.error);
+    // Note: no API call here — the caller (handleSave) follows with updateSchema which persists everything.
     bump();
   }, [activeBookId, bump]);
 

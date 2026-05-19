@@ -91,19 +91,37 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
       );
     }
 
-    // ALTER physical table: add new columns, drop removed columns
+    // ALTER physical table: rename, add, or drop columns as needed
+    // Build a case-insensitive map of existing column names for rename detection
+    const existingLower = new Map<string, string>(); // lowercase → actual name
+    for (const n of existingNames) existingLower.set(n.toLowerCase(), n);
+
     for (const col of body.columns) {
-      if (!existingNames.has(col.name.trim())) {
-        stmts.push(
-          context.env.DB.prepare(`ALTER TABLE t_${table.id} ADD COLUMN "${col.name.trim()}" TEXT NOT NULL DEFAULT ''`)
-        );
+      const colName = col.name.trim();
+      const existingActual = existingLower.get(colName.toLowerCase());
+      if (!existingNames.has(colName)) {
+        if (existingActual && existingActual !== colName) {
+          // Case-only rename — use RENAME COLUMN to preserve data
+          stmts.push(
+            context.env.DB.prepare(`ALTER TABLE t_${table.id} RENAME COLUMN "${existingActual}" TO "${colName}"`)
+          );
+        } else if (!existingActual) {
+          // Genuinely new column
+          stmts.push(
+            context.env.DB.prepare(`ALTER TABLE t_${table.id} ADD COLUMN "${colName}" TEXT NOT NULL DEFAULT ''`)
+          );
+        }
       }
     }
 
-    for (const name of existingNames) {
-      if (!newNames.has(name)) {
+    // Build a case-insensitive map of new names for drop detection
+    const newLower = new Set(body.columns.map(c => c.name.trim().toLowerCase()));
+
+    for (const existingName of existingNames) {
+      if (!newNames.has(existingName) && !newLower.has(existingName.toLowerCase())) {
+        // Column truly removed (not just case-renamed)
         stmts.push(
-          context.env.DB.prepare(`ALTER TABLE t_${table.id} DROP COLUMN "${name}"`)
+          context.env.DB.prepare(`ALTER TABLE t_${table.id} DROP COLUMN "${existingName}"`)
         );
       }
     }
