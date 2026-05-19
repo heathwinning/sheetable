@@ -540,8 +540,8 @@ const ChartRenderer: React.FC<{
     );
   }
 
-  // area / area-stacked (default)
-  const areaStacked = config.type === 'area-stacked';
+  // area (stacked via config.stacked, or legacy area-stacked type)
+  const areaStacked = config.stacked || (config.type as string) === 'area-stacked';
   return (
     <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data} margin={margin}>
@@ -610,7 +610,6 @@ const CHART_TYPE_OPTIONS = [
   { value: 'bar', label: 'Bar' },
   { value: 'line', label: 'Line' },
   { value: 'area', label: 'Area' },
-  { value: 'area-stacked', label: 'Area (stacked)' },
   { value: 'pie', label: 'Pie' },
   { value: 'scatter', label: 'Scatter' },
   { value: 'table', label: 'Table' },
@@ -653,7 +652,7 @@ const ChartConfigModal: React.FC<{
       .map(p => p.path)
   );
   const isTableType = draft.type === 'table';
-  const hasGroupBy = !isTableType && (draft.type === 'bar' || draft.type === 'line' || draft.type === 'area' || draft.type === 'area-stacked');
+  const hasGroupBy = !isTableType && (draft.type === 'bar' || draft.type === 'line' || draft.type === 'area' || (draft.type as string) === 'area-stacked');
   const needsYCol = draft.aggregate !== 'count' && draft.aggregate !== 'none';
   const canSave = isTableType
     ? (draft.tableRows?.length ?? 0) > 0 && (!needsYCol || !!draft.yColumn)
@@ -925,15 +924,21 @@ const ChartConfigModal: React.FC<{
                   </div>
                 </div>
               )}
-              {draft.type === 'bar' && (
+              {(draft.type === 'bar' || draft.type === 'area' || (draft.type as string) === 'area-stacked') && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <input
                     type="checkbox"
                     id="chart-stacked-cb"
-                    checked={!!draft.stacked}
-                    onChange={e => set('stacked', e.target.checked || undefined)}
+                    checked={!!draft.stacked || (draft.type as string) === 'area-stacked'}
+                    onChange={e => {
+                      if ((draft.type as string) === 'area-stacked') {
+                        setDraft(d => ({ ...d, type: 'area', stacked: e.target.checked || undefined }));
+                      } else {
+                        set('stacked', e.target.checked || undefined);
+                      }
+                    }}
                   />
-                  <label htmlFor="chart-stacked-cb" className="app-dialog-label" style={{ marginBottom: 0 }}>Stacked bars</label>
+                  <label htmlFor="chart-stacked-cb" className="app-dialog-label" style={{ marginBottom: 0 }}>Stacked</label>
                 </div>
               )}
               {hasGroupBy && (

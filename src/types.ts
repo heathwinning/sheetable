@@ -51,7 +51,7 @@ export interface ValidationError {
 }
 
 // Chart types
-export type ChartType = 'bar' | 'line' | 'area' | 'area-stacked' | 'pie' | 'scatter' | 'table';
+export type ChartType = 'bar' | 'line' | 'area' | 'pie' | 'scatter' | 'table';
 export type DateFeature = 'year' | 'quarter' | 'yearmonth' | 'month' | 'monthnum' | 'week' | 'dayofweek' | 'day' | 'hour';
 // Column expression encoding: plain column name, or "colname:datefeature" for date/datetime columns
 // e.g. "sale_date:year", "created_at:month"
