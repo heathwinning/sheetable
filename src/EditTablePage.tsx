@@ -1631,9 +1631,9 @@ const MigrationsToolsDialog: React.FC<{
 
   return (
     <div className="app-dialog-overlay" onClick={onClose}>
-      <div className="app-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
+      <div className="app-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640, maxHeight: '90dvh', display: 'flex', flexDirection: 'column' }}>
         <h3 className="app-dialog-title">Migrations & Normalize</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0', overflowY: 'auto', flex: 1 }}>
           <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Normalize (Trim Whitespace)</div>
             <Select
