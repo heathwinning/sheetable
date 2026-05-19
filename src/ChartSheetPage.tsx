@@ -761,7 +761,7 @@ const ChartConfigModal: React.FC<{
               placeholder="Chart title"
             />
           </div>
-          <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label className="app-dialog-label" style={{ marginBottom: 0 }}>Type</label>
               <Select
@@ -786,6 +786,23 @@ const ChartConfigModal: React.FC<{
                 menuPlacement="auto"
               />
             </div>
+            {(draft.type === 'bar' || draft.type === 'area' || (draft.type as string) === 'area-stacked') && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingBottom: 8, flexShrink: 0 }}>
+                <input
+                  type="checkbox"
+                  id="chart-stacked-cb"
+                  checked={!!draft.stacked || (draft.type as string) === 'area-stacked'}
+                  onChange={e => {
+                    if ((draft.type as string) === 'area-stacked') {
+                      setDraft(d => ({ ...d, type: 'area', stacked: e.target.checked || undefined }));
+                    } else {
+                      set('stacked', e.target.checked || undefined);
+                    }
+                  }}
+                />
+                <label htmlFor="chart-stacked-cb" className="app-dialog-label" style={{ marginBottom: 0 }}>Stacked</label>
+              </div>
+            )}
           </div>
           {isTableType ? (
             <>
@@ -972,23 +989,6 @@ const ChartConfigModal: React.FC<{
                       menuPlacement="auto"
                     />
                   )}
-                </div>
-              )}
-              {(draft.type === 'bar' || draft.type === 'area' || (draft.type as string) === 'area-stacked') && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    type="checkbox"
-                    id="chart-stacked-cb"
-                    checked={!!draft.stacked || (draft.type as string) === 'area-stacked'}
-                    onChange={e => {
-                      if ((draft.type as string) === 'area-stacked') {
-                        setDraft(d => ({ ...d, type: 'area', stacked: e.target.checked || undefined }));
-                      } else {
-                        set('stacked', e.target.checked || undefined);
-                      }
-                    }}
-                  />
-                  <label htmlFor="chart-stacked-cb" className="app-dialog-label" style={{ marginBottom: 0 }}>Stacked</label>
                 </div>
               )}
               {needsYCol && draft.yColumn && (
