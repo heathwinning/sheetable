@@ -420,9 +420,10 @@ export function useAppState(): UseAppStateReturn {
         const path = prefix ? `${prefix}.${col.name}` : col.name;
         const colLabel = col.displayName || col.name;
         const label = labelPrefix ? `${labelPrefix} → ${colLabel}` : colLabel;
-        result.push({ path, label });
         if (col.type === 'reference' && col.refTable) {
           walk(col.refTable, path, label, depth + 1);
+        } else {
+          result.push({ path, label });
         }
       }
       seen.delete(table);
