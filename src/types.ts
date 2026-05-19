@@ -4,7 +4,7 @@ export const INTERNAL_ROW_ID = '_rowId';
 // Column types supported by the system
 export type ColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'bool' | 'reference' | 'image' | 'calculated' | 'list';
 
-export type ListItemType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'bool';
+export type ListItemType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'bool' | 'image' | 'reference';
 
 export interface ColumnDef {
   name: string;

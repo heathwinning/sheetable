@@ -36,6 +36,8 @@ const listItemTypeOptions: { value: ListItemType; label: string }[] = [
   { value: 'date', label: 'Date' },
   { value: 'datetime', label: 'Datetime' },
   { value: 'bool', label: 'Boolean' },
+  { value: 'image', label: 'Image' },
+  { value: 'reference', label: 'Reference' },
 ];
 
 function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorProps) {
@@ -1357,6 +1359,8 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
           <ListTypeDialog
             col={columns[listDialogCol]}
             colIndex={listDialogCol}
+            otherTableIds={otherTableIds}
+            getRefTableColumnPaths={getRefTableColumnPaths}
             onUpdate={(idx, updates) => updateColumn(idx, updates)}
             onClose={() => setListDialogCol(null)}
           />
@@ -2190,19 +2194,35 @@ const ExtractPreviewDialog: React.FC<{
 const ListTypeDialog: React.FC<{
   col: ColumnDef;
   colIndex: number;
+  otherTableIds: string[];
+  getRefTableColumnPaths: (tableId: string) => { path: string; label: string }[];
   onUpdate: (idx: number, updates: Partial<ColumnDef>) => void;
   onClose: () => void;
-}> = ({ col, colIndex, onUpdate, onClose }) => {
+}> = ({ col, colIndex, otherTableIds, getRefTableColumnPaths, onUpdate, onClose }) => {
   const [listOf, setListOf] = React.useState<ListItemType>(col.listOf ?? 'text');
+  const [refTable, setRefTable] = React.useState<string>(col.refTable ?? (otherTableIds[0] ?? ''));
+  const [refDisplayColumns, setRefDisplayColumns] = React.useState<string[]>(col.refDisplayColumns ?? []);
+  const [refSearchColumns, setRefSearchColumns] = React.useState<string[]>(col.refSearchColumns ?? []);
+
+  const columnPaths = listOf === 'reference' && refTable ? getRefTableColumnPaths(refTable) : [];
+  const pathLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const cp of columnPaths) map.set(cp.path, cp.label);
+    return map;
+  }, [columnPaths]);
 
   const handleSave = () => {
-    onUpdate(colIndex, { listOf });
+    if (listOf === 'reference') {
+      onUpdate(colIndex, { listOf, refTable, refDisplayColumns, refSearchColumns });
+    } else {
+      onUpdate(colIndex, { listOf, refTable: undefined, refDisplayColumns: undefined, refSearchColumns: undefined });
+    }
     onClose();
   };
 
   return (
     <div className="app-dialog-overlay" onClick={onClose}>
-      <div className="app-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 340 }}>
+      <div className="app-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
         <h3 className="app-dialog-title">List Column: {col.name || 'unnamed'}</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
           <div>
@@ -2217,6 +2237,56 @@ const ListTypeDialog: React.FC<{
               menuPosition="fixed"
             />
           </div>
+          {listOf === 'reference' && (
+            <>
+              <div>
+                <label className="app-dialog-label" style={{ marginBottom: 4 }}>Referenced Table</label>
+                <Select
+                  styles={dialogSelectStyles}
+                  options={otherTableIds.map(id => ({ value: id, label: id }))}
+                  value={refTable ? { value: refTable, label: refTable } : null}
+                  onChange={(opt) => {
+                    setRefTable(opt?.value ?? '');
+                    setRefDisplayColumns([]);
+                    setRefSearchColumns([]);
+                  }}
+                  placeholder="Select table..."
+                  menuPortalTarget={document.body}
+                  menuPosition="fixed"
+                />
+              </div>
+              {refTable && (
+                <>
+                  <div>
+                    <label className="app-dialog-label" style={{ marginBottom: 4 }}>Display Columns</label>
+                    <Select
+                      isMulti
+                      styles={dialogSelectStyles}
+                      options={columnPaths.map(cp => ({ value: cp.path, label: cp.label }))}
+                      value={refDisplayColumns.map(cn => ({ value: cn, label: pathLabelMap.get(cn) ?? cn }))}
+                      onChange={(opts) => setRefDisplayColumns(opts.map(o => o.value))}
+                      placeholder="Select columns to display..."
+                      menuPortalTarget={document.body}
+                      menuPosition="fixed"
+                    />
+                  </div>
+                  <div>
+                    <label className="app-dialog-label" style={{ marginBottom: 4 }}>Search Columns</label>
+                    <Select
+                      isMulti
+                      styles={dialogSelectStyles}
+                      options={columnPaths.map(cp => ({ value: cp.path, label: cp.label }))}
+                      value={refSearchColumns.map(cn => ({ value: cn, label: pathLabelMap.get(cn) ?? cn }))}
+                      onChange={(opts) => setRefSearchColumns(opts.map(o => o.value))}
+                      placeholder="Select columns to search..."
+                      menuPortalTarget={document.body}
+                      menuPosition="fixed"
+                    />
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </div>
         <div className="app-dialog-actions">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
