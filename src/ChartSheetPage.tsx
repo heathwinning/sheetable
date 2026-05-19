@@ -1402,16 +1402,8 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                             <select
                               value={curVal}
                               onChange={e => setFilterValues(prev => ({ ...prev, [chart.id]: e.target.value }))}
-                              style={{
-                                fontSize: 12,
-                                padding: '2px 6px',
-                                border: '1px solid var(--color-border)',
-                                borderRadius: 4,
-                                background: 'var(--color-surface)',
-                                color: curVal ? 'var(--color-text)' : 'var(--color-text-muted)',
-                                cursor: 'pointer',
-                                outline: 'none',
-                              }}
+                              className="app-dialog-select"
+                              style={{ width: 'auto' }}
                             >
                               <option value="">— {colLabel} —</option>
                               {distinctValues.map(v => <option key={v} value={v}>{v}</option>)}
