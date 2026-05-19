@@ -476,6 +476,7 @@ const ChartRenderer: React.FC<{
   const yTickFormatter = hasValueFormat ? (v: number) => formatValue(v, config) : undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tooltipFormatter = hasValueFormat ? (v: any) => [formatValue(Number(v), config), undefined] : undefined;
+  const tooltipLabelFormatter = xTickFormatter ? (label: string) => xTickFormatter(label) : undefined;
   const tooltipStyle: React.CSSProperties = {
     background: 'var(--color-surface)',
     border: '1px solid var(--color-border)',
@@ -510,7 +511,7 @@ const ChartRenderer: React.FC<{
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
           <XAxis dataKey="x" name={config.xColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
           <YAxis dataKey={seriesKeys[0]} name={config.yColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
-          <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={tooltipFormatter} contentStyle={tooltipStyle} />
+          <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} />
           <Scatter data={data} fill={CHART_COLORS[0]} />
         </ScatterChart>
       </ResponsiveContainer>
@@ -524,7 +525,7 @@ const ChartRenderer: React.FC<{
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
           <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
           <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
-          <Tooltip formatter={tooltipFormatter} contentStyle={tooltipStyle} cursor={false} />
+          <Tooltip formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} cursor={false} />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
             <Bar key={k} dataKey={k} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={config.stacked ? undefined : [3, 3, 0, 0]} stackId={config.stacked ? 'stack' : undefined} />
@@ -541,7 +542,7 @@ const ChartRenderer: React.FC<{
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
           <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
           <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
-          <Tooltip formatter={tooltipFormatter} contentStyle={tooltipStyle} />
+          <Tooltip formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
             <Line key={k} type="monotone" dataKey={k} stroke={CHART_COLORS[i % CHART_COLORS.length]} dot={false} strokeWidth={2} />
@@ -559,7 +560,7 @@ const ChartRenderer: React.FC<{
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
         <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
         <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
-        <Tooltip formatter={tooltipFormatter} contentStyle={tooltipStyle} />
+        <Tooltip formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} />
         {seriesKeys.length > 1 && <Legend />}
         {seriesKeys.map((k, i) => (
           <Area
