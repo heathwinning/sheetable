@@ -103,6 +103,11 @@ function validateType(type: string, value: string, rowIndex: number, columnName:
       if (!['true', 'false', '1', '0', 'yes', 'no'].includes(value.toLowerCase()))
         return [{ message: `"${value}" is not a valid boolean (true/false)`, rowIndex, columnName }];
       break;
+    case 'list':
+      try { JSON.parse(value); } catch {
+        return [{ message: `"${value}" is not a valid list (must be JSON array)`, rowIndex, columnName }];
+      }
+      break;
   }
   return [];
 }

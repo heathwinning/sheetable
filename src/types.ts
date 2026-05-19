@@ -2,14 +2,16 @@
 export const INTERNAL_ROW_ID = '_rowId';
 
 // Column types supported by the system
-export type ColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'bool' | 'reference' | 'image' | 'calculated';
+export type ColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'bool' | 'reference' | 'image' | 'calculated' | 'list';
+
+export type ListItemType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'bool';
 
 export interface ColumnDef {
   name: string;
   displayName?: string;
   type: ColumnType;
   width?: number;
-  /** When true, the column keeps a fixed width and truncates long content with ellipsis rather than auto-fitting. */
+  /** When true, the column keeps a fixed width and truncates long content with ellipsis rather than auto-fitted. */
   truncate?: boolean;
   // Reference columns
   refTable?: string;
@@ -18,6 +20,8 @@ export interface ColumnDef {
   // Calculated columns (type === 'calculated')
   expression?: string;
   showInGrid?: boolean;
+  // List columns (type === 'list')
+  listOf?: ListItemType;
 }
 
 /** @deprecated Use columns with type === 'calculated' instead. Kept for backward-compat migration. */

@@ -35,6 +35,23 @@ export function convertValue(value: string, fromType: ColumnType, toType: Column
   if (value === '') return { value: '' };
   if (fromType === toType) return { value };
 
+  // → list: wrap existing value as single-item array
+  if (toType === 'list') {
+    return { value: JSON.stringify([value]) };
+  }
+
+  // list → other: extract items and convert
+  if (fromType === 'list') {
+    try {
+      const items: unknown[] = JSON.parse(value);
+      if (!Array.isArray(items) || items.length === 0) return { value: '' };
+      if (toType === 'text') return { value: items.map(String).join(', ') };
+      return convertValue(String(items[0]), 'text', toType, dateFormat);
+    } catch {
+      return { value: '', error: 'Cannot parse list value' };
+    }
+  }
+
   // Any type → text: keep as-is
   if (toType === 'text') return { value };
 

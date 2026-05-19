@@ -3,7 +3,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import Select from 'react-select';
 import { dialogSelectStyles } from './selectStyles';
 import { DATE_FORMATS } from './dateFormatsList';
-import type { ColumnDef, ColumnType, Row, TableSchema } from './types';
+import type { ColumnDef, ColumnType, ListItemType, Row, TableSchema } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import type { UseAppStateReturn } from './useAppState';
 import { useDialog } from './DialogProvider';
@@ -26,6 +26,16 @@ const typeOptions: { value: ColumnType; label: string }[] = [
   { value: 'reference', label: 'Reference' },
   { value: 'image', label: 'Image' },
   { value: 'calculated', label: 'Calculated' },
+  { value: 'list', label: 'List…' },
+];
+
+const listItemTypeOptions: { value: ListItemType; label: string }[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'integer', label: 'Integer' },
+  { value: 'decimal', label: 'Decimal' },
+  { value: 'date', label: 'Date' },
+  { value: 'datetime', label: 'Datetime' },
+  { value: 'bool', label: 'Boolean' },
 ];
 
 function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorProps) {
@@ -370,6 +380,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
 
   const [refDialogCol, setRefDialogCol] = useState<number | null>(null);
   const [calcDialogCol, setCalcDialogCol] = useState<number | null>(null);
+  const [listDialogCol, setListDialogCol] = useState<number | null>(null);
 
   const onColumnRowDragEnd = useCallback((event: RowDragEndEvent) => {
     const orderedRows: Array<{ _idx: number }> = [];
@@ -440,8 +451,14 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       minWidth: 120,
       cellEditor: TypeCellEditor,
       cellEditorPopup: true,
-      cellRenderer: (params: { value: string; data: { type: string; name: string; _idx: number } }) => {
-        const label = typeOptions.find(o => o.value === params.value)?.label ?? params.value;
+      cellRenderer: (params: { value: string; data: { type: string; name: string; _idx: number; listOf?: string } }) => {
+        const isList = params.data.type === 'list';
+        const listOfLabel = isList
+          ? (listItemTypeOptions.find(o => o.value === params.data.listOf)?.label ?? 'Text')
+          : '';
+        const label = isList
+          ? `List of ${listOfLabel}`
+          : (typeOptions.find(o => o.value === params.value)?.label ?? params.value);
         const isRef = params.data.type === 'reference';
         const isCalc = params.data.type === 'calculated';
         return React.createElement('div', {
@@ -466,6 +483,15 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             title: 'Configure calculation',
             style: { cursor: 'pointer', color: 'var(--ref-color, #2563eb)', fontSize: 14, lineHeight: 1, padding: '0 2px' },
           }, '✎'),
+          isList && React.createElement('span', {
+            onMouseDown: (e: React.MouseEvent) => {
+              e.stopPropagation();
+              e.preventDefault();
+              setListDialogCol(params.data._idx);
+            },
+            title: 'Configure list element type',
+            style: { cursor: 'pointer', color: 'var(--ref-color, #2563eb)', fontSize: 14, lineHeight: 1, padding: '0 2px' },
+          }, '✎'),
         );
       },
       valueSetter: (params: ValueSetterParams) => {
@@ -480,6 +506,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
           refDisplayColumns: newType === 'reference' ? [] : undefined,
           refSearchColumns: newType === 'reference' ? [] : undefined,
           expression: newType === 'calculated' ? '' : undefined,
+          listOf: newType === 'list' ? (columns[idx].listOf ?? 'text') : undefined,
         };
 
         // For existing tables with data, show migration preview
@@ -508,6 +535,9 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         }
         if (newType === 'calculated') {
           requestAnimationFrame(() => setCalcDialogCol(idx));
+        }
+        if (newType === 'list') {
+          requestAnimationFrame(() => setListDialogCol(idx));
         }
         return true;
       },
@@ -592,7 +622,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       },
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [columns, uniqueKeys, defaultSort, otherTableIds, openRefConfigDialog, getRefTableColumns, setCalcDialogCol]);
+  ], [columns, uniqueKeys, defaultSort, otherTableIds, openRefConfigDialog, getRefTableColumns, setCalcDialogCol, setListDialogCol]);
 
   if (tableId && !schema) {
     return (
@@ -1126,6 +1156,9 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               if (newType === 'reference') {
                 requestAnimationFrame(() => setRefDialogCol(colIndex));
               }
+              if (newType === 'list') {
+                requestAnimationFrame(() => setListDialogCol(colIndex));
+              }
             }}
             onCancel={() => setMigrationPreview(null)}
           />
@@ -1152,6 +1185,15 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             allColumns={columns.filter(c => c.type !== 'calculated' && VALID_COL_NAME.test(c.name))}
             onUpdate={(idx, updates) => updateColumn(idx, updates)}
             onClose={() => setCalcDialogCol(null)}
+          />
+        )}
+
+        {listDialogCol !== null && columns[listDialogCol]?.type === 'list' && (
+          <ListTypeDialog
+            col={columns[listDialogCol]}
+            colIndex={listDialogCol}
+            onUpdate={(idx, updates) => updateColumn(idx, updates)}
+            onClose={() => setListDialogCol(null)}
           />
         )}
 
@@ -1794,6 +1836,46 @@ const ExtractPreviewDialog: React.FC<{
 };
 
 // ── Calculated Column Config Dialog ──────────────────────────────────────────
+
+const ListTypeDialog: React.FC<{
+  col: ColumnDef;
+  colIndex: number;
+  onUpdate: (idx: number, updates: Partial<ColumnDef>) => void;
+  onClose: () => void;
+}> = ({ col, colIndex, onUpdate, onClose }) => {
+  const [listOf, setListOf] = React.useState<ListItemType>(col.listOf ?? 'text');
+
+  const handleSave = () => {
+    onUpdate(colIndex, { listOf });
+    onClose();
+  };
+
+  return (
+    <div className="app-dialog-overlay" onClick={onClose}>
+      <div className="app-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 340 }}>
+        <h3 className="app-dialog-title">List Column: {col.name || 'unnamed'}</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
+          <div>
+            <label className="app-dialog-label" style={{ marginBottom: 4 }}>Element type</label>
+            <Select
+              className="app-dialog-select"
+              styles={dialogSelectStyles}
+              options={listItemTypeOptions}
+              value={listItemTypeOptions.find(o => o.value === listOf) ?? listItemTypeOptions[0]}
+              onChange={(opt) => { if (opt) setListOf(opt.value); }}
+              menuPortalTarget={document.body}
+              menuPosition="fixed"
+            />
+          </div>
+        </div>
+        <div className="app-dialog-actions">
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={handleSave}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const CalcConfigDialog: React.FC<{
   col: ColumnDef;

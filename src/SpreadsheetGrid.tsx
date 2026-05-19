@@ -8,12 +8,49 @@ import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, Selecti
 import type { CustomCellRendererProps } from 'ag-grid-react';
 import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
+import ListTagsEditor from './ListTagsEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
 import { normalizeTemporalString, parseTemporalUnknown } from './dateFormat';
 import { getCalc } from './chartFormat';
 import { sharedDefaultColDef } from './gridDefaults';
 
 const DRAFT_ROW_ID = '_draft';
+
+function parseListItems(value: string): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed.map(String);
+  } catch {
+    // fall through
+  }
+  return value ? [value] : [];
+}
+
+const ListTagsRenderer: React.FC<CustomCellRendererProps> = ({ value }) => {
+  const items = parseListItems(value ?? '');
+  if (items.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center', paddingTop: 2 }}>
+      {items.map((item, i) => (
+        <span
+          key={i}
+          style={{
+            background: 'var(--ag-row-hover-color, #e8f0fe)',
+            color: 'var(--ag-foreground-color, #333)',
+            borderRadius: 3,
+            padding: '0 6px',
+            fontSize: 11,
+            lineHeight: '17px',
+            display: 'inline-block',
+          }}
+        >
+          {item}
+        </span>
+      ))}
+    </div>
+  );
+};
 
 const OpenRecordButton: React.FC<CustomCellRendererProps & { onOpen: (row: Row) => void }> = ({ data, onOpen }) => {
   if (!data || data[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return null;
@@ -481,6 +518,15 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       if (col.truncate) {
         if (!col.width) def.width = 160;
         def.maxWidth = col.width ?? 160;
+      }
+
+      // List columns: chip/tag renderer + popup tag editor
+      if (col.type === 'list') {
+        def.cellRenderer = ListTagsRenderer;
+        def.cellEditor = ListTagsEditor;
+        def.cellEditorPopup = true;
+        def.cellEditorPopupPosition = 'under';
+        def.autoHeight = true;
       }
 
       // Image columns: icon indicator in-cell, click to open upload/preview dialog
