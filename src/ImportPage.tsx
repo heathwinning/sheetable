@@ -203,6 +203,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
   const [urlLoading, setUrlLoading] = useState(false);
   // Which column's ref config dialog is open in new-table grid (-1 = none)
   const [importRefDialogCol, setImportRefDialogCol] = useState<number>(-1);
+  const [stripWhitespace, setStripWhitespace] = useState(true);
 
   const schema = tableId ? state.getSchema(tableId) : undefined;
 
@@ -862,6 +863,9 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
           if (sourceIdx === -1) continue;
           let value = sourceRow[sourceIdx] ?? '';
 
+          // Strip leading/trailing whitespace
+          if (stripWhitespace) value = value.trim();
+
           // Strip thousands separators from numbers
           if ((schemaCol.type === 'integer' || schemaCol.type === 'decimal') && value) {
             value = value.replace(/,/g, '');
@@ -967,6 +971,9 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
         if (sourceIdx === -1) continue;
         let value = sourceRow[sourceIdx] ?? '';
 
+        // Strip leading/trailing whitespace
+        if (stripWhitespace) value = value.trim();
+
         // Strip thousands separators from numbers
         if ((col.type === 'integer' || col.type === 'decimal') && value) {
           value = value.replace(/,/g, '');
@@ -1023,7 +1030,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
     if (validRows.length > 0) {
       navigate(toBookPath(`/table/${encodeURIComponent(tableId)}`));
     }
-  }, [tableId, schema, mappings, sourceRows, sourceHeaders, state, parseDate, resolveReference, createMissingReferences, flushPendingRefInserts, isNewTable, newTableName, newTableColumns, showAlert, navigate, toBookPath]);
+  }, [tableId, schema, mappings, sourceRows, sourceHeaders, state, parseDate, resolveReference, createMissingReferences, flushPendingRefInserts, isNewTable, newTableName, newTableColumns, showAlert, navigate, toBookPath, stripWhitespace]);
 
   // For existing table mode, require valid table  
   if (!isNewTable && !schema) {
@@ -1430,6 +1437,14 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
         {/* Step 4: Import */}
         {sourceHeaders.length > 0 && (
           <div className="import-section">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 10, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={stripWhitespace}
+                onChange={(e) => setStripWhitespace(e.target.checked)}
+              />
+              Strip leading/trailing whitespace from values
+            </label>
             <button
               className="btn-primary import-btn"
               onClick={handleImport}
