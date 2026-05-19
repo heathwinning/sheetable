@@ -734,7 +734,7 @@ const ChartConfigModal: React.FC<{
   onClose: () => void;
 }> = ({ config, isNew, tableIds, getColumnPaths, onSave, onClose }) => {
   const [draft, setDraft] = useState<ChartConfig>(config);
-  const allPaths = getColumnPaths(draft.table);
+  const allPaths = getColumnPaths(draft.table).filter(p => p.type !== 'reference');
   // Only leaf paths (no further ref children) or non-ref columns are valid Y columns
   const numericPathSet = new Set(
     allPaths
