@@ -48,7 +48,9 @@ body {
    App Shell
    ============================================================ */
 .app {
-  @apply flex flex-col h-screen overflow-hidden;
+  @apply flex flex-col overflow-hidden;
+  height: 100dvh;
+  overscroll-behavior: none;
 }
 
 .app-header {
