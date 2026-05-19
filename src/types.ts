@@ -132,6 +132,7 @@ export interface BookInfo {
   owner_id: string;
   role: string;
   created_at: string;
+  sheet_order?: string;
 }
 
 // Book member from API

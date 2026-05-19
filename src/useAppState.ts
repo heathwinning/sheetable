@@ -40,6 +40,8 @@ export interface UseAppStateReturn {
   reorderTablesTo: (ids: string[]) => void;
   reorderChartsTo: (ids: string[]) => void;
   reorderViewsTo: (ids: string[]) => void;
+  sortedSheets: { type: 'table' | 'chart' | 'view'; name: string }[];
+  reorderAllSheetsTo: (items: { type: 'table' | 'chart' | 'view'; name: string }[]) => void;
   updateSchema: (tableId: string, schema: TableSchema) => Promise<void>;
 
   // Row operations
@@ -549,6 +551,58 @@ export function useAppState(): UseAppStateReturn {
     }
   }, [activeBookId]);
 
+  // ---- Global cross-type sheet ordering ----
+  const sortedSheets = useMemo(() => {
+    const book = books.find(b => b.id === activeBookId);
+    const raw = book?.sheet_order;
+    if (raw) {
+      try {
+        const parsed: { type: 'table' | 'chart' | 'view'; name: string }[] = JSON.parse(raw);
+        const existing = new Set<string>();
+        const result: { type: 'table' | 'chart' | 'view'; name: string }[] = [];
+        for (const item of parsed) {
+          const key = `${item.type}:${item.name}`;
+          if (
+            (item.type === 'table' && tableOrder.includes(item.name)) ||
+            (item.type === 'chart' && chartSheetOrder.includes(item.name)) ||
+            (item.type === 'view' && viewSheetOrder.includes(item.name))
+          ) {
+            result.push(item);
+            existing.add(key);
+          }
+        }
+        for (const name of tableOrder) {
+          if (!existing.has(`table:${name}`)) result.push({ type: 'table', name });
+        }
+        for (const name of chartSheetOrder) {
+          if (!existing.has(`chart:${name}`)) result.push({ type: 'chart', name });
+        }
+        for (const name of viewSheetOrder) {
+          if (!existing.has(`view:${name}`)) result.push({ type: 'view', name });
+        }
+        return result;
+      } catch { /* fall through */ }
+    }
+    return [
+      ...tableOrder.map(name => ({ type: 'table' as const, name })),
+      ...chartSheetOrder.map(name => ({ type: 'chart' as const, name })),
+      ...viewSheetOrder.map(name => ({ type: 'view' as const, name })),
+    ];
+  }, [books, activeBookId, tableOrder, chartSheetOrder, viewSheetOrder]);
+
+  const doReorderAllSheetsTo = useCallback((items: { type: 'table' | 'chart' | 'view'; name: string }[]) => {
+    const newTableOrder = items.filter(i => i.type === 'table').map(i => i.name);
+    const newChartOrder = items.filter(i => i.type === 'chart').map(i => i.name);
+    const newViewOrder = items.filter(i => i.type === 'view').map(i => i.name);
+    setTableOrder(newTableOrder);
+    setChartSheetOrder(newChartOrder);
+    setViewSheetOrder(newViewOrder);
+    if (activeBookId) {
+      setBooks(prev => prev.map(b => b.id === activeBookId ? { ...b, sheet_order: JSON.stringify(items) } : b));
+      api.reorderAllSheets(activeBookId, items).catch(console.error);
+    }
+  }, [activeBookId]);
+
   const doReorderTables = useCallback((fromIndex: number, toIndex: number) => {
     setTableOrder(prev => {
       const next = [...prev];
@@ -945,6 +999,8 @@ export function useAppState(): UseAppStateReturn {
     reorderTablesTo: doReorderTablesTo,
     reorderChartsTo: doReorderChartsTo,
     reorderViewsTo: doReorderViewsTo,
+    sortedSheets,
+    reorderAllSheetsTo: doReorderAllSheetsTo,
     updateSchema: doUpdateSchema,
 
     applyEdit,

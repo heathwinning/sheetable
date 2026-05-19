@@ -10,6 +10,7 @@ export const onRequestPatch: PagesFunction<Env, 'bookId', RequestData> = async (
     name?: string;
     tableOrder?: string[];
     chartOrder?: string[];
+    sheetOrder?: { type: 'table' | 'chart' | 'view'; name: string }[];
   };
 
   // Renaming requires owner
@@ -40,6 +41,35 @@ export const onRequestPatch: PagesFunction<Env, 'bookId', RequestData> = async (
         'UPDATE _chart_sheets SET display_order = ? WHERE book_id = ? AND name = ?'
       ).bind(i, bookId, name)
     );
+    if (stmts.length > 0) await context.env.DB.batch(stmts);
+  }
+
+  // Global cross-type sheet order
+  if (body.sheetOrder) {
+    requireEditor(context.data);
+    const order = body.sheetOrder;
+    const stmts: ReturnType<typeof context.env.DB.prepare>[] = [];
+    // Save JSON to books record
+    stmts.push(
+      context.env.DB.prepare('UPDATE books SET sheet_order = ? WHERE id = ?')
+        .bind(JSON.stringify(order), bookId)
+    );
+    // Also update per-type display_order with global position for consistent per-type sorting
+    order.forEach((item, globalIdx) => {
+      if (item.type === 'table') {
+        stmts.push(context.env.DB.prepare(
+          'UPDATE _tables SET display_order = ? WHERE book_id = ? AND name = ?'
+        ).bind(globalIdx, bookId, item.name));
+      } else if (item.type === 'chart') {
+        stmts.push(context.env.DB.prepare(
+          'UPDATE _chart_sheets SET display_order = ? WHERE book_id = ? AND name = ?'
+        ).bind(globalIdx, bookId, item.name));
+      } else if (item.type === 'view') {
+        stmts.push(context.env.DB.prepare(
+          'UPDATE _view_sheets SET display_order = ? WHERE book_id = ? AND name = ?'
+        ).bind(globalIdx, bookId, item.name));
+      }
+    });
     if (stmts.length > 0) await context.env.DB.batch(stmts);
   }
 

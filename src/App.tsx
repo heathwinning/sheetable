@@ -919,10 +919,8 @@ const SheetOrderGrid: React.FC<{
   tableIds: string[];
   chartIds: string[];
   viewIds: string[];
-  onReorderTables: (ids: string[]) => void;
-  onReorderCharts: (ids: string[]) => void;
-  onReorderViews: (ids: string[]) => void;
-}> = ({ tableIds, chartIds, viewIds, onReorderTables, onReorderCharts, onReorderViews }) => {
+  onReorderAll: (items: { type: 'table' | 'chart' | 'view'; name: string }[]) => void;
+}> = ({ tableIds, chartIds, viewIds, onReorderAll }) => {
   const rowData = useMemo<SheetOrderItem[]>(() => [
     ...tableIds.map(id => ({ id, type: 'table' as const })),
     ...chartIds.map(id => ({ id, type: 'chart' as const })),
@@ -932,10 +930,8 @@ const SheetOrderGrid: React.FC<{
   const onRowDragEnd = useCallback((e: RowDragEndEvent<SheetOrderItem>) => {
     const newOrder: SheetOrderItem[] = [];
     e.api.forEachNode(node => { if (node.data) newOrder.push(node.data); });
-    onReorderTables(newOrder.filter(r => r.type === 'table').map(r => r.id));
-    onReorderCharts(newOrder.filter(r => r.type === 'chart').map(r => r.id));
-    onReorderViews(newOrder.filter(r => r.type === 'view').map(r => r.id));
-  }, [onReorderTables, onReorderCharts, onReorderViews]);
+    onReorderAll(newOrder.map(r => ({ type: r.type, name: r.id })));
+  }, [onReorderAll]);
 
   const totalRows = tableIds.length + chartIds.length + viewIds.length;
   return (
@@ -1260,9 +1256,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
                 tableIds={state.tableIds}
                 chartIds={state.chartSheetIds}
                 viewIds={state.viewSheetIds}
-                onReorderTables={state.reorderTablesTo}
-                onReorderCharts={state.reorderChartsTo}
-                onReorderViews={state.reorderViewsTo}
+                onReorderAll={state.reorderAllSheetsTo}
               />
             )}
           </div>
@@ -1525,48 +1519,52 @@ const App: React.FC = () => {
         </div>
         {isOnSheetRoute && (state.tableIds.length > 0 || state.chartSheetIds.length > 0 || state.viewSheetIds.length > 0) && (
           <div className="header-tabs">
-            {state.tableIds.map(id => {
-              // Check if any view with hideSourceTableTab is for this table
-              const shouldHide = state.viewSheetIds.some(viewId => {
-                const view = state.getViewSheet(viewId);
-                return view?.tableName === id && view?.hideSourceTableTab === true;
-              });
-              if (shouldHide) return null;
-              
-              const isActive = location.pathname.includes(`/table/${encodeURIComponent(id)}`);
-              return (
-                <Link
-                  key={id}
-                  className={`table-tab ${isActive ? 'active' : ''}`}
-                  to={withBook(headerBookId, `/table/${encodeURIComponent(id)}`)}
-                >
-                  {id}
-                </Link>
-              );
-            })}
-            {state.chartSheetIds.map(id => {
-              const isActive = location.pathname.includes(`/chart/${encodeURIComponent(id)}`);
-              return (
-                <Link
-                  key={`chart-${id}`}
-                  className={`table-tab chart-tab ${isActive ? 'active' : ''}`}
-                  to={withBook(headerBookId, `/chart/${encodeURIComponent(id)}`)}
-                >
-                  {id}
-                </Link>
-              );
-            })}
-            {state.viewSheetIds.map(id => {
-              const isActive = location.pathname.includes(`/view/${encodeURIComponent(id)}`);
-              return (
-                <Link
-                  key={`view-${id}`}
-                  className={`table-tab view-tab ${isActive ? 'active' : ''}`}
-                  to={withBook(headerBookId, `/view/${encodeURIComponent(id)}`)}
-                >
-                  {id}
-                </Link>
-              );
+            {state.sortedSheets.map(sheet => {
+              if (sheet.type === 'table') {
+                const id = sheet.name;
+                const shouldHide = state.viewSheetIds.some(viewId => {
+                  const view = state.getViewSheet(viewId);
+                  return view?.tableName === id && view?.hideSourceTableTab === true;
+                });
+                if (shouldHide) return null;
+                const isActive = location.pathname.includes(`/table/${encodeURIComponent(id)}`);
+                return (
+                  <Link
+                    key={`table-${id}`}
+                    className={`table-tab ${isActive ? 'active' : ''}`}
+                    to={withBook(headerBookId, `/table/${encodeURIComponent(id)}`)}
+                  >
+                    {id}
+                  </Link>
+                );
+              }
+              if (sheet.type === 'chart') {
+                const id = sheet.name;
+                const isActive = location.pathname.includes(`/chart/${encodeURIComponent(id)}`);
+                return (
+                  <Link
+                    key={`chart-${id}`}
+                    className={`table-tab chart-tab ${isActive ? 'active' : ''}`}
+                    to={withBook(headerBookId, `/chart/${encodeURIComponent(id)}`)}
+                  >
+                    {id}
+                  </Link>
+                );
+              }
+              if (sheet.type === 'view') {
+                const id = sheet.name;
+                const isActive = location.pathname.includes(`/view/${encodeURIComponent(id)}`);
+                return (
+                  <Link
+                    key={`view-${id}`}
+                    className={`table-tab view-tab ${isActive ? 'active' : ''}`}
+                    to={withBook(headerBookId, `/view/${encodeURIComponent(id)}`)}
+                  >
+                    {id}
+                  </Link>
+                );
+              }
+              return null;
             })}
             {state.isLoading ? (
               <span className="table-tab add-tab disabled" title="Loading…" style={{ opacity: 0.5, cursor: 'default' }}>

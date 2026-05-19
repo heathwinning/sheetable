@@ -6,7 +6,7 @@ export const onRequestGet: PagesFunction<Env, string, RequestData> = async (cont
   const user = requireUser(context.data);
 
   const { results } = await context.env.DB.prepare(
-    `SELECT b.id, b.name, b.owner_id, bm.role, b.created_at
+    `SELECT b.id, b.name, b.owner_id, bm.role, b.created_at, b.sheet_order
      FROM books b
      JOIN book_members bm ON bm.book_id = b.id
      WHERE bm.user_id = ?

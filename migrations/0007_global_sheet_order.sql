@@ -1,0 +1,1 @@
+ALTER TABLE books ADD COLUMN sheet_order TEXT NOT NULL DEFAULT '';
