@@ -1399,15 +1399,16 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                           onTouchStart={e => e.stopPropagation()}
                         >
                           {needsInput && (
-                            <select
-                              value={curVal}
-                              onChange={e => setFilterValues(prev => ({ ...prev, [chart.id]: e.target.value }))}
-                              className="app-dialog-select"
-                              style={{ width: 'auto' }}
-                            >
-                              <option value="">— {colLabel} —</option>
-                              {distinctValues.map(v => <option key={v} value={v}>{v}</option>)}
-                            </select>
+                            <Select
+                              styles={dialogSelectStyles}
+                              value={curVal ? { value: curVal, label: curVal } : null}
+                              options={distinctValues.map(v => ({ value: v, label: v }))}
+                              onChange={opt => setFilterValues(prev => ({ ...prev, [chart.id]: opt?.value ?? '' }))}
+                              placeholder={`— ${colLabel} —`}
+                              isClearable
+                              menuPortalTarget={document.body}
+                              menuPlacement="auto"
+                            />
                           )}
                           {!needsInput && (
                             <span style={{ color: 'var(--color-text-muted)', fontSize: 12, userSelect: 'none' }}>
