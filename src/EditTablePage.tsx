@@ -9,7 +9,7 @@ import type { UseAppStateReturn } from './useAppState';
 import { useDialog } from './DialogProvider';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, ValueSetterParams, CellClickedEvent } from 'ag-grid-community';
+import type { ColDef, ValueSetterParams, CellClickedEvent, RowDragEndEvent } from 'ag-grid-community';
 import type { CustomCellEditorProps } from 'ag-grid-react';
 import { previewMigration, applyMigration, previewExtract } from './typeMigration';
 import type { MigrationPreview } from './typeMigration';
@@ -365,6 +365,13 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
 
   const [refDialogCol, setRefDialogCol] = useState<number | null>(null);
 
+  const onColumnRowDragEnd = useCallback((event: RowDragEndEvent) => {
+    const orderedRows: Array<{ _idx: number }> = [];
+    event.api.forEachNode(node => { if (node.data) orderedRows.push(node.data); });
+    const newOrder = orderedRows.map(r => columns[r._idx]);
+    setColumns(newOrder);
+  }, [columns]);
+
   const columnGridDefs: ColDef[] = useMemo(() => [
     {
       headerName: 'Display Name',
@@ -372,6 +379,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       editable: true,
       flex: 2,
       minWidth: 100,
+      rowDrag: true,
       valueSetter: (params: ValueSetterParams) => {
         const idx = params.data._idx;
         const newDisplay = params.newValue as string || undefined;
@@ -999,7 +1007,8 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               singleClickEdit={true}
               stopEditingWhenCellsLoseFocus={true}
               getRowId={(params) => String(params.data._idx)}
-              suppressRowDrag={true}
+              onRowDragEnd={onColumnRowDragEnd}
+              rowDragManaged={true}
             />
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>

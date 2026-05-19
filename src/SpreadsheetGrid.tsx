@@ -4,7 +4,7 @@ import { INTERNAL_ROW_ID } from './types';
 import { log } from './DebugLogger';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnMovedEvent, ColumnResizedEvent, FirstDataRenderedEvent } from 'ag-grid-community';
+import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnResizedEvent, FirstDataRenderedEvent } from 'ag-grid-community';
 import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
@@ -132,17 +132,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     gridRef.current?.api.setFilterModel(null);
     setFilterActive(false);
   }, []);
-
-  const onColumnMoved = useCallback((event: ColumnMovedEvent) => {
-    if (!event.finished || !onColumnOrderChange) return;
-    const schemaColNames = new Set(schema.columns.map(c => c.name));
-    const ordered = (event.api.getAllGridColumns() ?? [])
-      .map(col => col.getColId())
-      .filter(id => schemaColNames.has(id));
-    if (ordered.length === schema.columns.length) {
-      onColumnOrderChange(ordered);
-    }
-  }, [onColumnOrderChange, schema.columns]);
 
   const onColumnResized = useCallback((event: ColumnResizedEvent) => {
     if (!event.finished || !onColumnWidthChange || event.source === 'api') return;
@@ -656,7 +645,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           onSelectionChanged={onSelectionChanged}
           onFilterChanged={onFilterChanged}
           onFirstDataRendered={onFirstDataRendered}
-          onColumnMoved={onColumnMoved}
+          defaultColDef={{ suppressMovable: true }}
           onColumnResized={onColumnResized}
         />
       </div>
