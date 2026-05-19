@@ -38,5 +38,8 @@ jobs:
             exit 1
           fi
 
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply sheetable-db --remote
+
       - name: Deploy to Cloudflare Pages
         run: npx wrangler pages deploy dist --project-name "$CLOUDFLARE_PAGES_PROJECT" --branch main
