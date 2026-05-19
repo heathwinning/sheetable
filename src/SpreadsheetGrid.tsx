@@ -4,7 +4,8 @@ import { INTERNAL_ROW_ID } from './types';
 import { log } from './DebugLogger';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnResizedEvent, FirstDataRenderedEvent, ICellRendererParams } from 'ag-grid-community';
+import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnResizedEvent, FirstDataRenderedEvent } from 'ag-grid-community';
+import type { CustomCellRendererProps } from 'ag-grid-react';
 import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
@@ -13,6 +14,19 @@ import { getCalc } from './chartFormat';
 import { sharedDefaultColDef } from './gridDefaults';
 
 const DRAFT_ROW_ID = '_draft';
+
+const OpenRecordButton: React.FC<CustomCellRendererProps & { onOpen: (row: Row) => void }> = ({ data, onOpen }) => {
+  if (!data || data[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return null;
+  return (
+    <button
+      title="Open record"
+      onClick={(e) => { e.stopPropagation(); onOpen(data as Row); }}
+      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1, color: 'var(--color-text-muted,#888)', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+    >
+      ⤢
+    </button>
+  );
+};
 
 function toSortableDateEpoch(value: unknown): number {
   const parsed = parseTemporalUnknown(value);
@@ -535,18 +549,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         filter: false,
         editable: false,
         suppressMovable: true,
-        cellRenderer: (params: ICellRendererParams) => {
-          if (params.data?.[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return null;
-          const btn = document.createElement('button');
-          btn.title = 'Open record';
-          btn.textContent = '⤢';
-          btn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:13px;padding:0;line-height:1;color:var(--color-text-muted,#888);width:100%;height:100%;display:flex;align-items:center;justify-content:center;';
-          btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            onOpenRecord(params.data as Row);
-          });
-          return btn;
-        },
+        cellRenderer: (params: CustomCellRendererProps) => (
+          <OpenRecordButton {...params} onOpen={onOpenRecord} />
+        ),
       });
     }
 
