@@ -476,7 +476,8 @@ const ChartRenderer: React.FC<{
   const yTickFormatter = hasValueFormat ? (v: number) => formatValue(v, config) : undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tooltipFormatter = hasValueFormat ? (v: any) => [formatValue(Number(v), config), undefined] : undefined;
-  const tooltipLabelFormatter = xTickFormatter ? (label: string) => xTickFormatter(label) : undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tooltipLabelFormatter = xTickFormatter ? (label: any) => xTickFormatter(String(label)) : undefined;
   const tooltipStyle: React.CSSProperties = {
     background: 'var(--color-surface)',
     border: '1px solid var(--color-border)',
