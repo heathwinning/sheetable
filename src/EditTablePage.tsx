@@ -84,6 +84,16 @@ function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorP
 
 const selectStyles = dialogSelectStyles;
 
+function slugify(s: string): string {
+  const slug = s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return slug || 'column';
+}
+
+const VALID_COL_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
 const CALC_HINT_ROWS = [
   { expr: 'distance / 1000', desc: 'Divide a column by a constant' },
   { expr: 'price * quantity', desc: 'Multiply two columns' },
@@ -117,7 +127,7 @@ const CalcHint: React.FC = () => {
             </tbody>
           </table>
           <div style={{ marginTop: 4 }}>
-            Variables available: all column names in the table.{' '}
+            Variables: all column names in the table (by Column ID). Column IDs are auto-generated as valid identifiers — e.g. <code>monthly_revenue</code>.{' '}
             <a
               href="https://github.com/silentmatt/expr-eval#expression-syntax"
               target="_blank"
@@ -278,33 +288,54 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
 
   const columnGridDefs: ColDef[] = useMemo(() => [
     {
-      headerName: 'Name',
-      field: 'name',
-      editable: true,
-      flex: 2,
-      minWidth: 100,
-      valueSetter: (params: ValueSetterParams) => {
-        const idx = params.data._idx;
-        const oldName = columns[idx].name;
-        const newName = params.newValue ?? '';
-        updateColumn(idx, { name: newName });
-        // Update unique keys if renamed
-        if (oldName && uniqueKeys.includes(oldName)) {
-          setUniqueKeys(prev => prev.map(k => k === oldName ? newName : k));
-        }
-        // Update default sort if renamed
-        setDefaultSort(prev => prev.map(s => s.column === oldName ? { ...s, column: newName } : s));
-        return true;
-      },
-    },
-    {
       headerName: 'Display Name',
       field: 'displayName',
       editable: true,
       flex: 2,
       minWidth: 100,
       valueSetter: (params: ValueSetterParams) => {
-        updateColumn(params.data._idx, { displayName: params.newValue || undefined });
+        const idx = params.data._idx;
+        const newDisplay = params.newValue as string || undefined;
+        const oldDisplay = columns[idx].displayName ?? '';
+        const currentName = columns[idx].name;
+        // Auto-update Column ID if it still matches the old auto-slug (or is empty)
+        const autoSlug = slugify(oldDisplay);
+        const updates: Partial<ColumnDef> = { displayName: newDisplay };
+        if (!currentName || currentName === autoSlug) {
+          const newSlug = newDisplay ? slugify(newDisplay) : '';
+          const oldName = currentName;
+          updates.name = newSlug;
+          if (oldName && oldName !== newSlug) {
+            if (uniqueKeys.includes(oldName)) {
+              setUniqueKeys(prev => prev.map(k => k === oldName ? newSlug : k));
+            }
+            setDefaultSort(prev => prev.map(s => s.column === oldName ? { ...s, column: newSlug } : s));
+          }
+        }
+        updateColumn(idx, updates);
+        return true;
+      },
+    },
+    {
+      headerName: 'Column ID',
+      field: 'name',
+      editable: true,
+      flex: 2,
+      minWidth: 100,
+      cellStyle: (params: { value: string }) => {
+        const v = params.value as string;
+        if (v && !VALID_COL_NAME.test(v)) return { color: 'var(--color-danger, #dc2626)' };
+        return null;
+      },
+      valueSetter: (params: ValueSetterParams) => {
+        const idx = params.data._idx;
+        const oldName = columns[idx].name;
+        const newName = params.newValue ?? '';
+        updateColumn(idx, { name: newName });
+        if (oldName && uniqueKeys.includes(oldName)) {
+          setUniqueKeys(prev => prev.map(k => k === oldName ? newName : k));
+        }
+        setDefaultSort(prev => prev.map(s => s.column === oldName ? { ...s, column: newName } : s));
         return true;
       },
     },
@@ -729,7 +760,11 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     // Validate columns
     for (const col of columns) {
       if (!col.name.trim()) {
-        setError('All columns must have a name');
+        setError('All columns must have a Column ID');
+        return;
+      }
+      if (!VALID_COL_NAME.test(col.name.trim())) {
+        setError(`Column ID "${col.name.trim()}" is invalid — use only letters, numbers, and underscores, starting with a letter or underscore`);
         return;
       }
       if (col.type === 'reference' && !col.refTable) {
