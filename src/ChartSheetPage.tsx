@@ -439,6 +439,7 @@ const ChartRenderer: React.FC<{
           pinnedBottomRowData={[totalRow]}
           defaultColDef={{ resizable: true }}
           suppressCellFocus
+          suppressColumnVirtualisation
           onFirstDataRendered={e => e.api.autoSizeAllColumns()}
         />
       </div>
