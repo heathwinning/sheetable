@@ -1027,7 +1027,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               stopEditingWhenCellsLoseFocus={true}
               getRowId={(params) => String(params.data._idx)}
               onRowDragEnd={onColumnRowDragEnd}
-              rowDragManaged={false}
+              rowDragManaged={true}
             />
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
