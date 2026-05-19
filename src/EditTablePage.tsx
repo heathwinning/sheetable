@@ -25,6 +25,7 @@ const typeOptions: { value: ColumnType; label: string }[] = [
   { value: 'bool', label: 'Boolean' },
   { value: 'reference', label: 'Reference' },
   { value: 'image', label: 'Image' },
+  { value: 'calculated', label: 'Calculated' },
 ];
 
 function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorProps) {
@@ -260,9 +261,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   const [draftRowPosition, setDraftRowPosition] = useState<'top' | 'bottom'>(
     () => schema?.draftRowPosition ?? 'bottom'
   );
-  const [calculatedColumns, setCalculatedColumns] = useState<{ name: string; expression: string; showInGrid?: boolean }[]>(
-    () => schema?.calculatedColumns ?? []
-  );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: 'success' | 'info'; message: string } | null>(null);
 
@@ -275,7 +273,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       setUniqueKeys(schema.uniqueKeys ?? []);
       setDefaultSort(schema.defaultSort ?? []);
       setDraftRowPosition(schema.draftRowPosition ?? 'bottom');
-      setCalculatedColumns(schema.calculatedColumns ?? []);
       setSchemaLoaded(true);
     }
   }, [schema, schemaLoaded]);
@@ -371,6 +368,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   }, [columns]);
 
   const [refDialogCol, setRefDialogCol] = useState<number | null>(null);
+  const [calcDialogCol, setCalcDialogCol] = useState<number | null>(null);
 
   const onColumnRowDragEnd = useCallback((event: RowDragEndEvent) => {
     const orderedRows: Array<{ _idx: number }> = [];
@@ -444,6 +442,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       cellRenderer: (params: { value: string; data: { type: string; name: string; _idx: number } }) => {
         const label = typeOptions.find(o => o.value === params.value)?.label ?? params.value;
         const isRef = params.data.type === 'reference';
+        const isCalc = params.data.type === 'calculated';
         return React.createElement('div', {
           style: { display: 'flex', alignItems: 'center', gap: 4, width: '100%' },
         },
@@ -455,6 +454,15 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               openRefConfigDialog(params.data._idx);
             },
             title: 'Configure reference',
+            style: { cursor: 'pointer', color: 'var(--ref-color, #2563eb)', fontSize: 14, lineHeight: 1, padding: '0 2px' },
+          }, '✎'),
+          isCalc && React.createElement('span', {
+            onMouseDown: (e: React.MouseEvent) => {
+              e.stopPropagation();
+              e.preventDefault();
+              setCalcDialogCol(params.data._idx);
+            },
+            title: 'Configure calculation',
             style: { cursor: 'pointer', color: 'var(--ref-color, #2563eb)', fontSize: 14, lineHeight: 1, padding: '0 2px' },
           }, '✎'),
         );
@@ -470,6 +478,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
           refTable: newType === 'reference' ? (otherTableIds[0] ?? '') : undefined,
           refDisplayColumns: newType === 'reference' ? [] : undefined,
           refSearchColumns: newType === 'reference' ? [] : undefined,
+          expression: newType === 'calculated' ? '' : undefined,
         };
 
         // For existing tables with data, show migration preview
@@ -495,6 +504,9 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         updateColumn(idx, refUpdates);
         if (newType === 'reference') {
           requestAnimationFrame(() => setRefDialogCol(idx));
+        }
+        if (newType === 'calculated') {
+          requestAnimationFrame(() => setCalcDialogCol(idx));
         }
         return true;
       },
@@ -568,7 +580,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       },
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [columns, uniqueKeys, defaultSort, otherTableIds, openRefConfigDialog, getRefTableColumns]);
+  ], [columns, uniqueKeys, defaultSort, otherTableIds, openRefConfigDialog, getRefTableColumns, setCalcDialogCol]);
 
   if (tableId && !schema) {
     return (
@@ -602,7 +614,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       uniqueKeys: uniqueKeys.filter(uk => colNames.includes(uk)),
       defaultSort: defaultSort.filter(s => colNames.includes(s.column)),
       draftRowPosition,
-      calculatedColumns: calculatedColumns.length > 0 ? calculatedColumns : undefined,
+      calculatedColumns: undefined,
     };
   };
 
@@ -906,7 +918,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       uniqueKeys,
       defaultSort: defaultSort.filter(s => colNames.includes(s.column)),
       draftRowPosition,
-      calculatedColumns: calculatedColumns.length > 0 ? calculatedColumns : undefined,
+      calculatedColumns: undefined,
     };
 
     if (isCreate) {
@@ -1121,53 +1133,15 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
           />
         )}
 
-        {/* Calculated columns */}
-        <div className="edit-table-section">
-          <label className="edit-table-label">Calculated Columns</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {calculatedColumns.map((calc, idx) => (
-              <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <input
-                  className="edit-table-input"
-                  style={{ flex: '0 0 120px' }}
-                  placeholder="name"
-                  value={calc.name}
-                  onChange={e => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, name: e.target.value } : c))}
-                />
-                <ExprInput
-                  className="edit-table-input"
-                  style={{ fontFamily: 'monospace', fontSize: 12 }}
-                  placeholder="e.g. {distance} / 1000"
-                  value={calc.expression}
-                  columns={columns
-                    .filter(c => VALID_COL_NAME.test(c.name))
-                    .map(c => ({ id: c.name, label: c.displayName || c.name }))}
-                  onChange={val => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, expression: val } : c))}
-                />
-                <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                  <input
-                    type="checkbox"
-                    checked={!!calc.showInGrid}
-                    onChange={e => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, showInGrid: e.target.checked || undefined } : c))}
-                  />
-                  Show in table
-                </label>
-                <button
-                  className="btn-secondary btn-sm"
-                  style={{ flexShrink: 0 }}
-                  onClick={() => setCalculatedColumns(prev => prev.filter((_, i) => i !== idx))}
-                  title="Remove"
-                >×</button>
-              </div>
-            ))}
-            <button
-              className="btn-secondary btn-sm"
-              style={{ alignSelf: 'flex-start' }}
-              onClick={() => setCalculatedColumns(prev => [...prev, { name: '', expression: '' }])}
-            >+ Add Calculated Column</button>
-            <CalcHint />
-          </div>
-        </div>
+        {calcDialogCol !== null && columns[calcDialogCol]?.type === 'calculated' && (
+          <CalcConfigDialog
+            col={columns[calcDialogCol]}
+            colIndex={calcDialogCol}
+            allColumns={columns.filter(c => c.type !== 'calculated' && VALID_COL_NAME.test(c.name))}
+            onUpdate={(idx, updates) => updateColumn(idx, updates)}
+            onClose={() => setCalcDialogCol(null)}
+          />
+        )}
 
         <div className="edit-table-actions">
           <button className="btn-secondary" onClick={() => navigate(tableId ? toBookPath(`/table/${encodeURIComponent(tableId)}`) : (bookBase || '/'))}>
@@ -1801,6 +1775,58 @@ const ExtractPreviewDialog: React.FC<{
           >
             Extract
           </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Calculated Column Config Dialog ──────────────────────────────────────────
+
+const CalcConfigDialog: React.FC<{
+  col: ColumnDef;
+  colIndex: number;
+  allColumns: ColumnDef[];
+  onUpdate: (idx: number, updates: Partial<ColumnDef>) => void;
+  onClose: () => void;
+}> = ({ col, colIndex, allColumns, onUpdate, onClose }) => {
+  const [expr, setExpr] = React.useState(col.expression ?? '');
+  const [showInGrid, setShowInGrid] = React.useState(!!col.showInGrid);
+
+  const handleSave = () => {
+    onUpdate(colIndex, { expression: expr, showInGrid: showInGrid || undefined });
+    onClose();
+  };
+
+  return (
+    <div className="app-dialog-overlay" onClick={onClose}>
+      <div className="app-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+        <h3 className="app-dialog-title">Calculated Column: {col.name || 'unnamed'}</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
+          <div>
+            <label className="app-dialog-label" style={{ marginBottom: 4 }}>Expression</label>
+            <ExprInput
+              className="app-dialog-input"
+              style={{ fontFamily: 'monospace', fontSize: 13, width: '100%', boxSizing: 'border-box' }}
+              placeholder="e.g. {distance} / 1000"
+              value={expr}
+              columns={allColumns.map(c => ({ id: c.name, label: c.displayName || c.name }))}
+              onChange={setExpr}
+            />
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={showInGrid}
+              onChange={e => setShowInGrid(e.target.checked)}
+            />
+            Show as column in spreadsheet table
+          </label>
+          <CalcHint />
+        </div>
+        <div className="app-dialog-actions">
+          <button className="app-dialog-btn app-dialog-btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="app-dialog-btn app-dialog-btn-primary" onClick={handleSave}>Save</button>
         </div>
       </div>
     </div>

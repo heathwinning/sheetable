@@ -2,24 +2,26 @@
 export const INTERNAL_ROW_ID = '_rowId';
 
 // Column types supported by the system
-export type ColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'bool' | 'reference' | 'image';
+export type ColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'bool' | 'reference' | 'image' | 'calculated';
 
 export interface ColumnDef {
   name: string;
   displayName?: string;
   type: ColumnType;
   width?: number;
+  // Reference columns
   refTable?: string;
   refDisplayColumns?: string[];
   refSearchColumns?: string[];
+  // Calculated columns (type === 'calculated')
+  expression?: string;
+  showInGrid?: boolean;
 }
 
+/** @deprecated Use columns with type === 'calculated' instead. Kept for backward-compat migration. */
 export interface CalculatedColumn {
   name: string;
-  /** expr-eval expression; variable `value` holds the raw column value (as a number).
-   *  May reference other columns by name, e.g. "distance / 1000" or "price * quantity". */
   expression: string;
-  /** When true, render this as a read-only column in the spreadsheet grid. */
   showInGrid?: boolean;
 }
 
@@ -29,6 +31,7 @@ export interface TableSchema {
   uniqueKeys: string[];
   defaultSort?: { column: string; direction: 'asc' | 'desc' }[];
   draftRowPosition?: 'top' | 'bottom';
+  /** @deprecated Migrated to columns with type === 'calculated' on load. */
   calculatedColumns?: CalculatedColumn[];
 }
 

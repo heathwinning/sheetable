@@ -342,8 +342,8 @@ export function useAppState(): UseAppStateReturn {
 
     // Check if this is a calculated column (only at root level, non-dotted)
     if (parts.length === 1) {
-      const calcCol = (schema.calculatedColumns ?? []).find(c => c.name === colName);
-      if (calcCol) {
+      const calcCol = schema.columns.find(c => c.name === colName && c.type === 'calculated');
+      if (calcCol?.expression) {
         // Build a context with all numeric column values from the row
         const ctx: Record<string, number> = {};
         for (const col of schema.columns) {
@@ -417,7 +417,7 @@ export function useAppState(): UseAppStateReturn {
       }
       // Add calculated columns (only at the root table level, no nesting)
       if (!prefix) {
-        for (const calc of schema.calculatedColumns ?? []) {
+        for (const calc of schema.columns.filter(c => c.type === 'calculated')) {
           result.push({ path: calc.name, label: calc.name });
         }
       }

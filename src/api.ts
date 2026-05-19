@@ -90,6 +90,7 @@ interface ApiTable {
   uniqueKeys: string[];
   defaultSort?: { column: string; direction: 'asc' | 'desc' }[];
   draftRowPosition: string;
+  /** Legacy: migrated to columns with type='calculated' on load */
   calculatedColumns?: { name: string; expression: string; showInGrid?: boolean }[];
   columns: {
     name: string;
@@ -98,26 +99,44 @@ interface ApiTable {
     refTable?: string;
     refDisplayColumns?: string[];
     refSearchColumns?: string[];
+    expression?: string;
+    showInGrid?: boolean;
   }[];
 }
 
 export async function listTables(bookId: string): Promise<TableSchema[]> {
   const tables = await request<ApiTable[]>(`/books/${bookId}/tables`);
-  return tables.map(t => ({
-    name: t.name,
-    columns: t.columns.map(c => ({
+  return tables.map(t => {
+    const baseCols = t.columns.map(c => ({
       name: c.name,
       displayName: c.displayName,
       type: c.type as TableSchema['columns'][0]['type'],
       refTable: c.refTable,
       refDisplayColumns: c.refDisplayColumns,
       refSearchColumns: c.refSearchColumns,
-    })),
-    uniqueKeys: t.uniqueKeys,
-    defaultSort: t.defaultSort,
-    draftRowPosition: t.draftRowPosition as 'top' | 'bottom',
-    calculatedColumns: t.calculatedColumns,
-  }));
+      expression: c.expression,
+      showInGrid: c.showInGrid,
+    }));
+    // Migrate legacy calculatedColumns into the columns array
+    const legacyCalcCols = (t.calculatedColumns ?? []).map(calc => ({
+      name: calc.name,
+      type: 'calculated' as const,
+      expression: calc.expression,
+      showInGrid: calc.showInGrid,
+    }));
+    const calcNames = new Set(legacyCalcCols.map(c => c.name));
+    const columns = [
+      ...baseCols.filter(c => !calcNames.has(c.name)),
+      ...legacyCalcCols,
+    ];
+    return {
+      name: t.name,
+      columns,
+      uniqueKeys: t.uniqueKeys,
+      defaultSort: t.defaultSort,
+      draftRowPosition: t.draftRowPosition as 'top' | 'bottom',
+    };
+  });
 }
 
 export async function createTable(bookId: string, schema: TableSchema, rows?: Row[]): Promise<void> {
@@ -133,6 +152,8 @@ export async function createTable(bookId: string, schema: TableSchema, rows?: Ro
         refTable: c.refTable,
         refDisplayColumns: c.refDisplayColumns,
         refSearchColumns: c.refSearchColumns,
+        expression: c.expression,
+        showInGrid: c.showInGrid,
       })),
       uniqueKeys: schema.uniqueKeys,
       defaultSort: schema.defaultSort,
@@ -176,11 +197,13 @@ export async function updateTableSchema(bookId: string, name: string, schema: Ta
         refTable: c.refTable,
         refDisplayColumns: c.refDisplayColumns,
         refSearchColumns: c.refSearchColumns,
+        expression: c.expression,
+        showInGrid: c.showInGrid,
       })),
       uniqueKeys: schema.uniqueKeys,
       defaultSort: schema.defaultSort,
       draftRowPosition: schema.draftRowPosition,
-      calculatedColumns: schema.calculatedColumns,
+      calculatedColumns: undefined,
     }),
   });
 }

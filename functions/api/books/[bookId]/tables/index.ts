@@ -31,7 +31,7 @@ export const onRequestGet: PagesFunction<Env, 'bookId', RequestData> = async (co
   ).bind(bookId).all<{ id: number; name: string; display_order: number; unique_keys: string; default_sort: string | null; draft_position: string; calculated_columns: string | null }>();
 
   const { results: allCols } = await context.env.DB.prepare(
-    `SELECT c.table_id, c.name, c.display_name, c.type, c.display_order, c.width, c.ref_table, c.ref_display, c.ref_search
+    `SELECT c.table_id, c.name, c.display_name, c.type, c.display_order, c.width, c.ref_table, c.ref_display, c.ref_search, c.expression, c.show_in_grid
      FROM _columns c
      JOIN _tables t ON t.id = c.table_id
      WHERE t.book_id = ?
@@ -60,6 +60,8 @@ export const onRequestGet: PagesFunction<Env, 'bookId', RequestData> = async (co
       refTable: c.ref_table as string | undefined,
       refDisplayColumns: c.ref_display ? JSON.parse(c.ref_display as string) : undefined,
       refSearchColumns: c.ref_search ? JSON.parse(c.ref_search as string) : undefined,
+      expression: (c.expression as string | null) ?? undefined,
+      showInGrid: c.show_in_grid ? true : undefined,
     })),
   }));
 

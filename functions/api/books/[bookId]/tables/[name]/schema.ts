@@ -9,6 +9,8 @@ interface ColumnInput {
   refTable?: string;
   refDisplayColumns?: string[];
   refSearchColumns?: string[];
+  expression?: string;
+  showInGrid?: boolean;
 }
 
 interface SchemaBody {
@@ -19,7 +21,7 @@ interface SchemaBody {
   calculatedColumns?: { name: string; displayName?: string; expression: string }[];
 }
 
-const VALID_TYPES = new Set(['text', 'integer', 'decimal', 'date', 'datetime', 'bool', 'reference', 'image']);
+const VALID_TYPES = new Set(['text', 'integer', 'decimal', 'date', 'datetime', 'bool', 'reference', 'image', 'calculated']);
 
 // PUT /api/books/:bookId/tables/:name/schema → update column definitions and table settings
 export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = async (context) => {
@@ -75,8 +77,8 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
       const col = body.columns[i];
       stmts.push(
         context.env.DB.prepare(
-          `INSERT INTO _columns (table_id, name, display_name, type, display_order, width, ref_table, ref_display, ref_search)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO _columns (table_id, name, display_name, type, display_order, width, ref_table, ref_display, ref_search, expression, show_in_grid)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           table.id,
           col.name.trim(),
@@ -87,6 +89,8 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
           col.refTable || null,
           col.refDisplayColumns ? JSON.stringify(col.refDisplayColumns) : null,
           col.refSearchColumns ? JSON.stringify(col.refSearchColumns) : null,
+          col.expression || null,
+          col.showInGrid ? 1 : 0,
         )
       );
     }
@@ -98,6 +102,7 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
 
     for (const col of body.columns) {
       const colName = col.name.trim();
+      if (col.type === 'calculated') continue; // virtual — no physical column needed
       const existingActual = existingLower.get(colName.toLowerCase());
       if (!existingNames.has(colName)) {
         if (existingActual && existingActual !== colName) {
@@ -114,8 +119,8 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
       }
     }
 
-    // Build a case-insensitive map of new names for drop detection
-    const newLower = new Set(body.columns.map(c => c.name.trim().toLowerCase()));
+    // Build a case-insensitive map of new names for drop detection (exclude calculated)
+    const newLower = new Set(body.columns.filter(c => c.type !== 'calculated').map(c => c.name.trim().toLowerCase()));
 
     for (const existingName of existingNames) {
       if (!newNames.has(existingName) && !newLower.has(existingName.toLowerCase())) {

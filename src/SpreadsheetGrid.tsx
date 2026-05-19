@@ -216,6 +216,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   // Build AG Grid column definitions with valueSetter for validation
   const columnDefs: ColDef[] = useMemo(() => {
     const cols: ColDef[] = schema.columns.flatMap((col) => {
+      if (col.type === 'calculated') return []; // handled separately below
       const sortEntry = (schema.defaultSort ?? []).find(s => s.column === col.name);
       const sortIdx = (schema.defaultSort ?? []).findIndex(s => s.column === col.name);
       const def: ColDef = {
@@ -455,20 +456,20 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       return [def];
     });
 
-    // Append read-only calculated columns
-    for (const calc of schema.calculatedColumns ?? []) {
-      if (!calc.showInGrid) continue;
+    // Append read-only calculated columns (showInGrid === true)
+    const dataColNames = schema.columns.filter(c => c.type !== 'calculated').map(c => c.name);
+    for (const calc of schema.columns.filter(c => c.type === 'calculated' && c.showInGrid)) {
+      if (!calc.expression) continue;
       const calcFn = getCalc(calc.expression);
-      const colNames = schema.columns.map(c => c.name);
       cols.push({
         field: `__calc__${calc.name}`,
-        headerName: calc.name,
+        headerName: calc.displayName || calc.name,
         editable: false,
         suppressMovable: true,
         valueGetter: (params) => {
           if (!params.data || params.data[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return '';
           const ctx: Record<string, number> = {};
-          for (const n of colNames) ctx[n] = Number(params.data[n]) || 0;
+          for (const n of dataColNames) ctx[n] = Number(params.data[n]) || 0;
           const result = calcFn(0, ctx);
           return Number.isFinite(result) ? result : '';
         },
