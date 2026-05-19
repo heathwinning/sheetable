@@ -25,7 +25,6 @@ interface SpreadsheetGridProps {
   onEdit: (rowIndex: number, columnName: string, newValue: string) => ValidationError[];
   onInsert: (row: Row) => ValidationError[];
   onDeleteRow: (rowIndex: number) => ValidationError[];
-  onColumnOrderChange?: (orderedColumnNames: string[]) => void;
   onColumnWidthChange?: (columnWidths: Record<string, number>) => void;
   revision: number;
   bookId: string | null;
@@ -52,7 +51,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   onEdit,
   onInsert,
   onDeleteRow,
-  onColumnOrderChange,
   onColumnWidthChange,
   revision,
   bookId,
