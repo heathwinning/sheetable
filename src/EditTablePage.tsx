@@ -86,7 +86,7 @@ function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorP
 
 const selectStyles = dialogSelectStyles;
 
-function slugify(s: string): string {
+export function slugify(s: string): string {
   const slug = s
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')

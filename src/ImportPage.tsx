@@ -8,6 +8,7 @@ import { INTERNAL_ROW_ID } from './types';
 import { parseCSV } from './csv';
 import * as api from './api';
 import { useAlert } from './DialogProvider';
+import { slugify } from './EditTablePage';
 
 interface ImportPageProps {
   state: UseAppStateReturn;
@@ -115,6 +116,7 @@ interface NewTableColumn {
   sourceColumn: string;
   enabled: boolean;
   name: string;
+  displayName?: string;
   type: ColumnType;
   dateFormat?: string;
   refTable?: string;
@@ -334,10 +336,12 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
         const colValues = rows.map(r => r[idx] ?? '');
         const guessedType = guessColumnType(colValues);
         const isDateLike = guessedType === 'date' || guessedType === 'datetime';
+        const id = slugify(header);
         return {
           sourceColumn: header,
           enabled: true,
-          name: header,
+          name: id,
+          displayName: id !== header ? header : undefined,
           type: guessedType,
           dateFormat: isDateLike ? (detectDateFormat(colValues) ?? 'yyyy-mm-dd') : undefined,
         };
@@ -644,7 +648,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
 
       // Build schema
       const columns: ColumnDef[] = enabledCols.map(c => {
-        const col: ColumnDef = { name: c.name.trim(), type: c.type };
+        const col: ColumnDef = { name: c.name.trim(), displayName: c.displayName, type: c.type };
         if (c.type === 'reference' && c.refTable) {
           col.refTable = c.refTable;
           const refCols = (c.refSourceMappings ?? []).map(m => m.refColumn).filter(Boolean);
