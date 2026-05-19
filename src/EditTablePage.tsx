@@ -1619,12 +1619,27 @@ const MigrationsToolsDialog: React.FC<{
   const rowOptions = useMemo(() => {
     const labelCols = uniqueKeys.length > 0
       ? uniqueKeys
-      : columns.filter(c => c.type === 'text' || c.type === 'integer' || c.type === 'decimal').slice(0, 3).map(c => c.name);
-    return rows.map(row => ({
-      value: row[INTERNAL_ROW_ID],
-      label: labelCols.map(k => row[k] ?? '').filter(Boolean).join(' · ') || row[INTERNAL_ROW_ID],
-    }));
-  }, [rows, columns, uniqueKeys]);
+      : columns.filter(c => c.type === 'text' || c.type === 'integer' || c.type === 'decimal' || c.type === 'reference').slice(0, 3).map(c => c.name);
+    return rows.map(row => {
+      const parts = labelCols.map(colName => {
+        const colDef = columns.find(c => c.name === colName);
+        const rawValue = row[colName] ?? '';
+        if (colDef?.type === 'reference' && colDef.refTable) {
+          const refRows = getRefTableRows(colDef.refTable);
+          const refCols = getRefTableColumns(colDef.refTable);
+          const refRow = refRows.find(r => r[INTERNAL_ROW_ID] === rawValue);
+          if (refRow && refCols.length > 0) {
+            return resolveRefPathValue(colDef.refTable, refRow, refCols[0]);
+          }
+        }
+        return rawValue;
+      }).filter(Boolean);
+      return {
+        value: row[INTERNAL_ROW_ID],
+        label: parts.join(' · ') || row[INTERNAL_ROW_ID],
+      };
+    });
+  }, [rows, columns, uniqueKeys, getRefTableColumns, getRefTableRows, resolveRefPathValue]);
 
   const goBack = () => setSection('menu');
 
