@@ -717,7 +717,8 @@ const ROW_ORDER_OPTIONS: { value: ChartConfig['rowOrder']; label: string }[] = [
 const DATE_FEATURES: { value: DateFeature; label: string }[] = [
   { value: 'year', label: 'Year' },
   { value: 'quarter', label: 'Quarter' },
-  { value: 'yearmonth', label: 'Month' },
+  { value: 'yearmonth', label: 'Year-Month' },
+  { value: 'month', label: 'Month name' },
   { value: 'week', label: 'Week of year' },
   { value: 'dayofweek', label: 'Day of week' },
   { value: 'day', label: 'Day of month' },
