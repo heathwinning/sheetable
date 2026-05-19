@@ -565,6 +565,10 @@ export function useAppState(): UseAppStateReturn {
         if (chart.yColumn) { const r = rw(chart.yColumn); if (r !== chart.yColumn) { chart.yColumn = r; dirty = true; } }
         if (chart.groupBy) { const r = rw(chart.groupBy); if (r !== chart.groupBy) { chart.groupBy = r; dirty = true; } }
         if (chart.filterColumn) { const r = rw(chart.filterColumn); if (r !== chart.filterColumn) { chart.filterColumn = r; dirty = true; } }
+        if (chart.filters) {
+          const nf = chart.filters.map(f => ({ ...f, column: rw(f.column) }));
+          if (nf.some((f, i) => f.column !== chart.filters![i].column)) { chart.filters = nf; dirty = true; }
+        }
         if (chart.tableRows) { const rr = chart.tableRows.map(rw); if (rr.some((v, i) => v !== chart.tableRows![i])) { chart.tableRows = rr; dirty = true; } }
         if (chart.tableColumns) { const rc = chart.tableColumns.map(rw); if (rc.some((v, i) => v !== chart.tableColumns![i])) { chart.tableColumns = rc; dirty = true; } }
         if (chart.tableSort) { const rk = rw(chart.tableSort.key); if (rk !== chart.tableSort.key) { chart.tableSort = { ...chart.tableSort, key: rk }; dirty = true; } }

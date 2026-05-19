@@ -93,9 +93,13 @@ export interface ChartConfig {
   /** @deprecated use valueCalc / valueFormat */
   yModifier?: ColumnModifier;
   stacked?: boolean; // for bar charts only
+  /** @deprecated use filters[] */
   filterColumn?: string;
+  /** @deprecated use filters[] */
   filterOperator?: FilterOperator;
-  filterValue?: string; // saved default; overridden at runtime
+  /** @deprecated use filters[] */
+  filterValue?: string;
+  filters?: { column: string }[];
 }
 
 export interface ChartLayoutItem {

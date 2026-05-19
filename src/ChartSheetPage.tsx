@@ -25,14 +25,17 @@ const CHART_COLORS = ['#6366f1', '#22d3ee', '#f59e0b', '#10b981', '#ef4444', '#8
 
 function applyChartFilter(
   rows: Row[],
-  col: string | undefined,
-  values: string[],
+  filters: { column: string; values: string[] }[],
   resolve: (table: string, row: Row, path: string) => string,
   table: string,
 ): Row[] {
-  if (!col || values.length === 0) return rows;
-  const lower = values.map(v => v.toLowerCase());
-  return rows.filter(row => lower.includes((resolve(table, row, col)?.trim() ?? '').toLowerCase()));
+  let result = rows;
+  for (const { column, values } of filters) {
+    if (!column || values.length === 0) continue;
+    const lower = values.map(v => v.toLowerCase());
+    result = result.filter(row => lower.includes((resolve(table, row, column)?.trim() ?? '').toLowerCase()));
+  }
+  return result;
 }
 
 // ── Aggregation ──────────────────────────────────────────────────────────────
@@ -1053,23 +1056,40 @@ const ChartConfigModal: React.FC<{
 
             </>
           )}
-          {/* ── Filter ── */}
+          {/* ── Filters ── */}
           <div style={modSectionStyle}>
-            <div style={modLabelStyle}>Filter <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ flex: 2, minWidth: 120 }}>
-                <Select
-                  styles={dialogSelectStyles}
-                  isClearable
-                  placeholder="— column —"
-                  value={colOptionsFlatXYG.find(o => o.value === draft.filterColumn) ?? null}
-                  options={colOptionsXYG}
-                  onChange={opt => setDraft(d => ({ ...d, filterColumn: opt?.value || undefined, filterValue: undefined }))}
-                  menuPortalTarget={document.body}
-                  menuPlacement="auto"
-                />
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={modLabelStyle}>Filters <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></div>
+              <button
+                className="btn-secondary"
+                style={{ fontSize: 11, padding: '2px 8px' }}
+                onClick={() => setDraft(d => ({ ...d, filters: [...(d.filters ?? []), { column: '' }] }))}
+              >+ Add filter</button>
             </div>
+            {(draft.filters ?? []).map((f, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <Select
+                    styles={dialogSelectStyles}
+                    isClearable
+                    placeholder="— column —"
+                    value={colOptionsFlatXYG.find(o => o.value === f.column) ?? null}
+                    options={colOptionsXYG}
+                    onChange={opt => setDraft(d => {
+                      const filters = [...(d.filters ?? [])];
+                      filters[i] = { column: opt?.value ?? '' };
+                      return { ...d, filters };
+                    })}
+                    menuPortalTarget={document.body}
+                    menuPlacement="auto"
+                  />
+                </div>
+                <button
+                  onClick={() => setDraft(d => ({ ...d, filters: (d.filters ?? []).filter((_, j) => j !== i) }))}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 18, lineHeight: 1, padding: '0 4px', flexShrink: 0 }}
+                >×</button>
+              </div>
+            ))}
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
@@ -1093,10 +1113,10 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
   const [layout, setLayout] = useState<ChartLayoutItem[]>(() => chartSheet?.layout ?? []);
   const [editingChart, setEditingChart] = useState<ChartConfig | null>(null);
   const [isNewChart, setIsNewChart] = useState(false);
-  const [filterValues, setFilterValues] = useState<Record<string, string[]>>(() => {
-    const init: Record<string, string[]> = {};
+  const [filterValues, setFilterValues] = useState<Record<string, Record<string, string[]>>>(() => {
+    const init: Record<string, Record<string, string[]>> = {};
     for (const c of (chartSheet?.charts ?? [])) {
-      if (c.filterValue) init[c.id] = [c.filterValue];
+      if (c.filterValue && c.filterColumn) init[c.id] = { [c.filterColumn]: [c.filterValue] };
     }
     return init;
   });
@@ -1120,9 +1140,9 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
       setCharts(chartSheet.charts);
       setLayout(chartSheet.layout);
       setFilterValues(() => {
-        const init: Record<string, string[]> = {};
+        const init: Record<string, Record<string, string[]>> = {};
         for (const c of chartSheet.charts) {
-          if (c.filterValue) init[c.id] = [c.filterValue];
+          if (c.filterValue && c.filterColumn) init[c.id] = { [c.filterColumn]: [c.filterValue] };
         }
         return init;
       });
@@ -1262,8 +1282,14 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           >
             {charts.map(chart => {
               const rows = state.getRows(chart.table);
-              const activeFilterValues = filterValues[chart.id] ?? (chart.filterValue ? [chart.filterValue] : []);
-              const filteredRows = applyChartFilter(rows, chart.filterColumn, activeFilterValues, state.resolveColumnPath, chart.table);
+              const chartFilterVals = filterValues[chart.id] ?? {};
+              const effectiveFilters = chart.filters?.filter(f => f.column).length
+                ? chart.filters!
+                : (chart.filterColumn ? [{ column: chart.filterColumn }] : []);
+              const activeFilters = effectiveFilters
+                .filter(f => f.column)
+                .map(f => ({ column: f.column, values: chartFilterVals[f.column] ?? [] }));
+              const filteredRows = applyChartFilter(rows, activeFilters, state.resolveColumnPath, chart.table);
               const { data, seriesKeys } = chart.type === 'table'
                 ? { data: [], seriesKeys: [] }
                 : aggregateData(filteredRows, chart.xColumn, chart.yColumn, chart.aggregate, chart.groupBy, state.resolveColumnPath, chart.table);
@@ -1313,32 +1339,40 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                         </div>
                       )}
                     </div>
-                    {chart.filterColumn && (() => {
-                      const fullLabel = getColumnPathsForTable(chart.table).find(p => p.path === chart.filterColumn)?.label ?? chart.filterColumn;
-                      const colLabel = fullLabel.includes(' → ') ? fullLabel.split(' → ').pop()! : fullLabel;
-                      const curVals = filterValues[chart.id] ?? [];
-                      const distinctValues = [...new Set(
-                        rows
-                          .map(row => state.resolveColumnPath(chart.table, row, chart.filterColumn!).trim())
-                          .filter(v => !!v)
-                      )].sort((a, b) => a.localeCompare(b));
+                    {effectiveFilters.filter(f => f.column).length > 0 && (() => {
+                      const colPaths = getColumnPathsForTable(chart.table);
+                      const chartFilterVals2 = filterValues[chart.id] ?? {};
                       return (
                         <div
-                          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, flexWrap: 'wrap' }}
+                          style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}
                           onMouseDown={e => e.stopPropagation()}
                           onTouchStart={e => e.stopPropagation()}
                         >
-                          <Select
-                            styles={dialogSelectStyles}
-                            isMulti
-                            value={curVals.map(v => ({ value: v, label: v }))}
-                            options={distinctValues.map(v => ({ value: v, label: v }))}
-                            onChange={opts => setFilterValues(prev => ({ ...prev, [chart.id]: opts.map(o => o.value) }))}
-                            placeholder={`— ${colLabel} —`}
-                            isClearable
-                            menuPortalTarget={document.body}
-                            menuPlacement="auto"
-                          />
+                          {effectiveFilters.filter(f => f.column).map(f => {
+                            const fullLabel = colPaths.find(p => p.path === f.column)?.label ?? f.column;
+                            const colLabel = fullLabel.includes(' → ') ? fullLabel.split(' → ').pop()! : fullLabel;
+                            const curVals = chartFilterVals2[f.column] ?? [];
+                            const distinctValues = [...new Set(
+                              rows.map(row => state.resolveColumnPath(chart.table, row, f.column).trim()).filter(v => !!v)
+                            )].sort((a, b) => a.localeCompare(b));
+                            return (
+                              <Select
+                                key={f.column}
+                                styles={dialogSelectStyles}
+                                isMulti
+                                value={curVals.map(v => ({ value: v, label: v }))}
+                                options={distinctValues.map(v => ({ value: v, label: v }))}
+                                onChange={opts => setFilterValues(prev => ({
+                                  ...prev,
+                                  [chart.id]: { ...(prev[chart.id] ?? {}), [f.column]: opts.map(o => o.value) },
+                                }))}
+                                placeholder={`— ${colLabel} —`}
+                                isClearable
+                                menuPortalTarget={document.body}
+                                menuPlacement="auto"
+                              />
+                            );
+                          })}
                         </div>
                       );
                     })()}
