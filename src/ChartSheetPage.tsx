@@ -567,6 +567,44 @@ const ChartRenderer: React.FC<{
 
 // ── Config modal ─────────────────────────────────────────────────────────────
 
+const FORMAT_HINT_ROWS: { tpl: string; desc: string }[] = [
+  { tpl: '{value}',        desc: 'Raw number' },
+  { tpl: '{value:.2f}',    desc: '2 decimal places  →  3.14' },
+  { tpl: '{value:,.2f}',   desc: 'Thousands + 2 decimals  →  1,234.56' },
+  { tpl: '{value:,}',      desc: 'Thousands separator  →  1,235' },
+  { tpl: '{value:.2%}',    desc: 'Percentage  →  12.35%' },
+  { tpl: '{value:.2s}',    desc: 'SI prefix  →  1.23k / 4.56M' },
+  { tpl: '{value} km',     desc: 'Append a unit' },
+  { tpl: '${value:,.2f}',  desc: 'Currency  →  $1,234.56' },
+];
+
+const FormatHint: React.FC = () => {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 11, textDecoration: 'underline dotted' }}
+      >
+        {open ? 'Hide examples' : 'Show format examples'}
+      </button>
+      {open && (
+        <table style={{ marginTop: 6, borderCollapse: 'collapse', width: '100%' }}>
+          <tbody>
+            {FORMAT_HINT_ROWS.map(r => (
+              <tr key={r.tpl}>
+                <td style={{ fontFamily: 'monospace', paddingRight: 12, paddingBottom: 2, whiteSpace: 'nowrap' }}>{r.tpl}</td>
+                <td style={{ paddingBottom: 2, color: 'var(--color-text-muted)' }}>{r.desc}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+};
+
 const CHART_TYPE_OPTIONS = [
   { value: 'bar', label: 'Bar' },
   { value: 'line', label: 'Line' },
@@ -803,9 +841,10 @@ const ChartConfigModal: React.FC<{
                   <div style={modLabelStyle}>Value options</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <label className="app-dialog-label" style={{ marginBottom: 0, fontWeight: 400 }}>Display format <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional — e.g. <code>{'{{value}} km'}</code>)</span></label>
+                      <label className="app-dialog-label" style={{ marginBottom: 0, fontWeight: 400 }}>Display format <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional)</span></label>
                       <input type="text" className="app-dialog-input" style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12 }} placeholder="{{value}}" value={draft.valueFormat ?? ''} onChange={e => set('valueFormat', e.target.value || undefined)} />
                     </div>
+                    <FormatHint />
                   </div>
                 </div>
               )}
@@ -880,9 +919,10 @@ const ChartConfigModal: React.FC<{
                   <div style={modLabelStyle}>Value options</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <label className="app-dialog-label" style={{ marginBottom: 0, fontWeight: 400 }}>Display format <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional — e.g. <code>{'{{value}} km'}</code>)</span></label>
+                      <label className="app-dialog-label" style={{ marginBottom: 0, fontWeight: 400 }}>Display format <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional)</span></label>
                       <input type="text" className="app-dialog-input" style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12 }} placeholder="{{value}}" value={draft.valueFormat ?? ''} onChange={e => set('valueFormat', e.target.value || undefined)} />
                     </div>
+                    <FormatHint />
                   </div>
                 </div>
               )}

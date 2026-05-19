@@ -1,30 +1,24 @@
 // chartFormat.ts
-// Utilities for flexible value calculation and formatting in charts.
+// Utilities for value calculation (expr-eval) and display formatting (d3-format / d3-time-format).
 //
-// valueCalc: an expr-eval expression string, variable `value` holds the raw number.
-//   e.g. "value * 1000"  or  "round(value / 60, 1)"
+// valueCalc: an expr-eval expression. Variable `value` holds the raw number; row column names
+//   are also available as variables. e.g. "value / 1000"  or  "round(distance / time, 2)"
 //
-// valueFormat: a Handlebars template string, `value` holds the calculated number.
-//   e.g. "{{value}} km"  or  "{{dateFormat date 'MMM D, YYYY'}}"
-//
-// Both are optional. If omitted, the raw numeric value is used as-is.
+// valueFormat: a template string using {variable:formatSpec} syntax.
+//   Numbers use d3-format specs  — e.g. "{value:,.2f} km"  →  "1,234.56 km"
+//   Dates use d3-time-format specs — e.g. "{date:%b %Y}"  →  "May 2026"
+//   Plain {variable} substitutions are also supported.
 
 import { Parser } from 'expr-eval';
-import Handlebars from 'handlebars';
-import dayjs from 'dayjs';
+import { format as d3Format } from 'd3-format';
+import { timeFormat } from 'd3-time-format';
 import type { ColumnModifier } from './types';
 
-// ── Handlebars helpers ────────────────────────────────────────────────────────
-
-Handlebars.registerHelper('dateFormat', function (date: unknown, format: unknown) {
-  if (!date) return '';
-  return dayjs(String(date)).format(typeof format === 'string' ? format : 'YYYY-MM-DD');
-});
-
-// ── Caches (avoid re-compiling on every render tick) ─────────────────────────
+// ── Caches ────────────────────────────────────────────────────────────────────
 
 const calcCache = new Map<string, ReturnType<typeof buildCalc>>();
-const templateCache = new Map<string, Handlebars.TemplateDelegate>();
+const numFormatCache = new Map<string, (n: number) => string>();
+const dateFormatCache = new Map<string, (d: Date) => string>();
 const parser = new Parser();
 
 function buildCalc(expr: string) {
@@ -44,9 +38,40 @@ function getCalc(expr: string) {
   return calcCache.get(expr)!;
 }
 
-function getTemplate(tpl: string) {
-  if (!templateCache.has(tpl)) templateCache.set(tpl, Handlebars.compile(tpl));
-  return templateCache.get(tpl)!;
+function getNumFormat(spec: string): (n: number) => string {
+  if (!numFormatCache.has(spec)) {
+    try { numFormatCache.set(spec, d3Format(spec)); }
+    catch { numFormatCache.set(spec, n => String(n)); }
+  }
+  return numFormatCache.get(spec)!;
+}
+
+function getDateFormat(spec: string): (d: Date) => string {
+  if (!dateFormatCache.has(spec)) dateFormatCache.set(spec, timeFormat(spec));
+  return dateFormatCache.get(spec)!;
+}
+
+// ── Template renderer ─────────────────────────────────────────────────────────
+// Syntax: {varName:formatSpec} or {varName}
+// Format spec starting with % → d3-time-format (date).
+// Anything else → d3-format (number).
+
+function applyTemplate(tpl: string, ctx: Record<string, unknown>): string {
+  return tpl.replace(/\{(\w+)(?::([^}]*))?\}/g, (_, name: string, spec: string | undefined) => {
+    const val = ctx[name];
+    if (val === undefined || val === null) return '';
+    if (!spec) return String(val);
+
+    if (spec.startsWith('%')) {
+      const d = val instanceof Date ? val : new Date(String(val));
+      if (isNaN(d.getTime())) return String(val);
+      return getDateFormat(spec)(d);
+    }
+
+    const num = Number(val);
+    if (isNaN(num)) return String(val);
+    return getNumFormat(spec)(num);
+  });
 }
 
 // ── Legacy ColumnModifier fallback ────────────────────────────────────────────
@@ -70,12 +95,9 @@ function legacyFormat(n: number, mod: ColumnModifier): string {
 /**
  * Apply optional calculation + display template to a raw numeric value.
  *
- * Falls back to legacy ColumnModifier if the new fields are absent (backwards compat).
- *
- * @param rawValue  The raw aggregated number from chart data.
- * @param opts      Subset of ChartConfig that carries the formatting fields.
- * @param rowCtx    Optional full row context (numeric values by column name) for multi-column expressions.
- * @returns         A display string.
+ * @param rawValue  The raw aggregated number.
+ * @param opts      valueCalc (expr-eval expression), valueFormat (template string), yModifier (legacy).
+ * @param rowCtx    Optional full row context for multi-column expressions.
  */
 export function applyChartValueFormat(
   rawValue: number,
@@ -88,20 +110,16 @@ export function applyChartValueFormat(
 ): string {
   const { valueCalc, valueFormat, yModifier } = opts;
 
-  // If neither new field is set, fall back to legacy yModifier
   if (!valueCalc && !valueFormat) {
     if (yModifier) return legacyFormat(rawValue, yModifier);
-    // Default: auto number
     return Number.isInteger(rawValue) ? String(rawValue) : rawValue.toFixed(2);
   }
 
-  // 1. Apply calculation
   const calculated = valueCalc ? getCalc(valueCalc)(rawValue, rowCtx) : rawValue;
 
-  // 2. Apply template (or just stringify)
   if (valueFormat) {
-    const ctx = { value: Number.isInteger(calculated) ? calculated : parseFloat(calculated.toFixed(4)) };
-    try { return String(getTemplate(valueFormat)(ctx)); }
+    const ctx: Record<string, unknown> = { value: calculated, ...rowCtx };
+    try { return applyTemplate(valueFormat, ctx); }
     catch { return String(calculated); }
   }
 
