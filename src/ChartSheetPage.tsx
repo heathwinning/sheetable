@@ -892,6 +892,12 @@ const ChartConfigModal: React.FC<{
                     />
                   )}
                 </div>
+                {draft.type !== 'pie' && (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label className="app-dialog-label" style={{ marginBottom: 0 }}>X axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span></label>
+                    <input className="app-dialog-input" style={{ marginBottom: 0 }} value={draft.xLabel ?? ''} onChange={e => set('xLabel', e.target.value || undefined)} placeholder="X axis label" />
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -907,7 +913,7 @@ const ChartConfigModal: React.FC<{
                   />
                 </div>
                 {needsYCol && (
-                  <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <label className="app-dialog-label" style={{ marginBottom: 0 }}>Y column</label>
                     <Select
                       styles={dialogSelectStyles}
@@ -919,6 +925,12 @@ const ChartConfigModal: React.FC<{
                       menuPortalTarget={document.body}
                       menuPlacement="auto"
                     />
+                  </div>
+                )}
+                {needsYCol && draft.type !== 'pie' && (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label className="app-dialog-label" style={{ marginBottom: 0 }}>Y axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span></label>
+                    <input className="app-dialog-input" style={{ marginBottom: 0 }} value={draft.yLabel ?? ''} onChange={e => set('yLabel', e.target.value || undefined)} placeholder="Y axis label" />
                   </div>
                 )}
               </div>
@@ -987,34 +999,7 @@ const ChartConfigModal: React.FC<{
                   </div>
                 </div>
               )}
-              {draft.type !== 'pie' && (
-                <div style={{ display: 'flex', gap: 12 }}>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label className="app-dialog-label" style={{ marginBottom: 0 }}>
-                      X axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
-                    </label>
-                    <input
-                      className="app-dialog-input"
-                      style={{ marginBottom: 0 }}
-                      value={draft.xLabel ?? ''}
-                      onChange={e => set('xLabel', e.target.value || undefined)}
-                      placeholder="X axis label"
-                    />
-                  </div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label className="app-dialog-label" style={{ marginBottom: 0 }}>
-                      Y axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
-                    </label>
-                    <input
-                      className="app-dialog-input"
-                      style={{ marginBottom: 0 }}
-                      value={draft.yLabel ?? ''}
-                      onChange={e => set('yLabel', e.target.value || undefined)}
-                      placeholder="Y axis label"
-                    />
-                  </div>
-                </div>
-              )}
+
             </>
           )}
         </div>
