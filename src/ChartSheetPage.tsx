@@ -639,12 +639,10 @@ const ChartConfigModal: React.FC<{
   isNew: boolean;
   tableIds: string[];
   getColumnPaths: (tableId: string) => { path: string; label: string; type?: string }[];
-  getSchema: (tableId: string) => import('./types').TableSchema | undefined;
-  updateSchema: (tableId: string, schema: import('./types').TableSchema) => Promise<void>;
   onSave: (config: ChartConfig) => void;
   onDelete?: () => void;
   onClose: () => void;
-}> = ({ config, isNew, tableIds, getColumnPaths, getSchema, updateSchema, onSave, onDelete, onClose }) => {
+}> = ({ config, isNew, tableIds, getColumnPaths, onSave, onDelete, onClose }) => {
   const [draft, setDraft] = useState<ChartConfig>(config);
   const allPaths = getColumnPaths(draft.table);
   // Only leaf paths (no further ref children) or non-ref columns are valid Y columns
@@ -978,71 +976,6 @@ const ChartConfigModal: React.FC<{
               )}
             </>
           )}
-          {draft.table && (() => {
-            const schema = getSchema(draft.table);
-            if (!schema) return null;
-            const calcCols = schema.calculatedColumns ?? [];
-            return (
-              <div style={modSectionStyle}>
-                <div style={modLabelStyle}>Calculated columns</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {calcCols.map((calc, idx) => (
-                    <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                      <div style={{ flex: '0 0 110px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <input
-                          className="app-dialog-input"
-                          style={{ marginBottom: 0, fontSize: 12 }}
-                          placeholder="name"
-                          value={calc.name}
-                          onChange={e => {
-                            const updated = calcCols.map((c, i) => i === idx ? { ...c, name: e.target.value } : c);
-                            void updateSchema(draft.table, { ...schema, calculatedColumns: updated });
-                          }}
-                        />
-                        <input
-                          className="app-dialog-input"
-                          style={{ marginBottom: 0, fontSize: 11 }}
-                          placeholder="display name"
-                          value={calc.displayName ?? ''}
-                          onChange={e => {
-                            const updated = calcCols.map((c, i) => i === idx ? { ...c, displayName: e.target.value || undefined } : c);
-                            void updateSchema(draft.table, { ...schema, calculatedColumns: updated });
-                          }}
-                        />
-                      </div>
-                      <input
-                        className="app-dialog-input"
-                        style={{ marginBottom: 0, fontFamily: 'monospace', fontSize: 12, flex: 1 }}
-                        placeholder="expression (e.g. distance / 1000)"
-                        value={calc.expression}
-                        onChange={e => {
-                          const updated = calcCols.map((c, i) => i === idx ? { ...c, expression: e.target.value } : c);
-                          void updateSchema(draft.table, { ...schema, calculatedColumns: updated });
-                        }}
-                      />
-                      <button
-                        className="app-dialog-close"
-                        style={{ flexShrink: 0 }}
-                        onClick={() => {
-                          const updated = calcCols.filter((_, i) => i !== idx);
-                          void updateSchema(draft.table, { ...schema, calculatedColumns: updated });
-                        }}
-                        title="Remove"
-                      >×</button>
-                    </div>
-                  ))}
-                  <button
-                    className="btn-secondary btn-sm"
-                    style={{ alignSelf: 'flex-start' }}
-                    onClick={() => {
-                      const updated = [...calcCols, { name: '', expression: '' }];
-                      void updateSchema(draft.table, { ...schema, calculatedColumns: updated });
-                    }}
-                  >+ Add column</button>
-                </div>
-              </div>
-            );
-          })()}
           {draft.type !== 'pie' && draft.type !== 'table' && (
             <div style={{ display: 'flex', gap: 12 }}>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -1228,8 +1161,6 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           isNew={isNewChart}
           tableIds={state.tableIds}
           getColumnPaths={getColumnPathsForTable}
-          getSchema={state.getSchema}
-          updateSchema={state.updateSchema}
           onSave={handleSaveChart}
           onDelete={!isNewChart ? () => { handleDeleteChart(editingChart.id); setEditingChart(null); } : undefined}
           onClose={() => setEditingChart(null)}

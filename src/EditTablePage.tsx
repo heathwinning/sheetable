@@ -115,6 +115,9 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   const [draftRowPosition, setDraftRowPosition] = useState<'top' | 'bottom'>(
     () => schema?.draftRowPosition ?? 'bottom'
   );
+  const [calculatedColumns, setCalculatedColumns] = useState<{ name: string; displayName?: string; expression: string }[]>(
+    () => schema?.calculatedColumns ?? []
+  );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: 'success' | 'info'; message: string } | null>(null);
 
@@ -127,6 +130,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       setUniqueKeys(schema.uniqueKeys ?? []);
       setDefaultSort(schema.defaultSort ?? []);
       setDraftRowPosition(schema.draftRowPosition ?? 'bottom');
+      setCalculatedColumns(schema.calculatedColumns ?? []);
       setSchemaLoaded(true);
     }
   }, [schema, schemaLoaded]);
@@ -424,6 +428,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       uniqueKeys: uniqueKeys.filter(uk => colNames.includes(uk)),
       defaultSort: defaultSort.filter(s => colNames.includes(s.column)),
       draftRowPosition,
+      calculatedColumns: calculatedColumns.length > 0 ? calculatedColumns : undefined,
     };
   };
 
@@ -723,6 +728,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       uniqueKeys,
       defaultSort: defaultSort.filter(s => colNames.includes(s.column)),
       draftRowPosition,
+      calculatedColumns: calculatedColumns.length > 0 ? calculatedColumns : undefined,
     };
 
     if (isCreate) {
@@ -934,6 +940,50 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             onCancel={() => setExtractPreview(false)}
           />
         )}
+
+        {/* Calculated columns */}
+        <div className="edit-table-section">
+          <label className="edit-table-label">Calculated Columns</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {calculatedColumns.map((calc, idx) => (
+              <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                <div style={{ flex: '0 0 120px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <input
+                    className="edit-table-input"
+                    placeholder="name"
+                    value={calc.name}
+                    onChange={e => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, name: e.target.value } : c))}
+                  />
+                  <input
+                    className="edit-table-input"
+                    style={{ fontSize: 12 }}
+                    placeholder="display name"
+                    value={calc.displayName ?? ''}
+                    onChange={e => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, displayName: e.target.value || undefined } : c))}
+                  />
+                </div>
+                <input
+                  className="edit-table-input"
+                  style={{ flex: 1, fontFamily: 'monospace', fontSize: 12 }}
+                  placeholder="expression (e.g. distance / 1000)"
+                  value={calc.expression}
+                  onChange={e => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, expression: e.target.value } : c))}
+                />
+                <button
+                  className="btn-secondary btn-sm"
+                  style={{ flexShrink: 0 }}
+                  onClick={() => setCalculatedColumns(prev => prev.filter((_, i) => i !== idx))}
+                  title="Remove"
+                >×</button>
+              </div>
+            ))}
+            <button
+              className="btn-secondary btn-sm"
+              style={{ alignSelf: 'flex-start' }}
+              onClick={() => setCalculatedColumns(prev => [...prev, { name: '', expression: '' }])}
+            >+ Add Calculated Column</button>
+          </div>
+        </div>
 
         <div className="edit-table-actions">
           <button className="btn-secondary" onClick={() => navigate(tableId ? toBookPath(`/table/${encodeURIComponent(tableId)}`) : (bookBase || '/'))}>
