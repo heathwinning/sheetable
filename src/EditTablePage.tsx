@@ -84,6 +84,55 @@ function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorP
 
 const selectStyles = dialogSelectStyles;
 
+const CALC_HINT_ROWS = [
+  { expr: 'distance / 1000', desc: 'Divide a column by a constant' },
+  { expr: 'price * quantity', desc: 'Multiply two columns' },
+  { expr: 'revenue - cost', desc: 'Subtract two columns' },
+  { expr: 'round(value * 1.1, 2)', desc: 'Round to 2 decimal places' },
+  { expr: 'abs(balance)', desc: 'Absolute value' },
+  { expr: 'max(a, b)', desc: 'Larger of two columns' },
+];
+
+const CalcHint: React.FC = () => {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 11, textDecoration: 'underline dotted' }}
+      >
+        {open ? 'Hide examples' : 'Show expression examples'}
+      </button>
+      {open && (
+        <div>
+          <table style={{ marginTop: 6, borderCollapse: 'collapse', width: '100%' }}>
+            <tbody>
+              {CALC_HINT_ROWS.map(r => (
+                <tr key={r.expr}>
+                  <td style={{ fontFamily: 'monospace', paddingRight: 12, paddingBottom: 2, whiteSpace: 'nowrap' }}>{r.expr}</td>
+                  <td style={{ paddingBottom: 2, color: 'var(--color-text-muted)' }}>{r.desc}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 4 }}>
+            Variables available: all column names in the table.{' '}
+            <a
+              href="https://github.com/silentmatt/expr-eval#expression-syntax"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--color-text-muted)', textDecoration: 'underline dotted' }}
+            >
+              Full expression syntax ↗
+            </a>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface EditTablePageProps {
   state: UseAppStateReturn;
 }
@@ -982,6 +1031,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               style={{ alignSelf: 'flex-start' }}
               onClick={() => setCalculatedColumns(prev => [...prev, { name: '', expression: '' }])}
             >+ Add Calculated Column</button>
+            <CalcHint />
           </div>
         </div>
 
