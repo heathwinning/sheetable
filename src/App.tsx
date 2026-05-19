@@ -883,21 +883,64 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   );
 };
 
+type SheetOrderItem = { id: string; type: 'table' | 'chart' | 'view' };
+
+const SHEET_TYPE_LABELS: Record<SheetOrderItem['type'], string> = {
+  table: 'Table',
+  chart: 'Chart',
+  view: 'View',
+};
+const SHEET_TYPE_COLORS: Record<SheetOrderItem['type'], string> = {
+  table: '#3b82f6',
+  chart: '#22c55e',
+  view: '#f59e0b',
+};
+
+const SheetTypeBadge: React.FC<{ value: SheetOrderItem['type'] }> = ({ value }) => (
+  <span style={{
+    fontSize: 10, fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase',
+    padding: '1px 6px', borderRadius: 4, color: '#fff',
+    background: SHEET_TYPE_COLORS[value] ?? '#888',
+  }}>
+    {SHEET_TYPE_LABELS[value] ?? value}
+  </span>
+);
+
 const sheetOrderTheme = themeQuartz.withParams({ rowHeight: 32, fontSize: 13, spacing: 4 });
-const sheetOrderColDefs: ColDef<{ id: string }>[] = [
+const sheetOrderColDefs: ColDef<SheetOrderItem>[] = [
   { field: 'id', headerName: 'Name', flex: 1, rowDrag: true, suppressMovable: true },
+  {
+    field: 'type', headerName: 'Type', width: 80, suppressMovable: true,
+    cellRenderer: ({ value }: { value: SheetOrderItem['type'] }) => <SheetTypeBadge value={value} />,
+  },
 ];
 
-const SheetOrderGrid: React.FC<{ ids: string[]; onReorder: (ids: string[]) => void }> = ({ ids, onReorder }) => {
-  const rowData = useMemo(() => ids.map(id => ({ id })), [ids]);
-  const onRowDragEnd = useCallback((e: RowDragEndEvent<{ id: string }>) => {
-    const newIds: string[] = [];
-    e.api.forEachNode(node => { if (node.data) newIds.push(node.data.id); });
-    onReorder(newIds);
-  }, [onReorder]);
+const SheetOrderGrid: React.FC<{
+  tableIds: string[];
+  chartIds: string[];
+  viewIds: string[];
+  onReorderTables: (ids: string[]) => void;
+  onReorderCharts: (ids: string[]) => void;
+  onReorderViews: (ids: string[]) => void;
+}> = ({ tableIds, chartIds, viewIds, onReorderTables, onReorderCharts, onReorderViews }) => {
+  const rowData = useMemo<SheetOrderItem[]>(() => [
+    ...tableIds.map(id => ({ id, type: 'table' as const })),
+    ...chartIds.map(id => ({ id, type: 'chart' as const })),
+    ...viewIds.map(id => ({ id, type: 'view' as const })),
+  ], [tableIds, chartIds, viewIds]);
+
+  const onRowDragEnd = useCallback((e: RowDragEndEvent<SheetOrderItem>) => {
+    const newOrder: SheetOrderItem[] = [];
+    e.api.forEachNode(node => { if (node.data) newOrder.push(node.data); });
+    onReorderTables(newOrder.filter(r => r.type === 'table').map(r => r.id));
+    onReorderCharts(newOrder.filter(r => r.type === 'chart').map(r => r.id));
+    onReorderViews(newOrder.filter(r => r.type === 'view').map(r => r.id));
+  }, [onReorderTables, onReorderCharts, onReorderViews]);
+
+  const totalRows = tableIds.length + chartIds.length + viewIds.length;
   return (
-    <div style={{ height: ids.length * 32 + 34, marginBottom: 8 }}>
-      <AgGridReact<{ id: string }>
+    <div style={{ height: totalRows * 32 + 34 }}>
+      <AgGridReact<SheetOrderItem>
         theme={sheetOrderTheme}
         modules={[AllCommunityModule]}
         rowData={rowData}
@@ -1212,25 +1255,15 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
         {!createMode && (state.tableIds.length > 0 || state.chartSheetIds.length > 0 || state.viewSheetIds.length > 0) && (
           <div className="book-settings-section">
             <label className="book-settings-label">Sheet Order</label>
-            {state.tableIds.length > 0 && (
-              <>
-                {(state.chartSheetIds.length > 0 || state.viewSheetIds.length > 0) && (
-                  <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 4 }}>Spreadsheets</div>
-                )}
-                <SheetOrderGrid ids={state.tableIds} onReorder={state.reorderTablesTo} />
-              </>
-            )}
-            {state.chartSheetIds.length > 0 && (
-              <>
-                <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 4 }}>Charts</div>
-                <SheetOrderGrid ids={state.chartSheetIds} onReorder={state.reorderChartsTo} />
-              </>
-            )}
-            {state.viewSheetIds.length > 0 && (
-              <>
-                <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 4 }}>Views</div>
-                <SheetOrderGrid ids={state.viewSheetIds} onReorder={state.reorderViewsTo} />
-              </>
+            {(state.tableIds.length > 0 || state.chartSheetIds.length > 0 || state.viewSheetIds.length > 0) && (
+              <SheetOrderGrid
+                tableIds={state.tableIds}
+                chartIds={state.chartSheetIds}
+                viewIds={state.viewSheetIds}
+                onReorderTables={state.reorderTablesTo}
+                onReorderCharts={state.reorderChartsTo}
+                onReorderViews={state.reorderViewsTo}
+              />
             )}
           </div>
         )}
