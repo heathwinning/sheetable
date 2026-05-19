@@ -16,10 +16,11 @@ export interface ColumnDef {
 
 export interface CalculatedColumn {
   name: string;
-  displayName?: string;
   /** expr-eval expression; variable `value` holds the raw column value (as a number).
    *  May reference other columns by name, e.g. "distance / 1000" or "price * quantity". */
   expression: string;
+  /** When true, render this as a read-only column in the spreadsheet grid. */
+  showInGrid?: boolean;
 }
 
 export interface TableSchema {

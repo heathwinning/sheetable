@@ -105,17 +105,18 @@ const CALC_HINT_ROWS = [
 
 const ExprInput: React.FC<{
   value: string;
-  columnIds: string[];
+  /** Column id + display label pairs for autocomplete */
+  columns: { id: string; label: string }[];
   onChange: (val: string) => void;
   placeholder?: string;
   style?: React.CSSProperties;
   className?: string;
-}> = ({ value, columnIds, onChange, placeholder, style, className }) => {
+}> = ({ value, columns, onChange, placeholder, style, className }) => {
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const [dropdownCols, setDropdownCols] = React.useState<string[]>([]);
+  const [dropdownItems, setDropdownItems] = React.useState<{ id: string; label: string }[]>([]);
   const [braceStart, setBraceStart] = React.useState(-1);
 
-  const closeDropdown = () => { setDropdownCols([]); setBraceStart(-1); };
+  const closeDropdown = () => { setDropdownItems([]); setBraceStart(-1); };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -125,9 +126,11 @@ const ExprInput: React.FC<{
     const lastBrace = before.lastIndexOf('{');
     if (lastBrace >= 0 && !before.slice(lastBrace).includes('}')) {
       const filter = before.slice(lastBrace + 1).toLowerCase();
-      const filtered = columnIds.filter(c => c.toLowerCase().includes(filter));
+      const filtered = columns.filter(c =>
+        c.id.toLowerCase().includes(filter) || c.label.toLowerCase().includes(filter)
+      );
       if (filtered.length > 0) {
-        setDropdownCols(filtered);
+        setDropdownItems(filtered);
         setBraceStart(lastBrace);
         return;
       }
@@ -160,21 +163,24 @@ const ExprInput: React.FC<{
         onBlur={() => setTimeout(closeDropdown, 150)}
         onKeyDown={e => { if (e.key === 'Escape') closeDropdown(); }}
       />
-      {dropdownCols.length > 0 && (
+      {dropdownItems.length > 0 && (
         <div style={{
           position: 'absolute', top: '100%', left: 0, zIndex: 200,
           background: 'var(--color-surface)', border: '1px solid var(--color-border)',
           borderRadius: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          maxHeight: 160, overflowY: 'auto', minWidth: 160,
+          maxHeight: 160, overflowY: 'auto', minWidth: 180,
         }}>
-          {dropdownCols.map(col => (
+          {dropdownItems.map(col => (
             <div
-              key={col}
-              onMouseDown={e => { e.preventDefault(); insertColumn(col); }}
-              style={{ padding: '5px 10px', fontSize: 12, fontFamily: 'monospace', cursor: 'pointer' }}
+              key={col.id}
+              onMouseDown={e => { e.preventDefault(); insertColumn(col.id); }}
+              style={{ padding: '5px 10px', fontSize: 12, cursor: 'pointer', display: 'flex', gap: 8, alignItems: 'center' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-cell-selected, #e0e7ff)')}
               onMouseLeave={e => (e.currentTarget.style.background = '')}
-            >{`{${col}}`}</div>
+            >
+              <span style={{ fontFamily: 'monospace' }}>{`{${col.id}}`}</span>
+              {col.label !== col.id && <span style={{ color: 'var(--color-text-muted)', fontSize: 11 }}>{col.label}</span>}
+            </div>
           ))}
         </div>
       )}
@@ -253,7 +259,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   const [draftRowPosition, setDraftRowPosition] = useState<'top' | 'bottom'>(
     () => schema?.draftRowPosition ?? 'bottom'
   );
-  const [calculatedColumns, setCalculatedColumns] = useState<{ name: string; displayName?: string; expression: string }[]>(
+  const [calculatedColumns, setCalculatedColumns] = useState<{ name: string; expression: string; showInGrid?: boolean }[]>(
     () => schema?.calculatedColumns ?? []
   );
   const [error, setError] = useState<string | null>(null);
@@ -1119,30 +1125,32 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
           <label className="edit-table-label">Calculated Columns</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {calculatedColumns.map((calc, idx) => (
-              <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                <div style={{ flex: '0 0 120px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <input
-                    className="edit-table-input"
-                    placeholder="name"
-                    value={calc.name}
-                    onChange={e => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, name: e.target.value } : c))}
-                  />
-                  <input
-                    className="edit-table-input"
-                    style={{ fontSize: 12 }}
-                    placeholder="display name"
-                    value={calc.displayName ?? ''}
-                    onChange={e => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, displayName: e.target.value || undefined } : c))}
-                  />
-                </div>
+              <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input
+                  className="edit-table-input"
+                  style={{ flex: '0 0 120px' }}
+                  placeholder="name"
+                  value={calc.name}
+                  onChange={e => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, name: e.target.value } : c))}
+                />
                 <ExprInput
                   className="edit-table-input"
                   style={{ fontFamily: 'monospace', fontSize: 12 }}
                   placeholder="e.g. {distance} / 1000"
                   value={calc.expression}
-                  columnIds={columns.map(c => c.name).filter(n => VALID_COL_NAME.test(n))}
+                  columns={columns
+                    .filter(c => VALID_COL_NAME.test(c.name))
+                    .map(c => ({ id: c.name, label: c.displayName || c.name }))}
                   onChange={val => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, expression: val } : c))}
                 />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={!!calc.showInGrid}
+                    onChange={e => setCalculatedColumns(prev => prev.map((c, i) => i === idx ? { ...c, showInGrid: e.target.checked || undefined } : c))}
+                  />
+                  Show in table
+                </label>
                 <button
                   className="btn-secondary btn-sm"
                   style={{ flexShrink: 0 }}

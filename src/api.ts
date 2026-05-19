@@ -90,7 +90,7 @@ interface ApiTable {
   uniqueKeys: string[];
   defaultSort?: { column: string; direction: 'asc' | 'desc' }[];
   draftRowPosition: string;
-  calculatedColumns?: { name: string; displayName?: string; expression: string }[];
+  calculatedColumns?: { name: string; expression: string; showInGrid?: boolean }[];
   columns: {
     name: string;
     displayName?: string;

@@ -35,7 +35,7 @@ function buildCalc(expr: string) {
   }
 }
 
-function getCalc(expr: string) {
+export function getCalc(expr: string) {
   if (!calcCache.has(expr)) calcCache.set(expr, buildCalc(expr));
   return calcCache.get(expr)!;
 }

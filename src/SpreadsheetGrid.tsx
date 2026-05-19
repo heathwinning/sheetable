@@ -9,6 +9,7 @@ import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
 import { normalizeTemporalString, parseTemporalUnknown } from './dateFormat';
+import { getCalc } from './chartFormat';
 
 const DRAFT_ROW_ID = '_draft';
 
@@ -452,6 +453,27 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
       return [def];
     });
+
+    // Append read-only calculated columns
+    for (const calc of schema.calculatedColumns ?? []) {
+      if (!calc.showInGrid) continue;
+      const calcFn = getCalc(calc.expression);
+      const colNames = schema.columns.map(c => c.name);
+      cols.push({
+        field: `__calc__${calc.name}`,
+        headerName: calc.name,
+        editable: false,
+        suppressMovable: true,
+        valueGetter: (params) => {
+          if (!params.data || params.data[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return '';
+          const ctx: Record<string, number> = {};
+          for (const n of colNames) ctx[n] = Number(params.data[n]) || 0;
+          const result = calcFn(0, ctx);
+          return Number.isFinite(result) ? result : '';
+        },
+        cellStyle: { color: 'var(--color-text-muted, #888)', fontStyle: 'italic' },
+      });
+    }
 
     return cols;
     // eslint-disable-next-line react-hooks/exhaustive-deps
