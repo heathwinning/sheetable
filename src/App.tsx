@@ -1073,7 +1073,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
       <div className="book-settings-card">
         <div className="book-settings-header">
           <h2>{createMode ? 'New Book' : 'Book Settings'}</h2>
-          <button className="btn-secondary btn-sm" onClick={() => navigate(createMode ? (state.activeBookName ? `/book/${encodeURIComponent(state.activeBookName)}` : '/') : (currentBook ? `/book/${encodeURIComponent(currentBook.name)}` : '/'))}>
+          <button className="btn-secondary btn-sm" onClick={() => navigate(-1)}>
             ← Back to Book
           </button>
         </div>
