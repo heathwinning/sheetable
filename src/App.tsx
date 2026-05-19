@@ -81,7 +81,6 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string; onOpen
       selectOptions: tableOptions,
       selectDefault: defaultTable,
       inputPlaceholder: 'View name',
-      inputDefault: label,
       buttons: [
         { label: 'Cancel', value: 'cancel', variant: 'secondary' },
         { label: 'Create', value: 'ok', variant: 'primary' },
