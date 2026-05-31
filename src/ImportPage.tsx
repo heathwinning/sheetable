@@ -840,7 +840,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
           if (schemaCol.type === 'reference' && schemaCol.refTable) {
             const srcMappings = colDef.refSourceMappings ?? [];
             const pairs = srcMappings.map(sm => ({
-              sourceValue: sourceRow[sourceHeaders.indexOf(sm.sourceColumn)] ?? '',
+              sourceValue: (stripWhitespace ? (sourceRow[sourceHeaders.indexOf(sm.sourceColumn)] ?? '').trim() : (sourceRow[sourceHeaders.indexOf(sm.sourceColumn)] ?? '')),
               refColumn: sm.refColumn,
             }));
             if (pairs.length > 0 && pairs.some(p => p.sourceValue)) {
@@ -948,7 +948,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
         if (col.type === 'reference' && col.refTable) {
           const srcMappings = mapping.refSourceMappings ?? [];
           const pairs = srcMappings.map(sm => ({
-            sourceValue: sourceRow[sourceHeaders.indexOf(sm.sourceColumn)] ?? '',
+            sourceValue: (stripWhitespace ? (sourceRow[sourceHeaders.indexOf(sm.sourceColumn)] ?? '').trim() : (sourceRow[sourceHeaders.indexOf(sm.sourceColumn)] ?? '')),
             refColumn: sm.refColumn,
           }));
           if (pairs.length > 0 && pairs.some(p => p.sourceValue)) {
