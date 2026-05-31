@@ -37,21 +37,14 @@ export const onRequestPost: PagesFunction<Env, 'bookId' | 'name', RequestData> =
 
   const stmts: D1PreparedStatement[] = [];
 
-  for (const op of body.operations) {
-    if (!op.rowId) continue;
+  // Separate inserts for multi-row batching; handle updates/deletes individually
+  const insertOps = body.operations.filter(op => op.type === 'insert' && op.rowId && op.data);
+  const otherOps  = body.operations.filter(op => op.type !== 'insert' && op.rowId);
 
+  for (const op of otherOps) {
     if (op.type === 'delete') {
       stmts.push(
         context.env.DB.prepare(`DELETE FROM t_${tableId} WHERE _rowId = ?`).bind(op.rowId)
-      );
-    } else if (op.type === 'insert' && op.data) {
-      const allCols = ['_rowId', ...colNames];
-      const placeholders = allCols.map(() => '?').join(', ');
-      const values = allCols.map(c => c === '_rowId' ? op.rowId : (op.data![c] ?? ''));
-      stmts.push(
-        context.env.DB.prepare(
-          `INSERT INTO t_${tableId} (${allCols.map(c => `"${c}"`).join(', ')}) VALUES (${placeholders})`
-        ).bind(...values)
       );
     } else if (op.type === 'update' && op.data) {
       const updates: string[] = [];
@@ -73,9 +66,27 @@ export const onRequestPost: PagesFunction<Env, 'bookId' | 'name', RequestData> =
     }
   }
 
+  // Multi-row INSERTs: D1 allows max 100 bound params per statement.
+  // Pack floor(100 / numCols) rows per INSERT to maximise throughput.
+  if (insertOps.length > 0) {
+    const allCols = ['_rowId', ...colNames];
+    const rowsPerStmt = Math.max(1, Math.floor(100 / allCols.length));
+    const colList = allCols.map(c => `"${c}"`).join(', ');
+    const rowPlaceholder = `(${allCols.map(() => '?').join(', ')})`;
+    for (let i = 0; i < insertOps.length; i += rowsPerStmt) {
+      const chunk = insertOps.slice(i, i + rowsPerStmt);
+      const values = chunk.flatMap(op => allCols.map(c => c === '_rowId' ? op.rowId : (op.data![c] ?? '')));
+      stmts.push(
+        context.env.DB.prepare(
+          `INSERT INTO t_${tableId} (${colList}) VALUES ${chunk.map(() => rowPlaceholder).join(', ')}`
+        ).bind(...values)
+      );
+    }
+  }
+
   if (stmts.length > 0) {
-    // D1 batch limit: chunk into batches of 50 statements
-    const BATCH_SIZE = 50;
+    // D1 batch limit: 100 statements per batch
+    const BATCH_SIZE = 100;
     for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
       await context.env.DB.batch(stmts.slice(i, i + BATCH_SIZE));
     }
