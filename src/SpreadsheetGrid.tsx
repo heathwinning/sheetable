@@ -106,7 +106,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   rows,
   onEdit,
   onInsert,
-  onDeleteRow,
   onDeleteRows,
   onColumnWidthChange,
   onOpenRecord,
