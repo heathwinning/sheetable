@@ -6,7 +6,7 @@ import { format } from 'date-fns/format';
 import { CalendarScrollView, AgendaView } from './CalendarScrollView';
 import { RecordCard } from './RecordCard';
 
-const DEFAULT_RESOLVE = (_row: Row, _path: string) => '';
+const DEFAULT_RESOLVE = (_row: Row, _path: string): string => '';
 
 // Simplified event type (no BigCalendar dependency)
 interface CalEvent {

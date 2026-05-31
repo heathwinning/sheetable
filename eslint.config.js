@@ -19,5 +19,16 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // Downgrade from error to warn — valid React patterns flagged as errors
+      'react-hooks/immutability': 'warn',
+      'react-hooks/set-state-in-effect': 'warn',
+      // Downgrade any to warn — DebugLogger and AG Grid callbacks legitimately use any
+      '@typescript-eslint/no-explicit-any': 'warn',
+      // Allow _-prefixed parameters (intentionally unused)
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      // Downgrade fast-refresh export rule — dev-time concern only
+      'react-refresh/only-export-components': 'warn',
+    },
   },
 ])

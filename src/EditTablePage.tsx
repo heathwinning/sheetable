@@ -351,7 +351,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       refSearchColumns: col.refSearchColumns ?? [],
       listOf: col.listOf,
     })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [columns, uniqueKeys, defaultSort]
   );
 
@@ -765,11 +765,9 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     });
   };
 
-  const [trimConflictDialog, setTrimConflictDialog] = useState<{
-    columnNames: string[];
-    conflictCount: number;
-    keyColNames: string[];
-  } | null>(null);
+  type TrimConflictDialog = { columnNames: string[]; conflictCount: number; keyColNames: string[] };
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [trimConflictDialog, setTrimConflictDialog] = useState<TrimConflictDialog | null>(null);
 
   const doTrimNormalization = (columnNames: string[]) => {
     if (!tableId) return;

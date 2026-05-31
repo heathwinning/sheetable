@@ -24,7 +24,7 @@ export function parseTemporalUnknown(raw: unknown): Date | null {
   if (!text) return null;
 
   // YYYY/MM/DD or YYYY-MM-DD with optional time.
-  let m = text.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  let m = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
   if (m) {
     const y = Number(m[1]);
     const mo = Number(m[2]);

@@ -1,5 +1,5 @@
 import type { Env, RequestData } from '../../../../lib';
-import { json, error, requireUser, requireOwner } from '../../../../lib';
+import { json, requireUser, requireOwner } from '../../../../lib';
 
 // DELETE /api/books/:bookId/invites/:email → cancel a pending invite
 export const onRequestDelete: PagesFunction<Env, 'bookId' | 'email', RequestData> = async (context) => {

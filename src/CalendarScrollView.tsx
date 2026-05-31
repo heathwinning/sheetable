@@ -71,7 +71,7 @@ const MonthGrid: React.FC<{
       </div>
       {/* Day cells */}
       <div className="calendar-grid-days">
-        {days.map((day, _i) => {
+        {days.map((day, _i: number) => {
           const inMonth = isSameMonth(day, monthStart);
           const today = isToday(day);
           const key = format(day, 'yyyy-MM-dd');

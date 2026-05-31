@@ -562,7 +562,7 @@ const BookSidebar: React.FC<{ state: UseAppStateReturn; onMinimize: () => void }
     const book = state.books.find(b => b.id === bookId);
     const bookName = book?.name ?? state.activeBookName ?? '';
     if (!bookName) return;
-    navigate(`/book/${encodeURIComponent(bookName)}${currentTail}` || `/book/${encodeURIComponent(bookName)}`);
+    navigate(`/book/${encodeURIComponent(bookName)}${currentTail}`);
   };
 
   return (

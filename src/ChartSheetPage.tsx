@@ -1234,7 +1234,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
       void leafCol;
       return { path: p.path, label: p.label, type: leafType };
     }),
-  [state]); // eslint-disable-line react-hooks/exhaustive-deps
+  [state]);  
 
   if (!chartId || !chartSheet) {
     return (
