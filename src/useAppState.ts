@@ -48,6 +48,7 @@ export interface UseAppStateReturn {
   applyEdit: (tableId: string, rowIndex: number, columnName: string, newValue: string) => ValidationError[];
   insertRow: (tableId: string, row: Row) => ValidationError[];
   deleteRow: (tableId: string, rowIndex: number) => ValidationError[];
+  deleteRows: (tableId: string, rowIndices: number[]) => ValidationError[];
 
   // Undo
   undo: () => ValidationError[];
@@ -882,7 +883,77 @@ export function useAppState(): UseAppStateReturn {
     return [];
   }, [activeBookId, bump]);
 
-  // ---- Undo ----
+  const doDeleteRows = useCallback((tableId: string, rowIndices: number[]): ValidationError[] => {
+    const schema = schemasRef.current.get(tableId);
+    const rows = rowsRef.current.get(tableId);
+    if (!schema || !rows) return [{ message: 'Table not found', rowIndex: 0 }];
+
+    // Sort descending so indices stay valid during removal
+    const sorted = [...rowIndices].sort((a, b) => b - a);
+
+    const validRows: { idx: number; rowId: string; row: Row }[] = [];
+    const errors: ValidationError[] = [];
+
+    for (const idx of sorted) {
+      if (idx < 0 || idx >= rows.length) {
+        errors.push({ message: 'Row not found', rowIndex: idx });
+        continue;
+      }
+      const rowId = rows[idx][INTERNAL_ROW_ID];
+
+      // Check references from other tables
+      let refError: string | null = null;
+      for (const [otherName, otherSchema] of schemasRef.current) {
+        for (const col of otherSchema.columns) {
+          if (col.type === 'reference' && col.refTable === tableId) {
+            const otherRows = rowsRef.current.get(otherName);
+            if (otherRows?.some(r => r[col.name] === rowId)) {
+              refError = `Cannot delete: row referenced by "${otherName}"`;
+            }
+          }
+        }
+      }
+      if (refError) {
+        errors.push({ message: refError, rowIndex: idx });
+        continue;
+      }
+
+      validRows.push({ idx, rowId, row: { ...rows[idx] } });
+    }
+
+    if (validRows.length === 0) return errors;
+
+    if (!activeBookId) {
+      // Offline: remove all valid rows (already sorted desc)
+      for (const { idx, rowId, row } of validRows) {
+        rows.splice(idx, 1);
+        undoStackRef.current.push({ type: 'delete', tableId, rowId, row });
+      }
+      bump();
+      return errors;
+    }
+
+    // Online: single bulk request
+    const bookId = activeBookId;
+    const rowIds = validRows.map(v => v.rowId);
+    api.deleteRows(bookId, tableId, rowIds).then(() => {
+      const currentRows = rowsRef.current.get(tableId);
+      if (currentRows) {
+        const idSet = new Set(rowIds);
+        for (let i = currentRows.length - 1; i >= 0; i--) {
+          if (idSet.has(currentRows[i][INTERNAL_ROW_ID])) {
+            const removed = currentRows.splice(i, 1)[0];
+            undoStackRef.current.push({ type: 'delete', tableId, rowId: removed[INTERNAL_ROW_ID], row: removed });
+          }
+        }
+      }
+      bump();
+    }).catch(err => {
+      console.error('Server bulk delete failed:', err);
+    });
+
+    return errors;
+  }, [activeBookId, bump]);
   const canUndo = undoStackRef.current.length > 0;
 
   const doUndo = useCallback((): ValidationError[] => {
@@ -1053,6 +1124,7 @@ export function useAppState(): UseAppStateReturn {
     applyEdit,
     insertRow: doInsertRow,
     deleteRow: doDeleteRow,
+    deleteRows: doDeleteRows,
 
     undo: doUndo,
     canUndo,

@@ -78,6 +78,7 @@ interface SpreadsheetGridProps {
   onEdit: (rowIndex: number, columnName: string, newValue: string) => ValidationError[];
   onInsert: (row: Row) => ValidationError[];
   onDeleteRow: (rowIndex: number) => ValidationError[];
+  onDeleteRows: (rowIndices: number[]) => ValidationError[];
   onColumnWidthChange?: (columnWidths: Record<string, number>) => void;
   /** Called when the user clicks the open-record button on a row. */
   onOpenRecord?: (row: Row) => void;
@@ -106,6 +107,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   onEdit,
   onInsert,
   onDeleteRow,
+  onDeleteRows,
   onColumnWidthChange,
   onOpenRecord,
   revision,
@@ -273,27 +275,18 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     if (selectedRowIds.size === 0) return;
     const indices = Array.from(selectedRowIds)
       .map(id => rowIdToIndex.get(id))
-      .filter((idx): idx is number => idx !== undefined)
-      .sort((a, b) => b - a);
+      .filter((idx): idx is number => idx !== undefined);
 
-    let deleted = 0;
-    const errors: string[] = [];
-    for (const idx of indices) {
-      const errs = onDeleteRow(idx);
-      if (errs.length > 0) {
-        errors.push(errs[0].message);
-      } else {
-        deleted++;
-      }
-    }
+    const errors = onDeleteRows(indices);
 
     if (errors.length > 0) {
-      setError(`Delete: ${deleted} removed, ${errors.length} failed — ${errors[0]}`);
+      const deleted = indices.length - errors.length;
+      setError(`Delete: ${deleted} removed, ${errors.length} failed — ${errors[0].message}`);
     } else {
       setError(null);
     }
     gridRef.current?.api.deselectAll();
-  }, [selectedRowIds, rowIdToIndex, onDeleteRow]);
+  }, [selectedRowIds, rowIdToIndex, onDeleteRows]);
 
   const getRowId = useCallback((params: GetRowIdParams) => {
     return params.data[INTERNAL_ROW_ID] ?? 'fallback';

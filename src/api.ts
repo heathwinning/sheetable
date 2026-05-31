@@ -243,6 +243,11 @@ export async function deleteRow(bookId: string, tableName: string, rowId: string
   });
 }
 
+export async function deleteRows(bookId: string, tableName: string, rowIds: string[]): Promise<void> {
+  const operations = rowIds.map(rowId => ({ type: 'delete' as const, rowId }));
+  await bulkRowOps(bookId, tableName, operations);
+}
+
 export async function bulkRowOps(
   bookId: string,
   tableName: string,

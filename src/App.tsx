@@ -355,6 +355,7 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               }
               onInsert={(row) => state.insertRow(tableId, row)}
               onDeleteRow={(rowIndex) => state.deleteRow(tableId, rowIndex)}
+              onDeleteRows={(rowIndices) => state.deleteRows(tableId, rowIndices)}
               onColumnWidthChange={(widths) => {
                 const updated = activeSchema.columns.map(c =>
                   widths[c.name] !== undefined ? { ...c, width: Math.round(widths[c.name]) } : c
@@ -869,6 +870,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             onEdit={() => []}
             onInsert={() => []}
             onDeleteRow={() => []}
+            onDeleteRows={() => []}
             revision={state.revision}
             bookId={state.activeBookId ?? null}
             getReferencedRow={state.getReferencedRow}
