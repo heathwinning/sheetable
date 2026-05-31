@@ -723,7 +723,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
       }
       pendingRefInserts.current.get(refTableId)!.push({
         rowId: newRowId,
-        data: Object.fromEntries(refSchema.columns.map(c => [c.name, newRow[c.name] ?? ''])),
+        data: Object.fromEntries(refSchema.columns.filter(c => c.type !== 'calculated').map(c => [c.name, newRow[c.name] ?? ''])),
       });
 
       return newRowId;
@@ -900,7 +900,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
             type: 'insert' as const,
             rowId: String(i + 1),
             data: Object.fromEntries(
-              columns.map(c => [c.name, row[c.name] ?? ''])
+              columns.filter(c => c.type !== 'calculated').map(c => [c.name, row[c.name] ?? ''])
             ),
           }));
           await api.bulkRowOps(state.activeBookId, newId, operations);
@@ -1012,7 +1012,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
           type: 'insert' as const,
           rowId: String(maxId + i + 1),
           data: Object.fromEntries(
-            schema.columns.map(c => [c.name, row[c.name] ?? ''])
+            schema.columns.filter(c => c.type !== 'calculated').map(c => [c.name, row[c.name] ?? ''])
           ),
         }));
         await api.bulkRowOps(state.activeBookId, tableId, operations);

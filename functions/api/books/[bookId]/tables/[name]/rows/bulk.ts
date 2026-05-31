@@ -28,10 +28,10 @@ export const onRequestPost: PagesFunction<Env, 'bookId' | 'name', RequestData> =
   const body = await context.request.json() as { operations: BulkOp[] };
   if (!body.operations?.length) return error('operations array is required');
 
-  // Get valid column names
+  // Get valid column names (exclude calculated columns — they have no backing SQL column)
   const { results: cols } = await context.env.DB.prepare(
-    'SELECT name FROM _columns WHERE table_id = ? ORDER BY display_order'
-  ).bind(tableId).all<{ name: string }>();
+    "SELECT name, type FROM _columns WHERE table_id = ? AND type != 'calculated' ORDER BY display_order"
+  ).bind(tableId).all<{ name: string; type: string }>();
   const validCols = new Set(cols.map(c => c.name));
   const colNames = cols.map(c => c.name);
 
