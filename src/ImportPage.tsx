@@ -624,10 +624,10 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
 
       if (!refRows.length) return null;
 
-      // Helper: get display value for a column, following references if the column is itself a reference
-      const getDisplayValue = (colName: string, rawValue: string): string => {
-        if (!rawValue) return '';
-        const colDef = refSchema.columns.find(c => c.name === colName);
+      // Helper: get display value for a column, recursively following references
+      const getDisplayValue = (schema: TableSchema, colName: string, rawValue: string, depth = 0): string => {
+        if (!rawValue || depth > 8) return rawValue;
+        const colDef = schema.columns.find(c => c.name === colName);
         if (colDef?.type === 'reference' && colDef.refTable) {
           const nestedSchema = state.getSchema(colDef.refTable);
           const nestedRows = state.getRows(colDef.refTable);
@@ -635,7 +635,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
             const nestedRow = nestedRows.find(r => r[INTERNAL_ROW_ID] === rawValue);
             if (nestedRow) {
               const displayCols = colDef.refDisplayColumns ?? [nestedSchema.columns[0]?.name].filter(Boolean);
-              return displayCols.map(c => nestedRow[c] ?? '').filter(Boolean).join(' · ');
+              return displayCols.map(c => getDisplayValue(nestedSchema, c, nestedRow[c] ?? '', depth + 1)).filter(Boolean).join(' · ');
             }
           }
           return '';
@@ -646,7 +646,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ state }) => {
       // Find a ref row where all pairs match simultaneously
       for (const row of refRows) {
         const allMatch = pairs.every(p => {
-          const displayValue = getDisplayValue(p.refColumn, row[p.refColumn] ?? '');
+          const displayValue = getDisplayValue(refSchema, p.refColumn, row[p.refColumn] ?? '');
           return displayValue.toLowerCase() === p.sourceValue.toLowerCase();
         });
         if (allMatch) {
