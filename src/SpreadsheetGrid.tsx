@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import type { TableSchema, Row, ValidationError } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { log } from './DebugLogger';
@@ -177,6 +177,11 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   }, []);
 
   const hasAutosized = useRef(false);
+  const hasInitialDraftScroll = useRef(false);
+
+  useEffect(() => {
+    hasInitialDraftScroll.current = false;
+  }, [schema.name, draftPosition]);
 
   const autosizeGridColumns = useCallback((api: FirstDataRenderedEvent['api']) => {
     // Autosize columns that lack an explicit user-set width and aren't truncate-mode.
@@ -197,24 +202,33 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
   const onFirstDataRendered = useCallback((event: FirstDataRenderedEvent) => {
     // Scroll to bottom if draft is pinned there.
-    if (draftPosition === 'bottom') {
+    if (draftPosition === 'bottom' && !readOnly && !filterActive && rows.length > 0) {
       const displayedCount = event.api.getDisplayedRowCount();
       if (displayedCount > 0) {
         event.api.ensureIndexVisible(displayedCount - 1, 'bottom');
+        hasInitialDraftScroll.current = true;
       }
     }
     autosizeGridColumns(event.api);
     hasAutosized.current = true;
-  }, [draftPosition, autosizeGridColumns]);
+  }, [draftPosition, readOnly, filterActive, rows.length, autosizeGridColumns]);
 
   // Handle async data: if rows arrive after onFirstDataRendered (e.g. network load),
   // run autosize once when the first non-empty batch appears.
   const onRowDataUpdated = useCallback((event: { api: FirstDataRenderedEvent['api'] }) => {
+    if (!hasInitialDraftScroll.current && draftPosition === 'bottom' && !readOnly && !filterActive && rows.length > 0) {
+      const displayedCount = event.api.getDisplayedRowCount();
+      if (displayedCount > 0) {
+        event.api.ensureIndexVisible(displayedCount - 1, 'bottom');
+        hasInitialDraftScroll.current = true;
+      }
+    }
+
     if (hasAutosized.current) return;
     if (event.api.getDisplayedRowCount() === 0) return;
     autosizeGridColumns(event.api);
     hasAutosized.current = true;
-  }, [autosizeGridColumns]);
+  }, [draftPosition, readOnly, filterActive, rows.length, autosizeGridColumns]);
 
   const clearAllFilters = useCallback(() => {
     gridRef.current?.api.setFilterModel(null);
