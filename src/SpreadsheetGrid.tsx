@@ -446,13 +446,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         const derivedDefs: ColDef[] = displayCols.map((displayPath) => {
           const resolvedLabel = resolveColumnPathLabel(refTable, displayPath);
           const leafResolvedLabel = resolvedLabel.split(' → ').pop() ?? resolvedLabel;
-          const resultColLabel = col.displayName || col.name;
-          const headerLabel = displayCols.length > 1
-            ? `${resultColLabel} (${leafResolvedLabel})`
-            : resultColLabel;
           return ({
           colId: `${col.name}::${displayPath}`,
-          headerName: headerLabel,
+          headerName: leafResolvedLabel,
           editable: true,
           minWidth: 120,
           resizable: true,
