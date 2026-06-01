@@ -418,7 +418,15 @@ const HomePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   // Auto-redirect to first sheet in persisted global order
   useEffect(() => {
     if (!isRouteBookActive) return;
-    const firstSheet = state.sortedSheets.find(sheet => sheet.hidden !== true);
+    const firstSheet = state.sortedSheets.find(sheet => {
+      if (sheet.hidden === true) return false;
+      if (sheet.type !== 'table' || sheet.hidden === false) return true;
+      const shouldHide = state.viewSheetIds.some(viewId => {
+        const view = state.getViewSheet(viewId);
+        return view?.tableName === sheet.name && view?.hideSourceTableTab === true;
+      });
+      return !shouldHide;
+    });
     if (!firstSheet) return;
 
     if (firstSheet.type === 'table') {
@@ -428,10 +436,18 @@ const HomePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
     } else {
       navigate(withBook(bookId, `/view/${encodeURIComponent(firstSheet.name)}`), { replace: true });
     }
-  }, [isRouteBookActive, state.sortedSheets, navigate, bookId]);
+  }, [isRouteBookActive, state.sortedSheets, state.viewSheetIds, state.getViewSheet, navigate, bookId]);
 
   if (!isRouteBookActive) return null;
-  if (state.sortedSheets.some(sheet => sheet.hidden !== true)) return null;
+  if (state.sortedSheets.some(sheet => {
+    if (sheet.hidden === true) return false;
+    if (sheet.type !== 'table' || sheet.hidden === false) return true;
+    const shouldHide = state.viewSheetIds.some(viewId => {
+      const view = state.getViewSheet(viewId);
+      return view?.tableName === sheet.name && view?.hideSourceTableTab === true;
+    });
+    return !shouldHide;
+  })) return null;
 
   return (
     <div className="app-body">
