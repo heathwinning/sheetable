@@ -301,9 +301,9 @@ export const RecordCard: React.FC<RecordCardProps> = ({
                           })();
                         }}
                         onInputChange={(v, { action }) => {
-                          if (action === 'input-change') setRefInputValues(prev => ({ ...prev, [col.name]: v }));
+                          setRefInputValues(prev => ({ ...prev, [col.name]: action === 'input-change' ? v : '' }));
                         }}
-                        inputValue={refInputValues[col.name] ?? undefined}
+                        inputValue={refInputValues[col.name] ?? ''}
                         isClearable
                         isLoading={creatingReferenceCol === col.name}
                         placeholder="— none —"
