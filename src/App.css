@@ -373,8 +373,10 @@ body {
   z-index: 1;
 }
 
-.grid-wrapper--bottom-draft-spacer .ag-body-viewport {
-  padding-bottom: 20vh;
+.grid-wrapper--bottom-draft-spacer .ag-body-viewport,
+.grid-wrapper--bottom-draft-spacer .ag-center-cols-viewport,
+.grid-wrapper--bottom-draft-spacer .ag-body-vertical-scroll-viewport {
+  padding-bottom: clamp(120px, 20vh, 260px);
 }
 
 /* AG Grid derived reference styling */
