@@ -711,6 +711,7 @@ const ChartConfigModal: React.FC<{
 
   type ColOption = { value: string; label: string };
   type ColGroup = { label: string; options: ColOption[] };
+  const leafLabel = (label: string) => label.includes(' → ') ? (label.split(' → ').pop() ?? label) : label;
 
   // ── colOptions for tableRows/tableColumns: date cols have date-feature sub-options ──
   const colGroupsMap = new Map<string, ColGroup>();
@@ -720,14 +721,14 @@ const ChartConfigModal: React.FC<{
     const groupKey = isDotPath ? p.path.split('.')[0] : null;
     if (isDotPath && groupKey) {
       if (!colGroupsMap.has(groupKey)) colGroupsMap.set(groupKey, { label: groupKey, options: [] });
-      const shortLabel = p.label.includes(' → ') ? p.label.split(' → ').slice(1).join(' → ') : p.label;
+      const shortLabel = leafLabel(p.label);
       colGroupsMap.get(groupKey)!.options.push({ value: p.path, label: shortLabel });
     } else if (p.type === 'date' || p.type === 'datetime') {
       const feats = p.type === 'date' ? DATE_FEATURES.filter(f => f.value !== 'hour') : DATE_FEATURES;
-      const dateGroup: ColGroup = { label: p.label, options: [{ value: p.path, label: 'Raw value' }, ...feats.map(f => ({ value: `${p.path}:${f.value}`, label: f.label }))] };
+      const dateGroup: ColGroup = { label: leafLabel(p.label), options: [{ value: p.path, label: 'Raw value' }, ...feats.map(f => ({ value: `${p.path}:${f.value}`, label: f.label }))] };
       colGroupsMap.set(p.path, dateGroup);
     } else {
-      directGroup.options.push({ value: p.path, label: p.label });
+      directGroup.options.push({ value: p.path, label: leafLabel(p.label) });
     }
   }
   const colOptions: ColGroup[] = [];
@@ -743,10 +744,10 @@ const ChartConfigModal: React.FC<{
     const rootKey = isDot ? p.path.split('.')[0] : null;
     if (isDot && rootKey) {
       if (!refGroupsXYG.has(rootKey)) refGroupsXYG.set(rootKey, { label: rootKey, options: [] });
-      const short = p.label.includes(' → ') ? p.label.split(' → ').slice(1).join(' → ') : p.label;
+      const short = leafLabel(p.label);
       refGroupsXYG.get(rootKey)!.options.push({ value: p.path, label: short });
     } else {
-      directGroupXYG.options.push({ value: p.path, label: p.label });
+      directGroupXYG.options.push({ value: p.path, label: leafLabel(p.label) });
     }
   }
   const colOptionsXYG: ColGroup[] = [];
