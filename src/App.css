@@ -373,6 +373,10 @@ body {
   z-index: 1;
 }
 
+.grid-wrapper--bottom-draft-spacer .ag-body-viewport {
+  padding-bottom: 20vh;
+}
+
 /* AG Grid derived reference styling */
 .reference-derived-header {
   background: var(--color-cell-editing) !important;

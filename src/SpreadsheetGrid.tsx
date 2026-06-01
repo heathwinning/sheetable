@@ -656,6 +656,8 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     [schema],
   );
 
+  const showBottomDraftSpacer = !readOnly && !filterActive && draftPosition === 'bottom';
+
   const ZOOM_KEY = 'sheetable-grid-zoom';
   const [zoom, setZoom] = useState(() => {
     const stored = localStorage.getItem(ZOOM_KEY);
@@ -777,7 +779,11 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         </span>
         <span className="grid-status-spacer" />
       </div>
-      <div className="grid-wrapper" ref={gridWrapperRef} style={{ flex: 1, minHeight: 0, zoom, touchAction: 'pan-x pan-y' }}>
+      <div
+        className={`grid-wrapper${showBottomDraftSpacer ? ' grid-wrapper--bottom-draft-spacer' : ''}`}
+        ref={gridWrapperRef}
+        style={{ flex: 1, minHeight: 0, zoom, touchAction: 'pan-x pan-y' }}
+      >
         <AgGridReact
           ref={gridRef}
           modules={[AllCommunityModule]}
