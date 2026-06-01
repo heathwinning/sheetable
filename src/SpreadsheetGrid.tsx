@@ -126,6 +126,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 }) => {
   const [error, setError] = useState<string | null>(null);
   const gridRef = useRef<AgGridReact>(null);
+  const gridWrapperRef = useRef<HTMLDivElement>(null);
   const draftCounter = useRef(0);
   const { openDialog, dialogElement } = useImageDialog();
   const [filterActive, setFilterActive] = useState(false);
@@ -205,28 +206,39 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     if (colIds.length > 0) api.autoSizeColumns(colIds, false);
   }, [schema.columns]);
 
+  // Scroll to the last row accounting for the CSS padding-bottom on the viewport.
+  const scrollToDraftBottom = useCallback((api: FirstDataRenderedEvent['api']) => {
+    const displayedCount = api.getDisplayedRowCount();
+    if (displayedCount === 0) return;
+    api.ensureIndexVisible(displayedCount - 1, 'bottom');
+    // AG Grid doesn't account for the CSS padding-bottom we add for the draft spacer.
+    // Read it from the DOM and add it to the scroll position.
+    requestAnimationFrame(() => {
+      const viewport = gridWrapperRef.current?.querySelector<HTMLElement>('.ag-body-viewport');
+      if (!viewport) return;
+      const pad = parseFloat(getComputedStyle(viewport).paddingBottom) || 0;
+      if (pad > 0) {
+        viewport.scrollTop += pad;
+      }
+    });
+  }, []);
+
   const onFirstDataRendered = useCallback((event: FirstDataRenderedEvent) => {
     // Scroll to bottom if draft is pinned there.
     if (draftPosition === 'bottom' && !readOnly && !filterActive && rows.length > 0) {
-      const displayedCount = event.api.getDisplayedRowCount();
-      if (displayedCount > 0) {
-        event.api.ensureIndexVisible(displayedCount - 1, 'bottom');
-        hasInitialDraftScroll.current = true;
-      }
+      scrollToDraftBottom(event.api);
+      hasInitialDraftScroll.current = true;
     }
     autosizeGridColumns(event.api);
     hasAutosized.current = true;
-  }, [draftPosition, readOnly, filterActive, rows.length, autosizeGridColumns]);
+  }, [draftPosition, readOnly, filterActive, rows.length, autosizeGridColumns, scrollToDraftBottom]);
 
   // Handle async data: if rows arrive after onFirstDataRendered (e.g. network load),
   // run autosize once when the first non-empty batch appears.
   const onRowDataUpdated = useCallback((event: { api: FirstDataRenderedEvent['api'] }) => {
     if (!hasInitialDraftScroll.current && draftPosition === 'bottom' && !readOnly && !filterActive && rows.length > 0) {
-      const displayedCount = event.api.getDisplayedRowCount();
-      if (displayedCount > 0) {
-        event.api.ensureIndexVisible(displayedCount - 1, 'bottom');
-        hasInitialDraftScroll.current = true;
-      }
+      scrollToDraftBottom(event.api);
+      hasInitialDraftScroll.current = true;
     }
 
     if (hasAutosized.current) return;
@@ -683,7 +695,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   }, []);
 
   // Pinch-to-zoom via Pointer Events
-  const gridWrapperRef = useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     const el = gridWrapperRef.current;
     if (!el) return;
