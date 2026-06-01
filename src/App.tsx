@@ -413,17 +413,25 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 const HomePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { bookId } = useParams<{ bookId?: string }>();
   const navigate = useNavigate();
+  const isRouteBookActive = !bookId || state.activeBookName === bookId;
 
-  // Auto-redirect to first table or chart sheet
+  // Auto-redirect to first sheet in persisted global order
   useEffect(() => {
-    if (state.tableIds.length > 0) {
-      navigate(withBook(bookId, `/table/${encodeURIComponent(state.tableIds[0])}`), { replace: true });
-    } else if (state.chartSheetIds.length > 0) {
-      navigate(withBook(bookId, `/chart/${encodeURIComponent(state.chartSheetIds[0])}`), { replace: true });
-    }
-  }, [state.tableIds, state.chartSheetIds, navigate, bookId]);
+    if (!isRouteBookActive) return;
+    const firstSheet = state.sortedSheets.find(sheet => sheet.hidden !== true);
+    if (!firstSheet) return;
 
-  if (state.tableIds.length > 0 || state.chartSheetIds.length > 0) return null;
+    if (firstSheet.type === 'table') {
+      navigate(withBook(bookId, `/table/${encodeURIComponent(firstSheet.name)}`), { replace: true });
+    } else if (firstSheet.type === 'chart') {
+      navigate(withBook(bookId, `/chart/${encodeURIComponent(firstSheet.name)}`), { replace: true });
+    } else {
+      navigate(withBook(bookId, `/view/${encodeURIComponent(firstSheet.name)}`), { replace: true });
+    }
+  }, [isRouteBookActive, state.sortedSheets, navigate, bookId]);
+
+  if (!isRouteBookActive) return null;
+  if (state.sortedSheets.some(sheet => sheet.hidden !== true)) return null;
 
   return (
     <div className="app-body">
