@@ -1431,6 +1431,7 @@ const App: React.FC = () => {
   const state = useAppState();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [tabOrderOpen, setTabOrderOpen] = useState(false);
+  const initialSheetRouteCheckedRef = useRef<string | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1515,6 +1516,38 @@ const App: React.FC = () => {
   const chartMatch = location.pathname.match(/\/chart\/([^/]+)$/);
   const headerChartId = chartMatch ? decodeURIComponent(chartMatch[1]) : null;
   const isChartView = !!headerChartId;
+
+  // On first load of a direct sheet URL, honor configured sheet order.
+  useEffect(() => {
+    const bookMatch = location.pathname.match(/^\/book\/([^/]+)/);
+    if (!bookMatch) return;
+    const routeBookName = decodeURIComponent(bookMatch[1]);
+    if (state.activeBookName !== routeBookName) return;
+    if (initialSheetRouteCheckedRef.current === routeBookName) return;
+
+    const sheetRouteMatch = location.pathname.match(/^\/book\/[^/]+\/(table|chart|view)\/([^/]+)$/);
+    if (!sheetRouteMatch) return;
+    if (state.sortedSheets.length === 0) return;
+
+    const firstVisible = state.sortedSheets.find(sheet => {
+      if (sheet.hidden === true) return false;
+      if (sheet.type !== 'table' || sheet.hidden === false) return true;
+      const shouldHide = state.viewSheetIds.some(viewId => {
+        const view = state.getViewSheet(viewId);
+        return view?.tableName === sheet.name && view?.hideSourceTableTab === true;
+      });
+      return !shouldHide;
+    });
+
+    initialSheetRouteCheckedRef.current = routeBookName;
+    if (!firstVisible) return;
+
+    const currentType = sheetRouteMatch[1] as 'table' | 'chart' | 'view';
+    const currentName = decodeURIComponent(sheetRouteMatch[2]);
+    if (currentType === firstVisible.type && currentName === firstVisible.name) return;
+
+    navigate(`/book/${encodeURIComponent(routeBookName)}/${firstVisible.type}/${encodeURIComponent(firstVisible.name)}`, { replace: true });
+  }, [location.pathname, navigate, state.activeBookName, state.sortedSheets, state.viewSheetIds, state.getViewSheet]);
 
   // Update document title based on current sheet
   useEffect(() => {
