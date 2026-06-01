@@ -10,7 +10,7 @@ import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
 import ListTagsEditor from './ListTagsEditor';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
-import { normalizeTemporalString, parseTemporalUnknown } from './dateFormat';
+import { normalizeTemporalString, parseTemporalUnknown, formatDateCanonical, formatDateTimeCanonical } from './dateFormat';
 import { getCalc } from './chartFormat';
 import { sharedDefaultColDef } from './gridDefaults';
 
@@ -508,6 +508,11 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       } else if (col.type === 'date' || col.type === 'datetime') {
         def.filter = 'agDateColumnFilter';
         def.comparator = (a, b) => toSortableDateEpoch(a) - toSortableDateEpoch(b);
+        def.valueFormatter = (params) => {
+          const parsed = parseTemporalUnknown(params.value);
+          if (!parsed) return String(params.value ?? '');
+          return col.type === 'datetime' ? formatDateTimeCanonical(parsed) : formatDateCanonical(parsed);
+        };
       } else if (col.type !== 'image') {
         def.filter = 'agTextColumnFilter';
       }
