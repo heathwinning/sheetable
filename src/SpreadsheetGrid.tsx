@@ -443,9 +443,12 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
         def.valueSetter = (params: ValueSetterParams) => setReferenceValue(params, params.newValue ?? '');
 
-        const derivedDefs: ColDef[] = displayCols.map((displayPath) => ({
+        const derivedDefs: ColDef[] = displayCols.map((displayPath) => {
+          const resolvedLabel = resolveColumnPathLabel(refTable, displayPath);
+          const leafResolvedLabel = resolvedLabel.split(' → ').pop() ?? resolvedLabel;
+          return ({
           colId: `${col.name}::${displayPath}`,
-          headerName: `${col.displayName || col.name} → ${resolveColumnPathLabel(refTable, displayPath)}`,
+          headerName: leafResolvedLabel,
           editable: true,
           minWidth: 120,
           resizable: true,
@@ -462,7 +465,8 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           comparator: (a, b) => String(a ?? '').toLowerCase().localeCompare(String(b ?? '').toLowerCase()),
           cellEditorSelector: def.cellEditorSelector,
           valueSetter: (params: ValueSetterParams) => setReferenceValue(params, params.newValue ?? ''),
-        }));
+          });
+        });
 
         if (derivedDefs.length > 0) {
           const hiddenBackingDef: ColDef = {
