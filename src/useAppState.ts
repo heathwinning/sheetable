@@ -75,6 +75,7 @@ export interface UseAppStateReturn {
   getReferenceRows: (refTable: string) => Row[];
   resolveColumnPath: (tableName: string, row: Row, path: string) => string;
   resolveColumnPathLabel: (tableName: string, path: string) => string;
+  resolveColumnPathLeafLabel: (tableName: string, path: string) => string;
   getColumnPaths: (tableName: string) => { path: string; label: string }[];
 
   // Revision counter
@@ -405,6 +406,48 @@ export function useAppState(): UseAppStateReturn {
     }
 
     return labels.join(' → ');
+  }, []);
+
+  // Resolve the effective leaf display label for a path, following terminal reference
+  // columns into their configured display columns.
+  const resolveColumnPathLeafLabel = useCallback((tableName: string, path: string): string => {
+    const MAX_DEPTH = 8;
+
+    const walk = (table: string, p: string, depth: number): string => {
+      if (!p || depth > MAX_DEPTH) return '';
+      const parts = p.split('.').filter(Boolean);
+      if (parts.length === 0) return '';
+
+      const schema = schemasRef.current.get(table);
+      if (!schema) return parts[parts.length - 1];
+
+      const [head, ...rest] = parts;
+      const col = schema.columns.find(c => c.name === head);
+      if (!col) return head;
+
+      if (rest.length > 0) {
+        if (col.type === 'reference' && col.refTable) {
+          return walk(col.refTable, rest.join('.'), depth + 1);
+        }
+        return col.displayName || col.name;
+      }
+
+      if (col.type === 'reference' && col.refTable) {
+        const displayCols = col.refDisplayColumns?.length
+          ? col.refDisplayColumns
+          : col.refSearchColumns?.length
+            ? col.refSearchColumns
+            : [];
+        if (displayCols.length > 0) {
+          const labels = displayCols.map(dp => walk(col.refTable!, dp, depth + 1)).filter(Boolean);
+          if (labels.length > 0) return labels.join(' · ');
+        }
+      }
+
+      return col.displayName || col.name;
+    };
+
+    return walk(tableName, path, 0);
   }, []);
 
   const getColumnPaths = useCallback((tableName: string): { path: string; label: string }[] => {
@@ -1147,6 +1190,7 @@ export function useAppState(): UseAppStateReturn {
     getReferenceRows,
     resolveColumnPath,
     resolveColumnPathLabel,
+    resolveColumnPathLeafLabel,
     getColumnPaths,
 
     revision,

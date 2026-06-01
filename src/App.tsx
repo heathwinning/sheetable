@@ -373,6 +373,7 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               getReferenceRows={state.getReferenceRows}
               resolveColumnPath={state.resolveColumnPath}
               resolveColumnPathLabel={state.resolveColumnPathLabel}
+              resolveColumnPathLeafLabel={state.resolveColumnPathLeafLabel}
             />
             {openRecordRow && activeSchema && (
               <RecordCard
@@ -877,6 +878,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             getReferenceRows={state.getReferenceRows}
             resolveColumnPath={state.resolveColumnPath}
             resolveColumnPathLabel={state.resolveColumnPathLabel}
+            resolveColumnPathLeafLabel={state.resolveColumnPathLeafLabel}
           />
         )}
       </div>

@@ -90,6 +90,7 @@ interface SpreadsheetGridProps {
   getReferenceRows: (refTable: string) => Row[];
   resolveColumnPath: (tableName: string, row: Row, path: string) => string;
   resolveColumnPathLabel: (tableName: string, path: string) => string;
+  resolveColumnPathLeafLabel: (tableName: string, path: string) => string;
 }
 
 const gridTheme = themeQuartz.withParams({
@@ -116,6 +117,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   getReferenceRows,
   resolveColumnPath,
   resolveColumnPathLabel,
+  resolveColumnPathLeafLabel,
 }) => {
   const [error, setError] = useState<string | null>(null);
   const gridRef = useRef<AgGridReact>(null);
@@ -444,8 +446,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         def.valueSetter = (params: ValueSetterParams) => setReferenceValue(params, params.newValue ?? '');
 
         const derivedDefs: ColDef[] = displayCols.map((displayPath) => {
-          const resolvedLabel = resolveColumnPathLabel(refTable, displayPath);
-          const leafResolvedLabel = resolvedLabel.split(' → ').pop() ?? resolvedLabel;
+          const leafResolvedLabel = resolveColumnPathLeafLabel(refTable, displayPath)
+            || resolveColumnPathLabel(refTable, displayPath).split(' → ').pop()
+            || displayPath;
           return ({
           colId: `${col.name}::${displayPath}`,
           headerName: leafResolvedLabel,
