@@ -118,11 +118,6 @@ function validateType(type: string, value: string, rowIndex: number, columnName:
 
 function validateUniqueKey(rows: Row[], _schema: TableSchema, keyValues: Record<string, string>, excludeRow: number): ValidationError[] {
   const keyColumns = Object.keys(keyValues);
-  for (const colName of keyColumns) {
-    if (keyValues[colName] === '') {
-      return [{ message: `Key column "${colName}" cannot be empty`, rowIndex: excludeRow, columnName: colName }];
-    }
-  }
   for (let i = 0; i < rows.length; i++) {
     if (i === excludeRow) continue;
     const matches = keyColumns.every(col => rows[i][col] === keyValues[col]);
