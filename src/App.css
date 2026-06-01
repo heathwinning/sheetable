@@ -797,6 +797,7 @@ body {
 .ref-editor-option:hover, .ref-editor-option.selected { @apply bg-cell-selected; }
 .ref-editor-option.current { border-left: 3px solid var(--ref-color); }
 .ref-editor-option.ref-editor-clear { @apply text-text-muted border-b border-border; }
+.ref-editor-option.ref-editor-create { color: var(--color-primary); font-weight: 600; }
 
 /* ============================================================
    Date Cell Editor

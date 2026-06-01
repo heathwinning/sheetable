@@ -91,6 +91,9 @@ interface SpreadsheetGridProps {
   resolveColumnPath: (tableName: string, row: Row, path: string) => string;
   resolveColumnPathLabel: (tableName: string, path: string) => string;
   resolveColumnPathLeafLabel: (tableName: string, path: string) => string;
+  onCreateReferenceRow?: (refTable: string, seedText: string) => Promise<string | null>;
+  /** When true, the grid will not stop editing when cells lose focus (use while a create-reference modal is open) */
+  keepEditorAlive?: boolean;
 }
 
 const gridTheme = themeQuartz.withParams({
@@ -118,6 +121,8 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   resolveColumnPath,
   resolveColumnPathLabel,
   resolveColumnPathLeafLabel,
+  onCreateReferenceRow,
+  keepEditorAlive,
 }) => {
   const [error, setError] = useState<string | null>(null);
   const gridRef = useRef<AgGridReact>(null);
@@ -453,6 +458,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
               resolveColumnPath,
               searchColumns: searchCols,
               displayColumns: displayCols,
+              onCreateRecord: onCreateReferenceRow,
             },
           };
         };
@@ -617,7 +623,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
     return cols;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schema, revision, rowIdToIndex, onEdit, onInsert, bookId, onOpenRecord, getReferencedRow, getReferenceRows, resolveColumnPath, resolveColumnPathLabel]);
+  }, [schema, revision, rowIdToIndex, onEdit, onInsert, bookId, onOpenRecord, getReferencedRow, getReferenceRows, resolveColumnPath, resolveColumnPathLabel, onCreateReferenceRow]);
 
   // Style draft row with dimmer text
   const getRowClass = useCallback((params: RowClassParams) => {
@@ -799,7 +805,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           getRowId={getRowId}
           getRowClass={getRowClass}
           singleClickEdit={true}
-          stopEditingWhenCellsLoseFocus={true}
+          stopEditingWhenCellsLoseFocus={!keepEditorAlive}
           suppressScrollOnNewData={true}
           suppressScrollWhenPopupsAreOpen={true}
           enterNavigatesVertically={true}

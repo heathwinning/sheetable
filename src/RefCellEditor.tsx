@@ -12,12 +12,14 @@ interface RefCellEditorProps {
   resolveColumnPath: (tableName: string, row: Row, path: string) => string;
   searchColumns: string[];
   displayColumns: string[];
+  onCreateRecord?: (refTable: string, seedText: string) => Promise<string | null>;
 }
 
 export default function RefCellEditor(props: RefCellEditorProps) {
-  const { refRows, refTable, resolveColumnPath, searchColumns, displayColumns, onValueChange, stopEditing } = props;
+  const { refRows, refTable, resolveColumnPath, searchColumns, displayColumns, onValueChange, stopEditing, onCreateRecord } = props;
   const [search, setSearch] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [isCreating, setIsCreating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -45,7 +47,7 @@ export default function RefCellEditor(props: RefCellEditorProps) {
 
   useEffect(() => {
     if (selectedIndex >= 0 && listRef.current) {
-      const item = listRef.current.children[selectedIndex + 1] as HTMLElement;
+      const item = listRef.current.querySelector(`[data-select-index="${selectedIndex}"]`) as HTMLElement | null;
       item?.scrollIntoView({ block: 'nearest' });
     }
   }, [selectedIndex]);
@@ -56,8 +58,24 @@ export default function RefCellEditor(props: RefCellEditorProps) {
     setTimeout(() => stopEditing(), 0);
   }, [onValueChange, stopEditing]);
 
+  const showCreateOption = !!onCreateRecord && search.trim().length > 0;
+  const createOptionIndex = filtered.length + 1;
+
+  const handleCreateRecord = useCallback(async () => {
+    if (!onCreateRecord || isCreating) return;
+    setIsCreating(true);
+    try {
+      const createdRowId = await onCreateRecord(refTable, search.trim());
+      if (createdRowId) {
+        selectValue(createdRowId);
+      }
+    } finally {
+      setIsCreating(false);
+    }
+  }, [onCreateRecord, isCreating, refTable, search, selectValue]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    const totalItems = filtered.length + 1;
+    const totalItems = filtered.length + 1 + (showCreateOption ? 1 : 0);
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setSelectedIndex(prev => Math.min(prev + 1, totalItems - 1));
@@ -70,6 +88,8 @@ export default function RefCellEditor(props: RefCellEditorProps) {
         selectValue('');
       } else if (selectedIndex > 0 && selectedIndex <= filtered.length) {
         selectValue(filtered[selectedIndex - 1].row[INTERNAL_ROW_ID]);
+      } else if (showCreateOption && selectedIndex === createOptionIndex) {
+        void handleCreateRecord();
       }
     } else if (e.key === 'Escape') {
       stopEditing();
@@ -89,6 +109,7 @@ export default function RefCellEditor(props: RefCellEditorProps) {
       <div className="ref-editor-list" ref={listRef}>
         <div
           className={`ref-editor-option ref-editor-clear ${selectedIndex === 0 ? 'selected' : ''}`}
+          data-select-index={0}
           onClick={() => selectValue('')}
         >
           <em>Clear</em>
@@ -97,11 +118,21 @@ export default function RefCellEditor(props: RefCellEditorProps) {
           <div
             key={r.row[INTERNAL_ROW_ID]}
             className={`ref-editor-option ${selectedIndex === i + 1 ? 'selected' : ''} ${r.row[INTERNAL_ROW_ID] === props.value ? 'current' : ''}`}
+            data-select-index={i + 1}
             onClick={() => selectValue(r.row[INTERNAL_ROW_ID])}
           >
             {r.displayText || <span style={{ opacity: 0.5 }}>Row {r.row[INTERNAL_ROW_ID]}</span>}
           </div>
         ))}
+        {showCreateOption && (
+          <div
+            className={`ref-editor-option ref-editor-create ${selectedIndex === createOptionIndex ? 'selected' : ''}`}
+            data-select-index={createOptionIndex}
+            onClick={() => { void handleCreateRecord(); }}
+          >
+            {isCreating ? 'Creating…' : `+ Add new record in ${refTable}`}
+          </div>
+        )}
         {filtered.length === 0 && (
           <div className="ref-editor-option" style={{ opacity: 0.5, cursor: 'default' }}>No matches</div>
         )}

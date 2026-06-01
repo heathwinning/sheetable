@@ -12,7 +12,7 @@ import { ImportPage } from './ImportPage';
 import { rowsToCSV } from './csv';
 import * as api from './api';
 import type { UseAppStateReturn } from './useAppState';
-import type { BookMember, BookInvite, Row } from './types';
+import type { BookMember, BookInvite, Row, TableSchema } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { CalendarView } from './CalendarView';
 import { RecordCard } from './RecordCard';
@@ -284,6 +284,12 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const showAlert = useAlert();
   const [openRecordRow, setOpenRecordRow] = useState<Row | null>(null);
   const [openRecordRowIndex, setOpenRecordRowIndex] = useState<number | null>(null);
+  const [createRefModalStack, setCreateRefModalStack] = useState<Array<{
+    tableId: string;
+    initialValues: Row;
+    existingRowIds: Set<string>;
+    resolve: (rowId: string | null) => void;
+  }>>([]);
 
   // Sync URL param to active table
   useEffect(() => {
@@ -294,6 +300,69 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
   const activeSchema = tableId ? state.getSchema(tableId) : null;
   const activeRows = tableId ? state.getRows(tableId) : [];
+
+  const buildReferenceInitialValues = useCallback((schema: TableSchema, seedText: string): Row => {
+    const values: Row = { [INTERNAL_ROW_ID]: '' };
+    for (const col of schema.columns) {
+      if (col.name === INTERNAL_ROW_ID) continue;
+      values[col.name] = '';
+    }
+
+    const seed = seedText.trim();
+    if (!seed) return values;
+
+    const uniqueTextKey = schema.uniqueKeys.find(keyName => {
+      const col = schema.columns.find(c => c.name === keyName);
+      return col?.type === 'text';
+    });
+    if (uniqueTextKey) {
+      values[uniqueTextKey] = seed;
+      return values;
+    }
+
+    const firstTextCol = schema.columns.find(c => c.name !== INTERNAL_ROW_ID && c.type === 'text');
+    if (firstTextCol) {
+      values[firstTextCol.name] = seed;
+    }
+
+    return values;
+  }, []);
+
+  const closeTopCreateReferenceModal = useCallback((createdRowId: string | null) => {
+    setCreateRefModalStack(prev => {
+      if (prev.length === 0) return prev;
+      // Call the promise resolver as a side effect; it does not trigger state changes itself
+      prev[prev.length - 1].resolve(createdRowId);
+      return prev.slice(0, -1);
+    });
+  }, []);
+
+  const openCreateReferenceRow = useCallback((refTable: string, seedText: string): Promise<string | null> => {
+    const schema = state.getSchema(refTable);
+    if (!schema) {
+      return Promise.resolve(null);
+    }
+
+    const existingRowIds = new Set(state.getRows(refTable).map(row => row[INTERNAL_ROW_ID]));
+    const initialValues = buildReferenceInitialValues(schema, seedText);
+
+    return new Promise<string | null>((resolve) => {
+      setCreateRefModalStack(prev => [...prev, { tableId: refTable, initialValues, existingRowIds, resolve }]);
+    });
+  }, [state, buildReferenceInitialValues]);
+
+  const handleCreateReferenceSave = useCallback((values: Row): import('./types').ValidationError[] => {
+    const modal = createRefModalStack[createRefModalStack.length - 1];
+    if (!modal) return [];
+
+    const errs = state.insertRow(modal.tableId, values);
+    if (errs.length > 0) return errs;
+
+    const updatedRows = state.getRows(modal.tableId);
+    const createdRow = updatedRows.find(row => !modal.existingRowIds.has(row[INTERNAL_ROW_ID])) ?? updatedRows[updatedRows.length - 1];
+    closeTopCreateReferenceModal(createdRow?.[INTERNAL_ROW_ID] ?? null);
+    return [];
+  }, [createRefModalStack, state, closeTopCreateReferenceModal]);
 
   const handleOpenRecord = useCallback((row: Row) => {
     const idx = activeRows.findIndex(r => r[INTERNAL_ROW_ID] === row[INTERNAL_ROW_ID]);
@@ -374,6 +443,8 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               resolveColumnPath={state.resolveColumnPath}
               resolveColumnPathLabel={state.resolveColumnPathLabel}
               resolveColumnPathLeafLabel={state.resolveColumnPathLeafLabel}
+              onCreateReferenceRow={state.activeBookRole !== 'viewer' ? openCreateReferenceRow : undefined}
+              keepEditorAlive={createRefModalStack.length > 0}
             />
             {openRecordRow && activeSchema && (
               <RecordCard
@@ -384,9 +455,37 @@ const TableViewPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
                 onSave={handleRecordCardSave}
                 onClose={() => { setOpenRecordRow(null); setOpenRecordRowIndex(null); }}
                 getReferenceRows={state.getReferenceRows}
+                resolveColumnPath={state.resolveColumnPath}
+                onCreateReferenceRow={state.activeBookRole !== 'viewer' ? openCreateReferenceRow : undefined}
                 bookId={state.activeBookId}
               />
             )}
+            {createRefModalStack.map((modal, idx) => {
+              const schema = state.getSchema(modal.tableId);
+              if (!schema) return null;
+              const isTopModal = idx === createRefModalStack.length - 1;
+              return (
+                // Stop mousedown events from reaching document-level AG Grid listeners
+                // so the popup cell editor stays open while this modal is visible.
+                <div key={`${modal.tableId}-${idx}`} onMouseDown={e => e.nativeEvent.stopImmediatePropagation()}>
+                  <RecordCard
+                    schema={schema}
+                    title={`New ${modal.tableId} record`}
+                    initialValues={modal.initialValues}
+                    readOnly={state.activeBookRole === 'viewer'}
+                    onSave={isTopModal ? handleCreateReferenceSave : undefined}
+                    onClose={() => {
+                      if (!isTopModal) return;
+                      closeTopCreateReferenceModal(null);
+                    }}
+                    getReferenceRows={state.getReferenceRows}
+                    resolveColumnPath={state.resolveColumnPath}
+                    onCreateReferenceRow={state.activeBookRole !== 'viewer' ? openCreateReferenceRow : undefined}
+                    bookId={state.activeBookId}
+                  />
+                </div>
+              );
+            })}
           </>
         ) : (
           <div className="empty-state-main">

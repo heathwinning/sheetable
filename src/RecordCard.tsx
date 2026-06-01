@@ -25,15 +25,24 @@ interface RecordCardProps {
   onClose: () => void;
   /** Provides options for reference-type columns */
   getReferenceRows: (refTable: string) => Row[];
+  /** Resolves nested column paths used by refDisplayColumns in reference labels */
+  resolveColumnPath?: (tableName: string, row: Row, path: string) => string;
+  /** Opens a create-record flow for a referenced table and resolves with the new row id */
+  onCreateReferenceRow?: (refTable: string, seedText: string) => Promise<string | null>;
   /** Needed to render image URLs */
   bookId?: string | null;
 }
 
 // ---- Reference display label ------------------------------------------------
 
-function refDisplayLabel(refRow: Row, col: ColumnDef): string {
+function refDisplayLabel(refRow: Row, col: ColumnDef, refTable: string, resolveColumnPath?: (tableName: string, row: Row, path: string) => string): string {
   if (col.refDisplayColumns && col.refDisplayColumns.length > 0) {
-    const parts = col.refDisplayColumns.map(c => refRow[c] ?? '').filter(Boolean);
+    const parts = col.refDisplayColumns
+      .map(c => {
+        if (resolveColumnPath) return resolveColumnPath(refTable, refRow, c);
+        return refRow[c] ?? '';
+      })
+      .filter(Boolean);
     if (parts.length) return parts.join(' ');
   }
   const firstKey = Object.keys(refRow).find(k => k !== INTERNAL_ROW_ID);
@@ -155,10 +164,13 @@ export const RecordCard: React.FC<RecordCardProps> = ({
   onSave,
   onClose,
   getReferenceRows,
+  resolveColumnPath,
+  onCreateReferenceRow,
   bookId,
 }) => {
   const [values, setValues] = useState<Row>({ ...initialValues });
   const [errors, setErrors] = useState<ValidationError[]>([]);
+  const [creatingReferenceCol, setCreatingReferenceCol] = useState<string | null>(null);
 
   const set = (name: string, value: string) =>
     setValues(prev => ({ ...prev, [name]: value }));
@@ -245,23 +257,57 @@ export const RecordCard: React.FC<RecordCardProps> = ({
                       {refDisplayLabel(
                         getReferenceRows(col.refTable).find(r => r[INTERNAL_ROW_ID] === value) ?? {},
                         col,
+                        col.refTable,
+                        resolveColumnPath,
                       ) || '—'}
                     </span>
                   ) : (
-                    <Select
-                      styles={dialogSelectStyles}
-                      value={value
-                        ? (() => { const r = getReferenceRows(col.refTable).find(r => r[INTERNAL_ROW_ID] === value); return r ? { value: String(value), label: refDisplayLabel(r, col) } : null; })()
-                        : null}
-                      options={getReferenceRows(col.refTable).map(refRow => ({
-                        value: String(refRow[INTERNAL_ROW_ID] ?? ''),
-                        label: refDisplayLabel(refRow, col),
-                      }))}
-                      onChange={opt => set(col.name, opt?.value ?? '')}
-                      isClearable
-                      placeholder="— none —"
-                      menuPlacement="auto"
-                    />
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <Select
+                          styles={dialogSelectStyles}
+                          value={value
+                            ? (() => {
+                                const r = getReferenceRows(col.refTable).find(refRow => refRow[INTERNAL_ROW_ID] === value);
+                                return r
+                                  ? { value: String(value), label: refDisplayLabel(r, col, col.refTable!, resolveColumnPath) }
+                                  : null;
+                              })()
+                            : null}
+                          options={getReferenceRows(col.refTable).map(refRow => ({
+                            value: String(refRow[INTERNAL_ROW_ID] ?? ''),
+                            label: refDisplayLabel(refRow, col, col.refTable!, resolveColumnPath),
+                          }))}
+                          onChange={opt => set(col.name, opt?.value ?? '')}
+                          isClearable
+                          placeholder="— none —"
+                          menuPlacement="auto"
+                        />
+                      </div>
+                      {onCreateReferenceRow && (
+                        <button
+                          type="button"
+                          className="app-dialog-btn app-dialog-btn-secondary btn-sm"
+                          disabled={creatingReferenceCol === col.name}
+                          onClick={() => {
+                            void (async () => {
+                              if (!col.refTable) return;
+                              setCreatingReferenceCol(col.name);
+                              try {
+                                const createdRowId = await onCreateReferenceRow(col.refTable, '');
+                                if (createdRowId) {
+                                  set(col.name, createdRowId);
+                                }
+                              } finally {
+                                setCreatingReferenceCol(prev => prev === col.name ? null : prev);
+                              }
+                            })();
+                          }}
+                        >
+                          {creatingReferenceCol === col.name ? 'Adding…' : '+ Add'}
+                        </button>
+                      )}
+                    </div>
                   )
                 ) : col.type === 'date' ? (
                   readOnly ? (
