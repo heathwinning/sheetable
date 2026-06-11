@@ -78,6 +78,40 @@ function formatValue(n: number, config: Pick<ChartConfig, 'valueFormat' | 'yModi
   return applyChartValueFormat(n, config);
 }
 
+// MONTH_ORDER maps locale month names (any locale) to their 1-based number for sorting
+const MONTH_ORDER: Record<string, number> = {};
+for (let m = 0; m < 12; m++) {
+  const name = new Date(2000, m, 1).toLocaleString('default', { month: 'long' }).toLowerCase();
+  MONTH_ORDER[name] = m + 1;
+}
+const DOW_ORDER: Record<string, number> = {};
+for (let d = 0; d < 7; d++) {
+  const date = new Date(2000, 0, 2 + d); // Jan 2 2000 = Sunday
+  const name = date.toLocaleString('default', { weekday: 'long' }).toLowerCase();
+  DOW_ORDER[name] = d;
+}
+
+/**
+ * Returns a sort key for a dimension value.
+ * For date features where lexical order is wrong (month name, dayofweek,
+ * yearmonth) this returns a zero-padded numeric key so localeCompare gives
+ * chronological order.
+ */
+function dimSortKey(val: string, dim: string): string {
+  if (!val) return '';
+  if (dim.endsWith(':yearmonth')) return val; // already YYYY-MM-01
+  if (dim.endsWith(':month')) {
+    const n = MONTH_ORDER[val.toLowerCase()];
+    return n !== undefined ? String(n).padStart(2, '0') : val.toLowerCase();
+  }
+  if (dim.endsWith(':dayofweek')) {
+    const n = DOW_ORDER[val.toLowerCase()];
+    return n !== undefined ? String(n) : val.toLowerCase();
+  }
+  // year, quarter, monthnum, week, day, hour — raw value is already zero-padded or ISO
+  return val.toLowerCase();
+}
+
 function aggregateData(
   rows: Row[],
   xCol: string,
@@ -142,6 +176,8 @@ function aggregateData(
       if (!xg.has(g)) xg.set(g, []);
       xg.get(g)!.push(agg === 'count' ? 1 : toNum(resolveColumnPath(tableName, row, yCol)));
     }
+    // Auto-sort x values chronologically when xCol is a date feature
+    if (xExpr.feature) xOrder.sort((a, b) => dimSortKey(a, xCol).localeCompare(dimSortKey(b, xCol)));
     const seriesKeys = Array.from(seenG);
     const data = xOrder.map(x => {
       const xg = groups.get(x) ?? new Map();
@@ -161,6 +197,8 @@ function aggregateData(
     if (!groups.has(x)) groups.set(x, []);
     groups.get(x)!.push(agg === 'count' ? 1 : toNum(resolveColumnPath(tableName, row, yCol)));
   }
+  // Auto-sort x values chronologically when xCol is a date feature
+  if (xExpr.feature) xOrder.sort((a, b) => dimSortKey(a, xCol).localeCompare(dimSortKey(b, xCol)));
   const seriesKey = yCol || 'value';
   const data = xOrder.map(x => ({ x, [seriesKey]: applyAgg(groups.get(x) ?? [], agg) }));
   return { data, seriesKeys: [seriesKey] };
@@ -287,49 +325,6 @@ function fmtDimVal(val: string, dim: string): string {
     if (!isNaN(d.getTime())) return d.toLocaleString('default', { month: 'short', year: 'numeric' });
   }
   return val || '—';
-}
-
-// MONTH_ORDER maps locale month names (any locale) to their 1-based number for sorting
-const MONTH_ORDER: Record<string, number> = {};
-for (let m = 0; m < 12; m++) {
-  const name = new Date(2000, m, 1).toLocaleString('default', { month: 'long' }).toLowerCase();
-  MONTH_ORDER[name] = m + 1;
-}
-const DOW_ORDER: Record<string, number> = {};
-for (let d = 0; d < 7; d++) {
-  // getDay(): 0=Sun..6=Sat; use a known week starting Sunday
-  const date = new Date(2000, 0, 2 + d); // Jan 2 2000 = Sunday
-  const name = date.toLocaleString('default', { weekday: 'long' }).toLowerCase();
-  DOW_ORDER[name] = d;
-}
-
-/**
- * Returns a sort key for a pivot dimension value.
- * For date features where lexical order is wrong (month name, dayofweek,
- * yearmonth, quarter) this returns a zero-padded numeric key so that
- * localeCompare produces chronological order.
- */
-function dimSortKey(val: string, dim: string): string {
-  if (!val) return '';
-  if (dim.endsWith(':yearmonth')) {
-    // stored as YYYY-MM-01 — already ISO, sorts correctly
-    return val;
-  }
-  if (dim.endsWith(':month')) {
-    const n = MONTH_ORDER[val.toLowerCase()];
-    return n !== undefined ? String(n).padStart(2, '0') : val.toLowerCase();
-  }
-  if (dim.endsWith(':dayofweek')) {
-    const n = DOW_ORDER[val.toLowerCase()];
-    return n !== undefined ? String(n) : val.toLowerCase();
-  }
-  if (dim.endsWith(':quarter')) {
-    // "Q1" … "Q4"
-    return val;
-  }
-  // For all other features (year, monthnum, week, day, hour) the raw stored
-  // value is already a zero-padded number or ISO string — use it as-is.
-  return val.toLowerCase();
 }
 
 // ── Chart renderer ───────────────────────────────────────────────────────────
