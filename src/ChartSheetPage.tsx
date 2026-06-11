@@ -1325,7 +1325,7 @@ const ChartConfigModal: React.FC<{
                       value={colOptionsFlat.find(o => o.value === draft.yColumn) ?? null}
                       options={yColOptions}
                       onChange={opt => set('yColumn', opt?.value ?? '')}
-                      placeholder="— select —"
+                      placeholder="Select column..."
                       isClearable
                       menuPortalTarget={document.body}
                       menuPlacement="auto"
@@ -1361,7 +1361,7 @@ const ChartConfigModal: React.FC<{
                         set('xColumn', newPath);
                       }
                     }}
-                    placeholder="— select —"
+                    placeholder="Select column..."
                     isClearable
                     menuPortalTarget={document.body}
                     menuPlacement="auto"
@@ -1408,7 +1408,7 @@ const ChartConfigModal: React.FC<{
                       value={colOptionsFlatXYG.find(o => o.value === draft.yColumn) ?? null}
                       options={yColOptionsXYG}
                       onChange={opt => set('yColumn', opt?.value ?? '')}
-                      placeholder="— select —"
+                      placeholder="Select column..."
                       isClearable
                       menuPortalTarget={document.body}
                       menuPlacement="auto"
@@ -1489,7 +1489,7 @@ const ChartConfigModal: React.FC<{
                   <Select
                     styles={dialogSelectStyles}
                     isClearable
-                    placeholder="— column —"
+                    placeholder="Select column..."
                     value={colOptionsFlatXYG.find(o => o.value === f.column) ?? null}
                     options={colOptionsXYG}
                     onChange={opt => setDraft(d => {
@@ -1783,7 +1783,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                                   ...prev,
                                   [chart.id]: { ...(prev[chart.id] ?? {}), [f.column]: opts.map(o => o.value) },
                                 }))}
-                                placeholder={`— ${colLabel} —`}
+                                placeholder={colLabel}
                                 isClearable
                                 menuPortalTarget={document.body}
                                 menuPlacement="auto"
