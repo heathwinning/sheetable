@@ -5,8 +5,8 @@ import { log } from './DebugLogger';
 import { useConfirm } from './DialogProvider';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnResizedEvent, FirstDataRenderedEvent, CellSelectionChangedEvent } from 'ag-grid-community';
-import { computeCellSelectionStats, SelectionSumBar } from './SelectionSumBar';
+import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnResizedEvent, FirstDataRenderedEvent, CellEditingStartedEvent, DisplayedColumnsChangedEvent } from 'ag-grid-community';
+import { SelectionSumBar } from './SelectionSumBar';
 import type { SelectionStats } from './SelectionSumBar';
 import type { CustomCellRendererProps } from 'ag-grid-react';
 import RefCellEditor from './RefCellEditor';
@@ -148,12 +148,40 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   }, []);
 
   const [cellStats, setCellStats] = useState<SelectionStats | null>(null);
-  const onCellSelectionChanged = useCallback((event: CellSelectionChangedEvent) => {
-    if (!event.finished) return;
-    const stats = computeCellSelectionStats(event.api);
-    setCellStats(stats);
-    onCellSelectionStats?.(stats);
+
+  // ── Select mode ────────────────────────────────────────────────────────────
+  const [selectMode, setSelectMode] = useState(false);
+  const selectModeRef = useRef(false);
+  useEffect(() => { selectModeRef.current = selectMode; }, [selectMode]);
+
+  // Current selection range stored as { minRow, maxRow, minColIdx, maxColIdx }
+  const selectionRef = useRef<{ minRow: number; maxRow: number; minColIdx: number; maxColIdx: number } | null>(null);
+  // Ordered list of column IDs (kept in sync with the grid)
+  const colOrderRef = useRef<string[]>([]);
+
+  const updateColOrder = useCallback(() => {
+    const api = gridRef.current?.api;
+    if (!api) return;
+    const cols = api.getColumns();
+    colOrderRef.current = cols ? cols.map(c => c.getColId()) : [];
+  }, []);
+
+  const clearCellSelection = useCallback(() => {
+    selectionRef.current = null;
+    gridRef.current?.api.refreshCells({ force: true });
+    setCellStats(null);
+    onCellSelectionStats?.(null);
   }, [onCellSelectionStats]);
+
+  const onCellEditingStarted = useCallback((event: CellEditingStartedEvent) => {
+    if (selectModeRef.current) {
+      event.api.stopEditing(true);
+    }
+  }, []);
+
+  const onDisplayedColumnsChanged = useCallback((_event: DisplayedColumnsChangedEvent) => {
+    updateColOrder();
+  }, [updateColOrder]);
 
   // Create a fresh draft row (local-only, not yet persisted)
   const makeDraftRow = useCallback((): Row => {
@@ -245,6 +273,8 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     }
     autosizeGridColumns(event.api);
     hasAutosized.current = true;
+    const cols = event.api.getColumns();
+    colOrderRef.current = cols ? cols.map(c => c.getColId()) : [];
   }, [draftPosition, readOnly, filterActive, rows.length, autosizeGridColumns, scrollToDraftBottom]);
 
   // Handle async data: if rows arrive after onFirstDataRendered (e.g. network load),
@@ -695,6 +725,23 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     return typeof document !== 'undefined' ? document.body : undefined;
   }, []);
 
+  const defaultColDef = useMemo(() => ({
+    ...sharedDefaultColDef,
+    suppressMovable: true,
+    cellClassRules: {
+      'cell-selected': (params: { node: { rowIndex: number | null }; column: { getColId: () => string } }) => {
+        if (!selectModeRef.current || !selectionRef.current) return false;
+        const rowIndex = params.node.rowIndex;
+        if (rowIndex === null) return false;
+        const sel = selectionRef.current;
+        if (rowIndex < sel.minRow || rowIndex > sel.maxRow) return false;
+        const colId = params.column.getColId();
+        const colIdx = colOrderRef.current.indexOf(colId);
+        return colIdx >= sel.minColIdx && colIdx <= sel.maxColIdx;
+      },
+    },
+  }), []); // stable — reads from refs only
+
   // Editable column options for bulk edit dropdown
   const editableColumnOptions = useMemo(() =>
     schema.columns
@@ -768,6 +815,137 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     };
   }, [changeZoom]);
 
+  // ── Cell selection via pointer events ──────────────────────────────────────
+  useEffect(() => {
+    const el = gridWrapperRef.current;
+    if (!el) return;
+
+    let isDragging = false;
+    let anchorCoord: { rowIndex: number; colId: string } | null = null;
+    let pointerDownCell: { rowIndex: number; colId: string } | null = null;
+    let hasMoved = false;
+    let activeCount = 0;
+
+    const getCellAt = (x: number, y: number): { rowIndex: number; colId: string } | null => {
+      const target = document.elementFromPoint(x, y) as HTMLElement | null;
+      let node = target;
+      while (node && !node.classList.contains('ag-cell')) node = node.parentElement;
+      if (!node) return null;
+      const colId = node.getAttribute('col-id');
+      let row = node.parentElement;
+      while (row && !row.classList.contains('ag-row')) row = row.parentElement;
+      if (!row || !colId) return null;
+      if (row.classList.contains('ag-row-pinned')) return null;
+      const rowIndex = parseInt(row.getAttribute('row-index') ?? '', 10);
+      if (isNaN(rowIndex) || rowIndex < 0) return null;
+      return { rowIndex, colId };
+    };
+
+    const applySelection = (anchor: { rowIndex: number; colId: string }, active: { rowIndex: number; colId: string }) => {
+      const api = gridRef.current?.api;
+      if (!api) return;
+      const colIds = colOrderRef.current;
+      const anchorColIdx = colIds.indexOf(anchor.colId);
+      const activeColIdx = colIds.indexOf(active.colId);
+      if (anchorColIdx < 0 || activeColIdx < 0) return;
+      selectionRef.current = {
+        minRow: Math.min(anchor.rowIndex, active.rowIndex),
+        maxRow: Math.max(anchor.rowIndex, active.rowIndex),
+        minColIdx: Math.min(anchorColIdx, activeColIdx),
+        maxColIdx: Math.max(anchorColIdx, activeColIdx),
+      };
+      api.refreshCells({ force: true });
+      // Compute stats from selection
+      const sel = selectionRef.current;
+      const nums: number[] = [];
+      for (let r = sel.minRow; r <= sel.maxRow; r++) {
+        const rowNode = api.getDisplayedRowAtIndex(r);
+        if (!rowNode) continue;
+        for (let ci = sel.minColIdx; ci <= sel.maxColIdx; ci++) {
+          const cid = colIds[ci];
+          if (!cid) continue;
+          const raw = api.getCellValue({ rowNode, colKey: cid });
+          if (raw === null || raw === undefined || raw === '') continue;
+          const n = Number(raw);
+          if (!isNaN(n)) nums.push(n);
+        }
+      }
+      if (nums.length === 0) {
+        setCellStats(null);
+        onCellSelectionStats?.(null);
+      } else {
+        const sum = nums.reduce((a, b) => a + b, 0);
+        const stats = { sum, count: nums.length, avg: sum / nums.length };
+        setCellStats(stats);
+        onCellSelectionStats?.(stats);
+      }
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (!selectModeRef.current) return;
+      activeCount++;
+      if (activeCount >= 2) {
+        // Second finger — cancel any in-progress selection drag (pinch begins)
+        isDragging = false;
+        anchorCoord = null;
+        return;
+      }
+      const cell = getCellAt(e.clientX, e.clientY);
+      if (!cell) return;
+      pointerDownCell = cell;
+      hasMoved = false;
+      isDragging = true;
+      anchorCoord = cell;
+      el.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      applySelection(cell, cell);
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!selectModeRef.current || !isDragging || !anchorCoord) return;
+      if (activeCount >= 2) return;
+      hasMoved = true;
+      const cell = getCellAt(e.clientX, e.clientY);
+      if (!cell) return;
+      applySelection(anchorCoord, cell);
+      e.preventDefault();
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      activeCount = Math.max(0, activeCount - 1);
+      if (!isDragging) return;
+      isDragging = false;
+      // Tap without movement on an already-selected cell → deselect
+      if (!hasMoved && pointerDownCell && selectionRef.current) {
+        const sel = selectionRef.current;
+        const colIds = colOrderRef.current;
+        const colIdx = colIds.indexOf(pointerDownCell.colId);
+        const inSel =
+          pointerDownCell.rowIndex >= sel.minRow &&
+          pointerDownCell.rowIndex <= sel.maxRow &&
+          colIdx >= sel.minColIdx &&
+          colIdx <= sel.maxColIdx;
+        if (inSel) {
+          clearCellSelection();
+        }
+      }
+      anchorCoord = null;
+      pointerDownCell = null;
+      try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    };
+
+    el.addEventListener('pointerdown', onPointerDown, { passive: false });
+    el.addEventListener('pointermove', onPointerMove, { passive: false });
+    el.addEventListener('pointerup', onPointerUp);
+    el.addEventListener('pointercancel', onPointerUp);
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown);
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerup', onPointerUp);
+      el.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [clearCellSelection, onCellSelectionStats]);
+
   return (
     <div className="spreadsheet-container" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
       {error && (
@@ -824,11 +1002,23 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           {rows.length} row{rows.length !== 1 ? 's' : ''}{displayedRowCount !== null ? ` (${displayedRowCount} shown)` : ''}
         </span>
         <span className="grid-status-spacer" />
+        <button
+          className={`btn-ghost btn-sm grid-select-mode-btn${selectMode ? ' active' : ''}`}
+          title={selectMode ? 'Exit select mode' : 'Select cells to sum'}
+          onClick={() => {
+            setSelectMode(m => {
+              if (m) clearCellSelection();
+              return !m;
+            });
+          }}
+        >
+          ⊞ {selectMode ? 'Selecting' : 'Select'}
+        </button>
       </div>
       <div
         className={`grid-wrapper${showBottomDraftSpacer ? ' grid-wrapper--bottom-draft-spacer' : ''}`}
         ref={gridWrapperRef}
-        style={{ flex: 1, minHeight: 0, zoom, touchAction: 'pan-x pan-y' }}
+        style={{ flex: 1, minHeight: 0, zoom, touchAction: selectMode ? 'none' : 'pan-x pan-y' }}
       >
         <AgGridReact
           ref={gridRef}
@@ -839,7 +1029,8 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           columnDefs={columnDefs}
           getRowId={getRowId}
           getRowClass={getRowClass}
-          singleClickEdit={true}
+          singleClickEdit={!selectMode}
+          suppressCellFocus={selectMode}
           stopEditingWhenCellsLoseFocus={!keepEditorAlive}
           suppressScrollOnNewData={true}
           suppressScrollWhenPopupsAreOpen={true}
@@ -853,10 +1044,10 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           onFilterChanged={onFilterChanged}
           onFirstDataRendered={onFirstDataRendered}
           onRowDataUpdated={onRowDataUpdated}
-          defaultColDef={{ ...sharedDefaultColDef, suppressMovable: true }}
+          defaultColDef={defaultColDef}
           onColumnResized={onColumnResized}
-          cellSelection={true}
-          onCellSelectionChanged={onCellSelectionChanged}
+          onDisplayedColumnsChanged={onDisplayedColumnsChanged}
+          onCellEditingStarted={onCellEditingStarted}
         />
       </div>
       <SelectionSumBar stats={cellStats} />

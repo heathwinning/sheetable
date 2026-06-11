@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import Select from 'react-select';
 import { dialogSelectStyles } from './selectStyles';
@@ -12,9 +12,9 @@ import {
 } from 'recharts';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, ColGroupDef, CellStyle, CellSelectionChangedEvent } from 'ag-grid-community';
+import type { ColDef, ColGroupDef, CellStyle } from 'ag-grid-community';
 import { sharedDefaultColDef } from './gridDefaults';
-import { computeCellSelectionStats, SelectionSumBar } from './SelectionSumBar';
+import { SelectionSumBar } from './SelectionSumBar';
 import type { SelectionStats } from './SelectionSumBar';
 import type { UseAppStateReturn } from './useAppState';
 import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature } from './types';
@@ -300,10 +300,10 @@ const PivotTableGrid: React.FC<{
   totalRow: Record<string, unknown>;
 }> = ({ colDefs, rowData, totalRow }) => {
   const [pivotCellStats, setPivotCellStats] = useState<SelectionStats | null>(null);
-  const onPivotCellSelectionChanged = useCallback((event: CellSelectionChangedEvent) => {
-    if (!event.finished) return;
-    setPivotCellStats(computeCellSelectionStats(event.api));
-  }, []);
+  const pivotGridRef = useRef<AgGridReact>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const selectionRef = useRef<{ minRow: number; maxRow: number; minColIdx: number; maxColIdx: number } | null>(null);
+  const colOrderRef = useRef<string[]>([]);
 
   const pivotGridTheme = themeQuartz.withParams({
     cellHorizontalPaddingScale: 0.5,
@@ -313,20 +313,161 @@ const PivotTableGrid: React.FC<{
     headerHeight: 26,
   });
 
+  const defaultColDef = useMemo(() => ({
+    ...sharedDefaultColDef,
+    resizable: true,
+    suppressMovable: true,
+    cellClassRules: {
+      'cell-selected': (params: { node: { rowIndex: number | null }; column: { getColId: () => string } }) => {
+        if (!selectionRef.current) return false;
+        const rowIndex = params.node.rowIndex;
+        if (rowIndex === null) return false;
+        const sel = selectionRef.current;
+        if (rowIndex < sel.minRow || rowIndex > sel.maxRow) return false;
+        const colIdx = colOrderRef.current.indexOf(params.column.getColId());
+        return colIdx >= sel.minColIdx && colIdx <= sel.maxColIdx;
+      },
+    },
+  }), []); // stable — reads refs only
+
+  const applyPivotSelection = useCallback((
+    anchor: { rowIndex: number; colId: string },
+    active: { rowIndex: number; colId: string },
+  ) => {
+    const api = pivotGridRef.current?.api;
+    if (!api) return;
+    const colIds = colOrderRef.current;
+    const anchorColIdx = colIds.indexOf(anchor.colId);
+    const activeColIdx = colIds.indexOf(active.colId);
+    if (anchorColIdx < 0 || activeColIdx < 0) return;
+    selectionRef.current = {
+      minRow: Math.min(anchor.rowIndex, active.rowIndex),
+      maxRow: Math.max(anchor.rowIndex, active.rowIndex),
+      minColIdx: Math.min(anchorColIdx, activeColIdx),
+      maxColIdx: Math.max(anchorColIdx, activeColIdx),
+    };
+    api.refreshCells({ force: true });
+    const sel = selectionRef.current;
+    const nums: number[] = [];
+    for (let r = sel.minRow; r <= sel.maxRow; r++) {
+      const rowNode = api.getDisplayedRowAtIndex(r);
+      if (!rowNode || rowNode.rowPinned) continue;
+      for (let ci = sel.minColIdx; ci <= sel.maxColIdx; ci++) {
+        const cid = colIds[ci];
+        if (!cid) continue;
+        const raw = api.getCellValue({ rowNode, colKey: cid });
+        if (raw === null || raw === undefined || raw === '') continue;
+        const n = Number(raw);
+        if (!isNaN(n)) nums.push(n);
+      }
+    }
+    if (nums.length === 0) {
+      setPivotCellStats(null);
+    } else {
+      const sum = nums.reduce((a, b) => a + b, 0);
+      setPivotCellStats({ sum, count: nums.length, avg: sum / nums.length });
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    let isDragging = false;
+    let anchorCoord: { rowIndex: number; colId: string } | null = null;
+    let pointerDownCell: { rowIndex: number; colId: string } | null = null;
+    let hasMoved = false;
+    let activeCount = 0;
+
+    const getCellAt = (x: number, y: number) => {
+      let node = document.elementFromPoint(x, y) as HTMLElement | null;
+      while (node && !node.classList.contains('ag-cell')) node = node.parentElement;
+      if (!node) return null;
+      const colId = node.getAttribute('col-id');
+      let row = node.parentElement;
+      while (row && !row.classList.contains('ag-row')) row = row.parentElement;
+      if (!row || !colId) return null;
+      if (row.classList.contains('ag-row-pinned')) return null;
+      const rowIndex = parseInt(row.getAttribute('row-index') ?? '', 10);
+      if (isNaN(rowIndex) || rowIndex < 0) return null;
+      return { rowIndex, colId };
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      activeCount++;
+      if (activeCount >= 2) { isDragging = false; anchorCoord = null; return; }
+      const cell = getCellAt(e.clientX, e.clientY);
+      if (!cell) return;
+      pointerDownCell = cell;
+      hasMoved = false;
+      isDragging = true;
+      anchorCoord = cell;
+      el.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      applyPivotSelection(cell, cell);
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (!isDragging || !anchorCoord || activeCount >= 2) return;
+      hasMoved = true;
+      const cell = getCellAt(e.clientX, e.clientY);
+      if (!cell) return;
+      applyPivotSelection(anchorCoord, cell);
+      e.preventDefault();
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      activeCount = Math.max(0, activeCount - 1);
+      if (!isDragging) return;
+      isDragging = false;
+      // Tap on already-selected cell → clear
+      if (!hasMoved && pointerDownCell && selectionRef.current) {
+        const sel = selectionRef.current;
+        const colIdx = colOrderRef.current.indexOf(pointerDownCell.colId);
+        if (
+          pointerDownCell.rowIndex >= sel.minRow && pointerDownCell.rowIndex <= sel.maxRow &&
+          colIdx >= sel.minColIdx && colIdx <= sel.maxColIdx
+        ) {
+          selectionRef.current = null;
+          pivotGridRef.current?.api.refreshCells({ force: true });
+          setPivotCellStats(null);
+        }
+      }
+      anchorCoord = null;
+      pointerDownCell = null;
+      try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    };
+
+    el.addEventListener('pointerdown', onPointerDown, { passive: false });
+    el.addEventListener('pointermove', onPointerMove, { passive: false });
+    el.addEventListener('pointerup', onPointerUp);
+    el.addEventListener('pointercancel', onPointerUp);
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown);
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerup', onPointerUp);
+      el.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [applyPivotSelection]);
+
   return (
-    <div style={{ height: '100%', position: 'relative' }}>
+    <div style={{ height: '100%', position: 'relative', touchAction: 'none' }} ref={wrapperRef}>
       <AgGridReact
+        ref={pivotGridRef}
         theme={pivotGridTheme}
         modules={[AllCommunityModule]}
         rowData={rowData}
         columnDefs={colDefs}
         pinnedBottomRowData={[totalRow]}
-        defaultColDef={{ ...sharedDefaultColDef, resizable: true, suppressMovable: true }}
+        defaultColDef={defaultColDef}
         getRowStyle={params => params.node.rowPinned === 'bottom' ? { background: 'var(--color-surface-2)', fontWeight: 600 } : undefined}
         suppressColumnVirtualisation
-        onFirstDataRendered={e => e.api.autoSizeAllColumns()}
-        cellSelection={true}
-        onCellSelectionChanged={onPivotCellSelectionChanged}
+        onFirstDataRendered={e => {
+          e.api.autoSizeAllColumns();
+          const cols = e.api.getColumns();
+          colOrderRef.current = cols ? cols.map(c => c.getColId()) : [];
+        }}
+        onDisplayedColumnsChanged={e => {
+          const cols = e.api.getColumns();
+          colOrderRef.current = cols ? cols.map(c => c.getColId()) : [];
+        }}
       />
       <SelectionSumBar stats={pivotCellStats} />
     </div>
