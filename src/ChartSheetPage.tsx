@@ -942,8 +942,8 @@ const DATE_FEATURES: { value: DateFeature; label: string }[] = [
 
 const DIM_SORT_OPTIONS = [
   { value: 'none', label: '—' },
-  { value: 'asc', label: '↑ Ascending' },
-  { value: 'desc', label: '↓ Descending' },
+  { value: 'asc', label: '↓ Ascending' },
+  { value: 'desc', label: '↑ Descending' },
 ];
 
 interface DimConfigRow { _idx: number; path: string; feature: string; sort: string; }
