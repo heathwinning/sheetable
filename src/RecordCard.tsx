@@ -306,7 +306,7 @@ export const RecordCard: React.FC<RecordCardProps> = ({
                         inputValue={refInputValues[col.name] ?? ''}
                         isClearable
                         isLoading={creatingReferenceCol === col.name}
-                        placeholder="— none —"
+                        placeholder="None"
                         menuPlacement="auto"
                         formatOptionLabel={(opt) =>
                           opt.value === '__create__'

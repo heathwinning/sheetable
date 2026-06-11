@@ -955,7 +955,7 @@ const DATE_FEATURES: { value: DateFeature; label: string }[] = [
 // ── Per-dimension sort configuration grid ────────────────────────────────────
 
 const DIM_SORT_OPTIONS = [
-  { value: 'none', label: '—' },
+  { value: 'none', label: 'None' },
   { value: 'asc', label: '↓ Ascending' },
   { value: 'desc', label: '↑ Descending' },
 ];
@@ -1034,7 +1034,7 @@ const DimConfigGrid: React.FC<{
       valueFormatter: p => {
         if (!p.value) {
           const t = pathTypeMap.get(p.data?.path ?? '') ?? '';
-          return (t === 'date' || t === 'datetime') ? '— raw —' : '—';
+          return (t === 'date' || t === 'datetime') ? 'Raw value' : '';
         }
         return DATE_FEATURES.find(f => f.value === p.value)?.label ?? p.value;
       },
@@ -1441,7 +1441,7 @@ const ChartConfigModal: React.FC<{
                         set('groupBy', newPath);
                       }
                     }}
-                    placeholder="— none —"
+                    placeholder="None"
                     isClearable
                     menuPortalTarget={document.body}
                     menuPlacement="auto"
