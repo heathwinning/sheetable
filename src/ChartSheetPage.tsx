@@ -946,64 +946,159 @@ const DIM_SORT_OPTIONS = [
   { value: 'desc', label: 'Z → A / ↓' },
 ];
 
+interface DimConfigRow { _idx: number; path: string; feature: string; sort: string; }
+
 const DimConfigGrid: React.FC<{
-  label: string;
   dims: string[];
   sorts: ('asc' | 'desc' | 'none')[];
-  colOptions: { value: string; label: string }[];
+  colPaths: { path: string; label: string; type?: string }[];
   onChange: (dims: string[], sorts: ('asc' | 'desc' | 'none')[]) => void;
-}> = ({ label, dims, sorts, colOptions, onChange }) => {
-  const updateRow = (i: number, dim: string, sort: 'asc' | 'desc' | 'none') => {
-    const newDims = [...dims]; newDims[i] = dim;
-    const newSorts = [...sorts]; newSorts[i] = sort;
+}> = ({ dims, sorts, colPaths, onChange }) => {
+  // Decode dims (which may be "path" or "path:feature") into row objects
+  const rowData: DimConfigRow[] = dims.map((dim, i) => {
+    const feature = getFeature(dim) ?? '';
+    const path = feature ? stripFeature(dim) : dim;
+    return { _idx: i, path, feature, sort: sorts[i] ?? 'none' };
+  });
+
+  const pathValues = colPaths.map(p => p.path);
+  const pathLabelMap = new Map(colPaths.map(p => [p.path, p.label]));
+  const pathTypeMap = new Map(colPaths.map(p => [p.path, p.type ?? '']));
+
+  const commit = (rows: DimConfigRow[]) => {
+    const newDims = rows.map(r => r.feature ? `${r.path}:${r.feature}` : r.path);
+    const newSorts = rows.map(r => (r.sort ?? 'none') as 'asc' | 'desc' | 'none');
     onChange(newDims, newSorts);
   };
-  const removeRow = (i: number) => {
-    onChange(dims.filter((_, j) => j !== i), sorts.filter((_, j) => j !== i));
-  };
+
+  const dimConfigGridTheme = themeQuartz.withParams({
+    cellHorizontalPaddingScale: 0.6,
+    headerFontSize: 11,
+    fontSize: 12,
+    rowHeight: 28,
+    headerHeight: 26,
+    columnBorder: true,
+  });
+
+  const colDefs: ColDef<DimConfigRow>[] = [
+    {
+      headerName: 'Column',
+      field: 'path',
+      flex: 3,
+      editable: true,
+      cellEditor: 'agSelectCellEditor',
+      cellEditorParams: { values: pathValues },
+      valueFormatter: p => pathLabelMap.get(p.value) ?? p.value,
+      singleClickEdit: true,
+      valueSetter: params => {
+        const newPath = params.newValue;
+        const newType = pathTypeMap.get(newPath) ?? '';
+        const isDate = newType === 'date' || newType === 'datetime';
+        const updated = rowData.map(r =>
+          r._idx === params.data._idx ? { ...r, path: newPath, feature: isDate ? r.feature : '' } : r
+        );
+        commit(updated);
+        return true;
+      },
+    },
+    {
+      headerName: 'Modifier',
+      field: 'feature',
+      flex: 2,
+      editable: params => {
+        const t = pathTypeMap.get(params.data?.path ?? '') ?? '';
+        return t === 'date' || t === 'datetime';
+      },
+      cellEditor: 'agSelectCellEditor',
+      cellEditorParams: (params: { data?: DimConfigRow }) => {
+        const t = pathTypeMap.get(params.data?.path ?? '') ?? '';
+        const feats = t === 'date'
+          ? DATE_FEATURES.filter(f => f.value !== 'hour')
+          : DATE_FEATURES;
+        return { values: ['', ...feats.map(f => f.value)] };
+      },
+      valueFormatter: p => {
+        if (!p.value) {
+          const t = pathTypeMap.get(p.data?.path ?? '') ?? '';
+          return (t === 'date' || t === 'datetime') ? '— raw —' : '—';
+        }
+        return DATE_FEATURES.find(f => f.value === p.value)?.label ?? p.value;
+      },
+      cellStyle: (params): CellStyle => {
+        const t = pathTypeMap.get(params.data?.path ?? '') ?? '';
+        return (t === 'date' || t === 'datetime') ? {} : { color: 'var(--color-text-muted)', fontStyle: 'italic' };
+      },
+      singleClickEdit: true,
+      valueSetter: params => {
+        const updated = rowData.map(r =>
+          r._idx === params.data._idx ? { ...r, feature: params.newValue ?? '' } : r
+        );
+        commit(updated);
+        return true;
+      },
+    },
+    {
+      headerName: 'Sort',
+      field: 'sort',
+      flex: 2,
+      editable: true,
+      cellEditor: 'agSelectCellEditor',
+      cellEditorParams: { values: DIM_SORT_OPTIONS.map(o => o.value) },
+      valueFormatter: p => DIM_SORT_OPTIONS.find(o => o.value === p.value)?.label ?? p.value,
+      singleClickEdit: true,
+      valueSetter: params => {
+        const updated = rowData.map(r =>
+          r._idx === params.data._idx ? { ...r, sort: params.newValue ?? 'none' } : r
+        );
+        commit(updated);
+        return true;
+      },
+    },
+    {
+      headerName: '',
+      field: '_idx',
+      width: 32,
+      maxWidth: 32,
+      editable: false,
+      sortable: false,
+      cellRenderer: () => (
+        <span style={{ cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>×</span>
+      ),
+      onCellClicked: params => {
+        if (!params.data) return;
+        const updated = rowData.filter(r => r._idx !== params.data!._idx);
+        commit(updated);
+      },
+    },
+  ];
+
   const addRow = () => {
-    const firstUnused = colOptions.find(o => !dims.includes(o.value));
-    const newDim = firstUnused?.value ?? colOptions[0]?.value ?? '';
-    onChange([...dims, newDim], [...sorts, 'none']);
+    const usedPaths = new Set(rowData.map(r => r.path));
+    const first = colPaths.find(p => !usedPaths.has(p.path));
+    const newPath = first?.path ?? colPaths[0]?.path ?? '';
+    commit([...rowData, { _idx: rowData.length, path: newPath, feature: '', sort: 'none' }]);
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      {dims.map((dim, i) => (
-        <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <div style={{ flex: 1 }}>
-            <Select
-              styles={dialogSelectStyles}
-              options={colOptions}
-              value={colOptions.find(o => o.value === dim) ?? null}
-              onChange={opt => updateRow(i, opt?.value ?? dim, (sorts[i] ?? 'none') as 'asc' | 'desc' | 'none')}
-              menuPortalTarget={document.body}
-              menuPlacement="auto"
-              placeholder={label}
-            />
-          </div>
-          <select
-            className="app-dialog-select"
-            style={{ width: 90, flexShrink: 0 }}
-            value={sorts[i] ?? 'none'}
-            onChange={e => updateRow(i, dim, e.target.value as 'asc' | 'desc' | 'none')}
-          >
-            {DIM_SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <button
-            type="button"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 16, lineHeight: 1, padding: '0 4px', flexShrink: 0 }}
-            onClick={() => removeRow(i)}
-            aria-label="Remove"
-          >×</button>
-        </div>
-      ))}
+      {rowData.length > 0 && (
+        <AgGridReact<DimConfigRow>
+          theme={dimConfigGridTheme}
+          modules={[AllCommunityModule]}
+          rowData={rowData}
+          columnDefs={colDefs}
+          defaultColDef={{ sortable: false, suppressMovable: true, resizable: false }}
+          domLayout="autoHeight"
+          stopEditingWhenCellsLoseFocus={true}
+          getRowId={p => String(p.data._idx)}
+        />
+      )}
       <button
         type="button"
         className="btn-secondary btn-sm"
         style={{ alignSelf: 'flex-start' }}
         onClick={addRow}
-        disabled={colOptions.length === 0}
+        disabled={colPaths.length === 0}
       >
         + Add
       </button>
@@ -1175,10 +1270,9 @@ const ChartConfigModal: React.FC<{
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label className="app-dialog-label" style={{ marginBottom: 0 }}>Rows</label>
                   <DimConfigGrid
-                    label="Data column"
                     dims={draft.tableRows ?? []}
                     sorts={(draft.tableRowDimSort ?? []) as ('asc' | 'desc' | 'none')[]}
-                    colOptions={colOptionsFlat}
+                    colPaths={allPaths}
                     onChange={(dims, sorts) => setDraft(d => ({ ...d, tableRows: dims, tableRowDimSort: sorts }))}
                   />
                 </div>
@@ -1187,10 +1281,9 @@ const ChartConfigModal: React.FC<{
                     Columns <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
                   </label>
                   <DimConfigGrid
-                    label="Data column"
                     dims={draft.tableColumns ?? []}
                     sorts={(draft.tableColDimSort ?? []) as ('asc' | 'desc' | 'none')[]}
-                    colOptions={colOptionsFlat}
+                    colPaths={allPaths}
                     onChange={(dims, sorts) => setDraft(d => ({ ...d, tableColumns: dims, tableColDimSort: sorts }))}
                   />
                 </div>
