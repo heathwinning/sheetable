@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import type { TableSchema, Row, ValidationError } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { log } from './DebugLogger';
+import { useConfirm } from './DialogProvider';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
 import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnResizedEvent, FirstDataRenderedEvent, CellSelectionChangedEvent } from 'ag-grid-community';
@@ -289,8 +290,18 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, revision]);
 
-  const applyBulkEdit = useCallback(() => {
+  const confirm = useConfirm();
+
+  const applyBulkEdit = useCallback(async () => {
     if (!bulkEditCol || selectedRowIds.size === 0) return;
+    const isKeyCol = (schema.uniqueKeys ?? []).includes(bulkEditCol);
+    if (isKeyCol) {
+      const ok = await confirm(
+        `"${bulkEditCol}" is part of the unique key for this table. Setting it to the same value on multiple rows will likely cause conflicts. Are you sure you want to bulk-edit this column?`,
+        'Bulk-edit a key column?',
+      );
+      if (!ok) return;
+    }
     const bulkColType = schema.columns.find(c => c.name === bulkEditCol)?.type;
     const normalizedBulkValue = bulkColType
       ? normalizeTemporalString(bulkEditValue, bulkColType)
@@ -314,7 +325,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     }
     setBulkEditValue('');
     gridRef.current?.api.deselectAll();
-  }, [bulkEditCol, bulkEditValue, schema.columns, selectedRowIds, rowIdToIndex, onEdit]);
+  }, [bulkEditCol, bulkEditValue, schema.columns, schema.uniqueKeys, selectedRowIds, rowIdToIndex, onEdit, confirm]);
 
   const deleteSelectedRows = useCallback(() => {
     if (selectedRowIds.size === 0) return;
