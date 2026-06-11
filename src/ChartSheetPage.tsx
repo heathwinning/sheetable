@@ -120,6 +120,7 @@ function aggregateData(
   groupBy: string | undefined,
   resolveColumnPath: (tableName: string, row: Row, path: string) => string,
   tableName: string,
+  allRows?: Row[], // full unfiltered rows — used to determine complete X domain
 ): { data: Record<string, unknown>[]; seriesKeys: string[] } {
   if (!xCol) return { data: [], seriesKeys: [] };
 
@@ -161,15 +162,23 @@ function aggregateData(
     }
   };
 
+  // Build full X domain from allRows when provided (so filtered charts still show all X values)
+  const domainRows = allRows ?? rows;
+
   if (groupBy) {
     const xOrder: string[] = [];
     const seenX = new Set<string>();
     const seenG = new Set<string>();
+    // Collect X domain from full dataset
+    for (const row of domainRows) {
+      const x = extractValue(row, xExpr);
+      if (!seenX.has(x)) { xOrder.push(x); seenX.add(x); }
+    }
     const groups = new Map<string, Map<string, number[]>>();
+    // Aggregate values only from filtered rows
     for (const row of rows) {
       const x = extractValue(row, xExpr);
       const g = extractValue(row, gExpr!);
-      if (!seenX.has(x)) { xOrder.push(x); seenX.add(x); }
       seenG.add(g);
       if (!groups.has(x)) groups.set(x, new Map());
       const xg = groups.get(x)!;
@@ -188,12 +197,17 @@ function aggregateData(
     return { data, seriesKeys };
   }
 
+  // Collect X domain from full dataset
   const xOrder: string[] = [];
   const seenX = new Set<string>();
+  for (const row of domainRows) {
+    const x = extractValue(row, xExpr);
+    if (!seenX.has(x)) { xOrder.push(x); seenX.add(x); }
+  }
+  // Aggregate values only from filtered rows
   const groups = new Map<string, number[]>();
   for (const row of rows) {
     const x = extractValue(row, xExpr);
-    if (!seenX.has(x)) { xOrder.push(x); seenX.add(x); }
     if (!groups.has(x)) groups.set(x, []);
     groups.get(x)!.push(agg === 'count' ? 1 : toNum(resolveColumnPath(tableName, row, yCol)));
   }
@@ -1695,7 +1709,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
               const filteredRows = applyChartFilter(rows, activeFilters, state.resolveColumnPath, chart.table);
               const { data, seriesKeys } = chart.type === 'table'
                 ? { data: [], seriesKeys: [] }
-                : aggregateData(filteredRows, chart.xColumn, chart.yColumn, chart.aggregate, chart.groupBy, state.resolveColumnPath, chart.table);
+                : aggregateData(filteredRows, chart.xColumn, chart.yColumn, chart.aggregate, chart.groupBy, state.resolveColumnPath, chart.table, rows);
               return (
                 <div
                   key={chart.id}
