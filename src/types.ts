@@ -87,6 +87,7 @@ export interface ChartConfig {
   tableColumns?: string[];
   tableSort?: { key: string; dir: 'asc' | 'desc' };
   rowOrder?: 'natural' | 'label-asc' | 'label-desc' | 'value-asc' | 'value-desc';
+  colOrder?: 'natural' | 'label-asc' | 'label-desc' | 'value-asc' | 'value-desc';
   /** Handlebars template for display. Variables: `value` (the aggregated number), `date`, row fields.
    *  Supports {{dateFormat date 'MMM D, YYYY'}}. e.g. "{{value}} kg" */
   valueFormat?: string;

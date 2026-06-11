@@ -370,6 +370,21 @@ const ChartRenderer: React.FC<{
         return rowOrder === 'value-asc' ? va - vb : vb - va;
       });
     }
+
+    // Apply column ordering
+    const colOrder = config.colOrder ?? 'natural';
+    if (colOrder !== 'natural' && pivot.colKeys.length > 0) {
+      pivot.colKeys.sort((a, b) => {
+        if (colOrder === 'label-asc' || colOrder === 'label-desc') {
+          const ka = a.map((v, i) => fmtDimVal(v, colDims[i])).join('\0').toLowerCase();
+          const kb = b.map((v, i) => fmtDimVal(v, colDims[i])).join('\0').toLowerCase();
+          return colOrder === 'label-asc' ? ka.localeCompare(kb) : kb.localeCompare(ka);
+        }
+        const va = pivot.colTotals.get(a.join('\0')) ?? 0;
+        const vb = pivot.colTotals.get(b.join('\0')) ?? 0;
+        return colOrder === 'value-asc' ? va - vb : vb - va;
+      });
+    }
     const hasColDims = pivot.colKeys.length > 0;
 
     // Build label lookup for column paths (strips :feature suffix before lookup)
@@ -698,6 +713,14 @@ const ROW_ORDER_OPTIONS: { value: ChartConfig['rowOrder']; label: string }[] = [
   { value: 'value-desc', label: 'Value ↓ (largest first)' },
 ];
 
+const COL_ORDER_OPTIONS: { value: ChartConfig['colOrder']; label: string }[] = [
+  { value: 'natural', label: 'Natural (data order)' },
+  { value: 'label-asc', label: 'Label A → Z' },
+  { value: 'label-desc', label: 'Label Z → A' },
+  { value: 'value-asc', label: 'Value ↑ (smallest first)' },
+  { value: 'value-desc', label: 'Value ↓ (largest first)' },
+];
+
 const DATE_FEATURES: { value: DateFeature; label: string }[] = [
   { value: 'year', label: 'Year' },
   { value: 'quarter', label: 'Quarter' },
@@ -910,6 +933,20 @@ const ChartConfigModal: React.FC<{
                     menuPlacement="auto"
                   />
                 </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Column order</label>
+                  <Select
+                    styles={dialogSelectStyles}
+                    isSearchable={false}
+                    value={COL_ORDER_OPTIONS.find(o => o.value === (draft.colOrder ?? 'natural')) ?? null}
+                    options={COL_ORDER_OPTIONS}
+                    onChange={opt => set('colOrder', (opt?.value ?? 'natural') as ChartConfig['colOrder'])}
+                    menuPortalTarget={document.body}
+                    menuPlacement="auto"
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label className="app-dialog-label" style={{ marginBottom: 0 }}>Aggregate</label>
                   <Select
