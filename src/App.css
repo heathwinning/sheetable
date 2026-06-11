@@ -408,18 +408,18 @@ body {
 }
 
 /* ── Select mode toolbar button ─────────────────────────────────────────── */
-.grid-select-mode-btn {
+.grid-sum-mode-btn {
   @apply flex items-center gap-1 px-2 py-0.5 text-xs rounded cursor-pointer;
   background: none;
   border: 1px solid transparent;
   color: var(--color-text-muted);
   transition: background 0.1s, color 0.1s, border-color 0.1s;
 }
-.grid-select-mode-btn:hover {
+.grid-sum-mode-btn:hover {
   background: var(--color-surface-2);
   color: var(--color-text);
 }
-.grid-select-mode-btn.active {
+.grid-sum-mode-btn.active {
   background: rgba(99, 102, 241, 0.12);
   border-color: rgba(99, 102, 241, 0.4);
   color: var(--color-primary, #6366f1);

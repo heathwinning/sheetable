@@ -987,8 +987,8 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         </span>
         <span className="grid-status-spacer" />
         <button
-          className={`btn-ghost btn-sm grid-select-mode-btn${selectMode ? ' active' : ''}`}
-          title={selectMode ? 'Exit select mode' : 'Select cells to sum'}
+          className={`btn-ghost btn-sm grid-sum-mode-btn${selectMode ? ' active' : ''}`}
+          title={selectMode ? 'Clear sum selection' : 'Tap cells to sum'}
           onClick={() => {
             setSelectMode(m => {
               if (m) clearCellSelection();
@@ -996,7 +996,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
             });
           }}
         >
-          ⊞ {selectMode ? 'Selecting' : 'Select'}
+          Σ {selectMode ? 'Summing' : 'Sum'}
         </button>
       </div>
       <div
