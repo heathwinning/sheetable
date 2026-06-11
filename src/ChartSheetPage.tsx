@@ -941,9 +941,9 @@ const DATE_FEATURES: { value: DateFeature; label: string }[] = [
 // ── Per-dimension sort configuration grid ────────────────────────────────────
 
 const DIM_SORT_OPTIONS = [
-  { value: 'none', label: '— none —' },
-  { value: 'asc', label: 'A → Z / ↑' },
-  { value: 'desc', label: 'Z → A / ↓' },
+  { value: 'none', label: '—' },
+  { value: 'asc', label: '↑ Ascending' },
+  { value: 'desc', label: '↓ Descending' },
 ];
 
 interface DimConfigRow { _idx: number; path: string; feature: string; sort: string; }
