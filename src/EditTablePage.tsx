@@ -310,6 +310,8 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
     [state.tableIds, tableId]
   );
 
+  const columnGridRef = useRef<AgGridReact>(null);
+
   // AG Grid theme matching SpreadsheetGrid
   const editGridTheme = useMemo(() => {
     const getColor = (varName: string): string => {
@@ -412,6 +414,9 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
           const newSlug = newDisplay ? slugify(newDisplay) : '';
           const oldName = currentName;
           updates.name = newSlug;
+          // Directly mutate node data so the Column ID cell editor starts with
+          // the new slug when Tab moves focus there before React re-renders.
+          if (params.node) params.node.data.name = newSlug;
           if (oldName && oldName !== newSlug) {
             if (uniqueKeys.includes(oldName)) {
               setUniqueKeys(prev => prev.map(k => k === oldName ? newSlug : k));
@@ -1048,6 +1053,14 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       ...prev,
       { name: '', type: 'text' as ColumnType },
     ]);
+    // After state update, scroll to and start editing the Display Name of the new row
+    requestAnimationFrame(() => {
+      const api = columnGridRef.current?.api;
+      if (!api) return;
+      const lastIdx = api.getDisplayedRowCount() - 1;
+      api.ensureIndexVisible(lastIdx);
+      api.startEditingCell({ rowIndex: lastIdx, colKey: 'displayName' });
+    });
   };
 
   const removeColumn = (index: number) => {
@@ -1222,6 +1235,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
           <h3>Columns</h3>
           <div style={{ width: '100%' }}>
             <AgGridReact
+              ref={columnGridRef}
               theme={editGridTheme}
               modules={[AllCommunityModule]}
               rowData={columnRowData}
