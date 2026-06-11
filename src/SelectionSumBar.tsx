@@ -40,6 +40,8 @@ export function computeCellSelectionStats(api: GridApi): SelectionStats | null {
 
 interface SelectionSumBarProps {
   stats: SelectionStats | null;
+  /** 'fixed' (default) — bottom-right of viewport. 'above' — absolute, just above parent's bottom edge. */
+  placement?: 'fixed' | 'above';
 }
 
 function fmt(n: number): string {
@@ -49,10 +51,10 @@ function fmt(n: number): string {
   return s.toLocaleString(undefined, { maximumFractionDigits: 6 });
 }
 
-export const SelectionSumBar: React.FC<SelectionSumBarProps> = ({ stats }) => {
+export const SelectionSumBar: React.FC<SelectionSumBarProps> = ({ stats, placement = 'fixed' }) => {
   if (!stats) return null;
   return (
-    <div className="selection-sum-bar">
+    <div className={`selection-sum-bar${placement === 'above' ? ' selection-sum-bar--above' : ''}`}>
       {stats.count > 1 && (
         <span className="selection-sum-item">
           <span className="selection-sum-label">Avg</span>

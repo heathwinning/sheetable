@@ -481,7 +481,7 @@ const PivotTableGrid: React.FC<{
           colOrderRef.current = cols ? cols.map(c => c.getColId()) : [];
         }}
       />
-      <SelectionSumBar stats={pivotCellStats} />
+      <SelectionSumBar stats={pivotCellStats} placement="above" />
     </div>
   );
 };

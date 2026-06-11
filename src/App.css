@@ -387,6 +387,13 @@ body {
   pointer-events: none;
   user-select: none;
 }
+.selection-sum-bar--above {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  right: 8px;
+  top: auto;
+  left: auto;
+}
 .selection-sum-item {
   display: flex;
   align-items: center;
