@@ -1616,7 +1616,8 @@ const App: React.FC = () => {
   const headerChartId = chartMatch ? decodeURIComponent(chartMatch[1]) : null;
   const isChartView = !!headerChartId;
 
-  // On first load of a direct sheet URL, honor configured sheet order.
+  // On first load of a direct sheet URL, redirect to first sheet only if the
+  // requested sheet doesn't exist in the book.
   useEffect(() => {
     const bookMatch = location.pathname.match(/^\/book\/([^/]+)/);
     if (!bookMatch) return;
@@ -1628,6 +1629,17 @@ const App: React.FC = () => {
     if (!sheetRouteMatch) return;
     if (state.sortedSheets.length === 0) return;
 
+    initialSheetRouteCheckedRef.current = routeBookName;
+
+    const currentType = sheetRouteMatch[1] as 'table' | 'chart' | 'view';
+    const currentName = decodeURIComponent(sheetRouteMatch[2]);
+
+    // Check if the sheet in the URL actually exists
+    const exists = state.sortedSheets.some(s => s.type === currentType && s.name === currentName)
+      || (currentType === 'view' && !!state.getViewSheet(currentName));
+    if (exists) return;
+
+    // Sheet not found — fall back to first visible sheet
     const firstVisible = state.sortedSheets.find(sheet => {
       if (sheet.hidden === true) return false;
       if (sheet.type !== 'table' || sheet.hidden === false) return true;
@@ -1637,13 +1649,7 @@ const App: React.FC = () => {
       });
       return !shouldHide;
     });
-
-    initialSheetRouteCheckedRef.current = routeBookName;
     if (!firstVisible) return;
-
-    const currentType = sheetRouteMatch[1] as 'table' | 'chart' | 'view';
-    const currentName = decodeURIComponent(sheetRouteMatch[2]);
-    if (currentType === firstVisible.type && currentName === firstVisible.name) return;
 
     navigate(`/book/${encodeURIComponent(routeBookName)}/${firstVisible.type}/${encodeURIComponent(firstVisible.name)}`, { replace: true });
   }, [location.pathname, navigate, state.activeBookName, state.sortedSheets, state.viewSheetIds, state.getViewSheet]);
