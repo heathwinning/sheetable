@@ -987,7 +987,7 @@ const DimConfigGrid: React.FC<{
       flex: 3,
       editable: true,
       cellEditor: 'agSelectCellEditor',
-      cellEditorParams: { values: pathValues },
+      cellEditorParams: { values: pathValues, formatValue: (val: string) => pathLabelMap.get(val) ?? val },
       valueFormatter: p => pathLabelMap.get(p.value) ?? p.value,
       singleClickEdit: true,
       valueSetter: params => {
