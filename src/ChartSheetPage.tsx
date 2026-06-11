@@ -318,14 +318,16 @@ const PivotTableGrid: React.FC<{
     resizable: true,
     suppressMovable: true,
     cellClassRules: {
-      'cell-selected': (params: { node: { rowIndex: number | null }; column: { getColId: () => string } }) => {
+      'cell-selected': (params: { node: { rowIndex: number | null; rowPinned?: string | null }; column: { getColId: () => string } }) => {
         if (!selectionRef.current) return false;
+        const sel = selectionRef.current;
+        const colIdx = colOrderRef.current.indexOf(params.column.getColId());
+        if (colIdx < sel.minColIdx || colIdx > sel.maxColIdx) return false;
+        // Pinned bottom row (total) is treated as rowIndex -1
+        if (params.node.rowPinned === 'bottom') return sel.minRow <= -1;
         const rowIndex = params.node.rowIndex;
         if (rowIndex === null) return false;
-        const sel = selectionRef.current;
-        if (rowIndex < sel.minRow || rowIndex > sel.maxRow) return false;
-        const colIdx = colOrderRef.current.indexOf(params.column.getColId());
-        return colIdx >= sel.minColIdx && colIdx <= sel.maxColIdx;
+        return rowIndex >= Math.max(0, sel.minRow) && rowIndex <= sel.maxRow;
       },
     },
   }), []); // stable — reads refs only
@@ -349,9 +351,23 @@ const PivotTableGrid: React.FC<{
     api.refreshCells({ force: true });
     const sel = selectionRef.current;
     const nums: number[] = [];
-    for (let r = sel.minRow; r <= sel.maxRow; r++) {
+    // Include pinned bottom (total) row if selection covers rowIndex -1
+    if (sel.minRow <= -1) {
+      const pinnedRow = api.getPinnedBottomRow(0);
+      if (pinnedRow) {
+        for (let ci = sel.minColIdx; ci <= sel.maxColIdx; ci++) {
+          const cid = colIds[ci];
+          if (!cid) continue;
+          const raw = api.getCellValue({ rowNode: pinnedRow, colKey: cid });
+          if (raw === null || raw === undefined || raw === '') continue;
+          const n = Number(raw);
+          if (!isNaN(n)) nums.push(n);
+        }
+      }
+    }
+    for (let r = Math.max(0, sel.minRow); r <= sel.maxRow; r++) {
       const rowNode = api.getDisplayedRowAtIndex(r);
-      if (!rowNode || rowNode.rowPinned) continue;
+      if (!rowNode) continue;
       for (let ci = sel.minColIdx; ci <= sel.maxColIdx; ci++) {
         const cid = colIds[ci];
         if (!cid) continue;
@@ -385,7 +401,12 @@ const PivotTableGrid: React.FC<{
       let row = node.parentElement;
       while (row && !row.classList.contains('ag-row')) row = row.parentElement;
       if (!row || !colId) return null;
-      if (row.classList.contains('ag-row-pinned')) return null;
+      // Pinned bottom row (total) → treat as rowIndex -1
+      if (row.classList.contains('ag-row-pinned')) {
+        const attr = row.getAttribute('row-index') ?? '';
+        if (attr.startsWith('b-')) return { rowIndex: -1, colId };
+        return null; // skip top-pinned
+      }
       const rowIndex = parseInt(row.getAttribute('row-index') ?? '', 10);
       if (isNaN(rowIndex) || rowIndex < 0) return null;
       return { rowIndex, colId };
