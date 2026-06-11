@@ -12,8 +12,10 @@ import {
 } from 'recharts';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, ColGroupDef, CellStyle } from 'ag-grid-community';
+import type { ColDef, ColGroupDef, CellStyle, CellSelectionChangedEvent } from 'ag-grid-community';
 import { sharedDefaultColDef } from './gridDefaults';
+import { computeCellSelectionStats, SelectionSumBar } from './SelectionSumBar';
+import type { SelectionStats } from './SelectionSumBar';
 import type { UseAppStateReturn } from './useAppState';
 import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature } from './types';
 import { applyChartValueFormat } from './chartFormat';
@@ -289,6 +291,50 @@ function fmtDimVal(val: string, dim: string): string {
 
 // ── Chart renderer ───────────────────────────────────────────────────────────
 
+// ── Pivot Table Grid ──────────────────────────────────────────────────────────
+
+const PivotTableGrid: React.FC<{
+  config: ChartConfig;
+  colDefs: (ColDef | ColGroupDef)[];
+  rowData: Record<string, unknown>[];
+  totalRow: Record<string, unknown>;
+}> = ({ colDefs, rowData, totalRow }) => {
+  const [pivotCellStats, setPivotCellStats] = useState<SelectionStats | null>(null);
+  const onPivotCellSelectionChanged = useCallback((event: CellSelectionChangedEvent) => {
+    if (!event.finished) return;
+    setPivotCellStats(computeCellSelectionStats(event.api));
+  }, []);
+
+  const pivotGridTheme = themeQuartz.withParams({
+    cellHorizontalPaddingScale: 0.5,
+    headerFontSize: 11,
+    fontSize: 12,
+    rowHeight: 24,
+    headerHeight: 26,
+  });
+
+  return (
+    <div style={{ height: '100%', position: 'relative' }}>
+      <AgGridReact
+        theme={pivotGridTheme}
+        modules={[AllCommunityModule]}
+        rowData={rowData}
+        columnDefs={colDefs}
+        pinnedBottomRowData={[totalRow]}
+        defaultColDef={{ ...sharedDefaultColDef, resizable: true, suppressMovable: true }}
+        getRowStyle={params => params.node.rowPinned === 'bottom' ? { background: 'var(--color-surface-2)', fontWeight: 600 } : undefined}
+        suppressColumnVirtualisation
+        onFirstDataRendered={e => e.api.autoSizeAllColumns()}
+        cellSelection={true}
+        onCellSelectionChanged={onPivotCellSelectionChanged}
+      />
+      <SelectionSumBar stats={pivotCellStats} />
+    </div>
+  );
+};
+
+// ── Chart Renderer ────────────────────────────────────────────────────────────
+
 const ChartRenderer: React.FC<{
   config: ChartConfig;
   data: Record<string, unknown>[];
@@ -454,30 +500,7 @@ const ChartRenderer: React.FC<{
       { headerName: 'Total', field: '_total', sortable: true, type: 'numericColumn', valueFormatter, cellStyle: totalCellStyle } as ColDef,
     ];
 
-    const pivotGridTheme = themeQuartz.withParams({
-      cellHorizontalPaddingScale: 0.5,
-      headerFontSize: 11,
-      fontSize: 12,
-      rowHeight: 24,
-      headerHeight: 26,
-    });
-
-    return (
-      <div style={{ height: '100%' }}>
-        <AgGridReact
-          theme={pivotGridTheme}
-          modules={[AllCommunityModule]}
-          rowData={rowData}
-          columnDefs={colDefs}
-          pinnedBottomRowData={[totalRow]}
-          defaultColDef={{ ...sharedDefaultColDef, resizable: true, suppressMovable: true }}
-          getRowStyle={params => params.node.rowPinned === 'bottom' ? { background: 'var(--color-surface-2)', fontWeight: 600 } : undefined}
-          suppressCellFocus
-          suppressColumnVirtualisation
-          onFirstDataRendered={e => e.api.autoSizeAllColumns()}
-        />
-      </div>
-    );
+    return <PivotTableGrid config={config} colDefs={colDefs} rowData={rowData} totalRow={totalRow} />;
   }
 
   if (data.length === 0) {

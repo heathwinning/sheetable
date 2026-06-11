@@ -4,7 +4,9 @@ import { INTERNAL_ROW_ID } from './types';
 import { log } from './DebugLogger';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnResizedEvent, FirstDataRenderedEvent } from 'ag-grid-community';
+import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnResizedEvent, FirstDataRenderedEvent, CellSelectionChangedEvent } from 'ag-grid-community';
+import { computeCellSelectionStats, SelectionSumBar } from './SelectionSumBar';
+import type { SelectionStats } from './SelectionSumBar';
 import type { CustomCellRendererProps } from 'ag-grid-react';
 import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
@@ -94,6 +96,8 @@ interface SpreadsheetGridProps {
   onCreateReferenceRow?: (refTable: string, seedText: string) => Promise<string | null>;
   /** When true, the grid will not stop editing when cells lose focus (use while a create-reference modal is open) */
   keepEditorAlive?: boolean;
+  /** Called whenever the cell selection changes with numeric stats, or null if nothing numeric is selected. */
+  onCellSelectionStats?: (stats: SelectionStats | null) => void;
 }
 
 const gridTheme = themeQuartz.withParams({
@@ -123,6 +127,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   resolveColumnPathLeafLabel,
   onCreateReferenceRow,
   keepEditorAlive,
+  onCellSelectionStats,
 }) => {
   const [error, setError] = useState<string | null>(null);
   const gridRef = useRef<AgGridReact>(null);
@@ -140,6 +145,14 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     const ids = new Set(selected.map(r => r[INTERNAL_ROW_ID]).filter(id => id !== DRAFT_ROW_ID));
     setSelectedRowIds(ids);
   }, []);
+
+  const [cellStats, setCellStats] = useState<SelectionStats | null>(null);
+  const onCellSelectionChanged = useCallback((event: CellSelectionChangedEvent) => {
+    if (!event.finished) return;
+    const stats = computeCellSelectionStats(event.api);
+    setCellStats(stats);
+    onCellSelectionStats?.(stats);
+  }, [onCellSelectionStats]);
 
   // Create a fresh draft row (local-only, not yet persisted)
   const makeDraftRow = useCallback((): Row => {
@@ -831,8 +844,11 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           onRowDataUpdated={onRowDataUpdated}
           defaultColDef={{ ...sharedDefaultColDef, suppressMovable: true }}
           onColumnResized={onColumnResized}
+          cellSelection={true}
+          onCellSelectionChanged={onCellSelectionChanged}
         />
       </div>
+      <SelectionSumBar stats={cellStats} />
     </div>
   );
 };

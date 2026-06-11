@@ -368,6 +368,40 @@ body {
 .grid-row-count { white-space: nowrap; }
 .grid-status-spacer { flex: 1; }
 
+/* ── Selection sum bar (fixed bottom-right) ─────────────────────────────── */
+.selection-sum-bar {
+  position: fixed;
+  bottom: 12px;
+  right: 16px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  pointer-events: none;
+  user-select: none;
+}
+.selection-sum-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.selection-sum-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+.selection-sum-total {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
 .grid-wrapper {
   position: relative;
   z-index: 1;
