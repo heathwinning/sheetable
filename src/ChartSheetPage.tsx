@@ -372,11 +372,10 @@ const PivotTableGrid: React.FC<{
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
-    let isDragging = false;
-    let anchorCoord: { rowIndex: number; colId: string } | null = null;
-    let pointerDownCell: { rowIndex: number; colId: string } | null = null;
-    let hasMoved = false;
-    let activeCount = 0;
+
+    let anchorCell: { rowIndex: number; colId: string } | null = null;
+    let downX = 0;
+    let downY = 0;
 
     const getCellAt = (x: number, y: number) => {
       let node = document.elementFromPoint(x, y) as HTMLElement | null;
@@ -392,63 +391,55 @@ const PivotTableGrid: React.FC<{
       return { rowIndex, colId };
     };
 
-    const onPointerDown = (e: PointerEvent) => {
-      activeCount++;
-      if (activeCount >= 2) { isDragging = false; anchorCoord = null; return; }
-      const cell = getCellAt(e.clientX, e.clientY);
-      if (!cell) return;
-      pointerDownCell = cell;
-      hasMoved = false;
-      isDragging = true;
-      anchorCoord = cell;
-      el.setPointerCapture(e.pointerId);
-      e.preventDefault();
-      applyPivotSelection(cell, cell);
-    };
-    const onPointerMove = (e: PointerEvent) => {
-      if (!isDragging || !anchorCoord || activeCount >= 2) return;
-      hasMoved = true;
-      const cell = getCellAt(e.clientX, e.clientY);
-      if (!cell) return;
-      applyPivotSelection(anchorCoord, cell);
-      e.preventDefault();
-    };
-    const onPointerUp = (e: PointerEvent) => {
-      activeCount = Math.max(0, activeCount - 1);
-      if (!isDragging) return;
-      isDragging = false;
-      // Tap on already-selected cell → clear
-      if (!hasMoved && pointerDownCell && selectionRef.current) {
-        const sel = selectionRef.current;
-        const colIdx = colOrderRef.current.indexOf(pointerDownCell.colId);
-        if (
-          pointerDownCell.rowIndex >= sel.minRow && pointerDownCell.rowIndex <= sel.maxRow &&
-          colIdx >= sel.minColIdx && colIdx <= sel.maxColIdx
-        ) {
-          selectionRef.current = null;
-          pivotGridRef.current?.api.refreshCells({ force: true });
-          setPivotCellStats(null);
-        }
-      }
-      anchorCoord = null;
-      pointerDownCell = null;
-      try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    const isCellInSelection = (cell: { rowIndex: number; colId: string }): boolean => {
+      if (!selectionRef.current) return false;
+      const sel = selectionRef.current;
+      const colIdx = colOrderRef.current.indexOf(cell.colId);
+      return (
+        cell.rowIndex >= sel.minRow && cell.rowIndex <= sel.maxRow &&
+        colIdx >= sel.minColIdx && colIdx <= sel.maxColIdx
+      );
     };
 
-    el.addEventListener('pointerdown', onPointerDown, { passive: false });
-    el.addEventListener('pointermove', onPointerMove, { passive: false });
+    const onPointerDown = (e: PointerEvent) => {
+      if (!e.isPrimary) return;
+      downX = e.clientX;
+      downY = e.clientY;
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (!e.isPrimary) return;
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 8) return;
+      const cell = getCellAt(e.clientX, e.clientY);
+      if (!cell) {
+        anchorCell = null;
+        selectionRef.current = null;
+        pivotGridRef.current?.api.refreshCells({ force: true });
+        setPivotCellStats(null);
+        return;
+      }
+      if (!anchorCell) {
+        anchorCell = cell;
+        applyPivotSelection(cell, cell);
+      } else if (isCellInSelection(cell)) {
+        anchorCell = null;
+        selectionRef.current = null;
+        pivotGridRef.current?.api.refreshCells({ force: true });
+        setPivotCellStats(null);
+      } else {
+        applyPivotSelection(anchorCell, cell);
+      }
+    };
+
+    el.addEventListener('pointerdown', onPointerDown);
     el.addEventListener('pointerup', onPointerUp);
-    el.addEventListener('pointercancel', onPointerUp);
     return () => {
       el.removeEventListener('pointerdown', onPointerDown);
-      el.removeEventListener('pointermove', onPointerMove);
       el.removeEventListener('pointerup', onPointerUp);
-      el.removeEventListener('pointercancel', onPointerUp);
     };
   }, [applyPivotSelection]);
 
   return (
-    <div style={{ height: '100%', position: 'relative', touchAction: 'none' }} ref={wrapperRef}>
+    <div style={{ height: '100%', position: 'relative' }} ref={wrapperRef}>
       <AgGridReact
         ref={pivotGridRef}
         theme={pivotGridTheme}

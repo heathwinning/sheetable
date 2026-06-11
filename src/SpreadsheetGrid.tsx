@@ -815,20 +815,20 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     };
   }, [changeZoom]);
 
-  // ── Cell selection via pointer events ──────────────────────────────────────
+  // ── Cell selection: tap-to-anchor, tap-to-extend model ───────────────────
+  // First tap: anchor + single cell. Second tap outside selection: extend
+  // rectangle from anchor to tapped cell. Tap inside selection: clear.
   useEffect(() => {
     const el = gridWrapperRef.current;
     if (!el) return;
 
-    let isDragging = false;
-    let anchorCoord: { rowIndex: number; colId: string } | null = null;
-    let pointerDownCell: { rowIndex: number; colId: string } | null = null;
-    let hasMoved = false;
-    let activeCount = 0;
+    // Anchor persists across taps (local to this effect; cleared when selection clears)
+    let anchorCell: { rowIndex: number; colId: string } | null = null;
+    let downX = 0;
+    let downY = 0;
 
     const getCellAt = (x: number, y: number): { rowIndex: number; colId: string } | null => {
-      const target = document.elementFromPoint(x, y) as HTMLElement | null;
-      let node = target;
+      let node = document.elementFromPoint(x, y) as HTMLElement | null;
       while (node && !node.classList.contains('ag-cell')) node = node.parentElement;
       if (!node) return null;
       const colId = node.getAttribute('col-id');
@@ -841,21 +841,20 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       return { rowIndex, colId };
     };
 
-    const applySelection = (anchor: { rowIndex: number; colId: string }, active: { rowIndex: number; colId: string }) => {
+    const applyRange = (from: { rowIndex: number; colId: string }, to: { rowIndex: number; colId: string }) => {
       const api = gridRef.current?.api;
       if (!api) return;
       const colIds = colOrderRef.current;
-      const anchorColIdx = colIds.indexOf(anchor.colId);
-      const activeColIdx = colIds.indexOf(active.colId);
-      if (anchorColIdx < 0 || activeColIdx < 0) return;
+      const fromColIdx = colIds.indexOf(from.colId);
+      const toColIdx = colIds.indexOf(to.colId);
+      if (fromColIdx < 0 || toColIdx < 0) return;
       selectionRef.current = {
-        minRow: Math.min(anchor.rowIndex, active.rowIndex),
-        maxRow: Math.max(anchor.rowIndex, active.rowIndex),
-        minColIdx: Math.min(anchorColIdx, activeColIdx),
-        maxColIdx: Math.max(anchorColIdx, activeColIdx),
+        minRow: Math.min(from.rowIndex, to.rowIndex),
+        maxRow: Math.max(from.rowIndex, to.rowIndex),
+        minColIdx: Math.min(fromColIdx, toColIdx),
+        maxColIdx: Math.max(fromColIdx, toColIdx),
       };
       api.refreshCells({ force: true });
-      // Compute stats from selection
       const sel = selectionRef.current;
       const nums: number[] = [];
       for (let r = sel.minRow; r <= sel.maxRow; r++) {
@@ -875,74 +874,59 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         onCellSelectionStats?.(null);
       } else {
         const sum = nums.reduce((a, b) => a + b, 0);
-        const stats = { sum, count: nums.length, avg: sum / nums.length };
-        setCellStats(stats);
-        onCellSelectionStats?.(stats);
+        setCellStats({ sum, count: nums.length, avg: sum / nums.length });
+        onCellSelectionStats?.({ sum, count: nums.length, avg: sum / nums.length });
       }
+    };
+
+    const isCellInSelection = (cell: { rowIndex: number; colId: string }): boolean => {
+      if (!selectionRef.current) return false;
+      const sel = selectionRef.current;
+      const colIdx = colOrderRef.current.indexOf(cell.colId);
+      return (
+        cell.rowIndex >= sel.minRow && cell.rowIndex <= sel.maxRow &&
+        colIdx >= sel.minColIdx && colIdx <= sel.maxColIdx
+      );
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      if (!selectModeRef.current) return;
-      activeCount++;
-      if (activeCount >= 2) {
-        // Second finger — cancel any in-progress selection drag (pinch begins)
-        isDragging = false;
-        anchorCoord = null;
-        return;
-      }
-      const cell = getCellAt(e.clientX, e.clientY);
-      if (!cell) return;
-      pointerDownCell = cell;
-      hasMoved = false;
-      isDragging = true;
-      anchorCoord = cell;
-      el.setPointerCapture(e.pointerId);
-      e.preventDefault();
-      applySelection(cell, cell);
-    };
-
-    const onPointerMove = (e: PointerEvent) => {
-      if (!selectModeRef.current || !isDragging || !anchorCoord) return;
-      if (activeCount >= 2) return;
-      hasMoved = true;
-      const cell = getCellAt(e.clientX, e.clientY);
-      if (!cell) return;
-      applySelection(anchorCoord, cell);
-      e.preventDefault();
+      if (!selectModeRef.current || !e.isPrimary) return;
+      downX = e.clientX;
+      downY = e.clientY;
     };
 
     const onPointerUp = (e: PointerEvent) => {
-      activeCount = Math.max(0, activeCount - 1);
-      if (!isDragging) return;
-      isDragging = false;
-      // Tap without movement on an already-selected cell → deselect
-      if (!hasMoved && pointerDownCell && selectionRef.current) {
-        const sel = selectionRef.current;
-        const colIds = colOrderRef.current;
-        const colIdx = colIds.indexOf(pointerDownCell.colId);
-        const inSel =
-          pointerDownCell.rowIndex >= sel.minRow &&
-          pointerDownCell.rowIndex <= sel.maxRow &&
-          colIdx >= sel.minColIdx &&
-          colIdx <= sel.maxColIdx;
-        if (inSel) {
-          clearCellSelection();
-        }
+      if (!selectModeRef.current || !e.isPrimary) return;
+      // Only act on taps — ignore scrolls (movement > 8px)
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 8) return;
+
+      const cell = getCellAt(e.clientX, e.clientY);
+      if (!cell) {
+        // Tapped outside grid — clear
+        anchorCell = null;
+        clearCellSelection();
+        return;
       }
-      anchorCoord = null;
-      pointerDownCell = null;
-      try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+
+      if (!anchorCell) {
+        // No anchor yet: set anchor and highlight single cell
+        anchorCell = cell;
+        applyRange(cell, cell);
+      } else if (isCellInSelection(cell)) {
+        // Tapped inside existing selection → clear
+        anchorCell = null;
+        clearCellSelection();
+      } else {
+        // Tapped outside selection → extend rectangle from anchor
+        applyRange(anchorCell, cell);
+      }
     };
 
-    el.addEventListener('pointerdown', onPointerDown, { passive: false });
-    el.addEventListener('pointermove', onPointerMove, { passive: false });
+    el.addEventListener('pointerdown', onPointerDown);
     el.addEventListener('pointerup', onPointerUp);
-    el.addEventListener('pointercancel', onPointerUp);
     return () => {
       el.removeEventListener('pointerdown', onPointerDown);
-      el.removeEventListener('pointermove', onPointerMove);
       el.removeEventListener('pointerup', onPointerUp);
-      el.removeEventListener('pointercancel', onPointerUp);
     };
   }, [clearCellSelection, onCellSelectionStats]);
 
@@ -1018,7 +1002,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       <div
         className={`grid-wrapper${showBottomDraftSpacer ? ' grid-wrapper--bottom-draft-spacer' : ''}`}
         ref={gridWrapperRef}
-        style={{ flex: 1, minHeight: 0, zoom, touchAction: selectMode ? 'none' : 'pan-x pan-y' }}
+        style={{ flex: 1, minHeight: 0, zoom, touchAction: 'pan-x pan-y' }}
       >
         <AgGridReact
           ref={gridRef}
