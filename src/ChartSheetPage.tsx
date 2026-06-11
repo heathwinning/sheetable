@@ -289,6 +289,49 @@ function fmtDimVal(val: string, dim: string): string {
   return val || '—';
 }
 
+// MONTH_ORDER maps locale month names (any locale) to their 1-based number for sorting
+const MONTH_ORDER: Record<string, number> = {};
+for (let m = 0; m < 12; m++) {
+  const name = new Date(2000, m, 1).toLocaleString('default', { month: 'long' }).toLowerCase();
+  MONTH_ORDER[name] = m + 1;
+}
+const DOW_ORDER: Record<string, number> = {};
+for (let d = 0; d < 7; d++) {
+  // getDay(): 0=Sun..6=Sat; use a known week starting Sunday
+  const date = new Date(2000, 0, 2 + d); // Jan 2 2000 = Sunday
+  const name = date.toLocaleString('default', { weekday: 'long' }).toLowerCase();
+  DOW_ORDER[name] = d;
+}
+
+/**
+ * Returns a sort key for a pivot dimension value.
+ * For date features where lexical order is wrong (month name, dayofweek,
+ * yearmonth, quarter) this returns a zero-padded numeric key so that
+ * localeCompare produces chronological order.
+ */
+function dimSortKey(val: string, dim: string): string {
+  if (!val) return '';
+  if (dim.endsWith(':yearmonth')) {
+    // stored as YYYY-MM-01 — already ISO, sorts correctly
+    return val;
+  }
+  if (dim.endsWith(':month')) {
+    const n = MONTH_ORDER[val.toLowerCase()];
+    return n !== undefined ? String(n).padStart(2, '0') : val.toLowerCase();
+  }
+  if (dim.endsWith(':dayofweek')) {
+    const n = DOW_ORDER[val.toLowerCase()];
+    return n !== undefined ? String(n) : val.toLowerCase();
+  }
+  if (dim.endsWith(':quarter')) {
+    // "Q1" … "Q4"
+    return val;
+  }
+  // For all other features (year, monthnum, week, day, hour) the raw stored
+  // value is already a zero-padded number or ISO string — use it as-is.
+  return val.toLowerCase();
+}
+
 // ── Chart renderer ───────────────────────────────────────────────────────────
 
 // ── Pivot Table Grid ──────────────────────────────────────────────────────────
@@ -517,8 +560,8 @@ const ChartRenderer: React.FC<{
         for (let i = 0; i < rowDims.length; i++) {
           const dir = rowDimSort[i] ?? 'none';
           if (dir === 'none') continue;
-          const ka = fmtDimVal(a[i], rowDims[i]).toLowerCase();
-          const kb = fmtDimVal(b[i], rowDims[i]).toLowerCase();
+          const ka = dimSortKey(a[i], rowDims[i]);
+          const kb = dimSortKey(b[i], rowDims[i]);
           const cmp = ka.localeCompare(kb);
           if (cmp !== 0) return dir === 'asc' ? cmp : -cmp;
         }
@@ -529,8 +572,8 @@ const ChartRenderer: React.FC<{
       if (rowOrder !== 'natural') {
         pivot.rowKeys.sort((a, b) => {
           if (rowOrder === 'label-asc' || rowOrder === 'label-desc') {
-            const ka = a.map((v, i) => fmtDimVal(v, rowDims[i])).join('\0').toLowerCase();
-            const kb = b.map((v, i) => fmtDimVal(v, rowDims[i])).join('\0').toLowerCase();
+            const ka = a.map((v, i) => dimSortKey(v, rowDims[i])).join('\0');
+            const kb = b.map((v, i) => dimSortKey(v, rowDims[i])).join('\0');
             return rowOrder === 'label-asc' ? ka.localeCompare(kb) : kb.localeCompare(ka);
           }
           const va = pivot.rowTotals.get(a.join('\0')) ?? 0;
@@ -548,8 +591,8 @@ const ChartRenderer: React.FC<{
         for (let i = 0; i < colDims.length; i++) {
           const dir = colDimSort[i] ?? 'none';
           if (dir === 'none') continue;
-          const ka = fmtDimVal(a[i], colDims[i]).toLowerCase();
-          const kb = fmtDimVal(b[i], colDims[i]).toLowerCase();
+          const ka = dimSortKey(a[i], colDims[i]);
+          const kb = dimSortKey(b[i], colDims[i]);
           const cmp = ka.localeCompare(kb);
           if (cmp !== 0) return dir === 'asc' ? cmp : -cmp;
         }
@@ -560,8 +603,8 @@ const ChartRenderer: React.FC<{
       if (colOrder !== 'natural' && pivot.colKeys.length > 0) {
         pivot.colKeys.sort((a, b) => {
           if (colOrder === 'label-asc' || colOrder === 'label-desc') {
-            const ka = a.map((v, i) => fmtDimVal(v, colDims[i])).join('\0').toLowerCase();
-            const kb = b.map((v, i) => fmtDimVal(v, colDims[i])).join('\0').toLowerCase();
+            const ka = a.map((v, i) => dimSortKey(v, colDims[i])).join('\0');
+            const kb = b.map((v, i) => dimSortKey(v, colDims[i])).join('\0');
             return colOrder === 'label-asc' ? ka.localeCompare(kb) : kb.localeCompare(ka);
           }
           const va = pivot.colTotals.get(a.join('\0')) ?? 0;
