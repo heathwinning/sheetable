@@ -86,8 +86,14 @@ export interface ChartConfig {
   tableRows?: string[];
   tableColumns?: string[];
   tableSort?: { key: string; dir: 'asc' | 'desc' };
+  /** @deprecated use tableRowDimSort for per-dimension control */
   rowOrder?: 'natural' | 'label-asc' | 'label-desc' | 'value-asc' | 'value-desc';
+  /** @deprecated use tableColDimSort for per-dimension control */
   colOrder?: 'natural' | 'label-asc' | 'label-desc' | 'value-asc' | 'value-desc';
+  /** Per-dimension sort for table row dimensions. Each entry is 'asc', 'desc', or 'none'. */
+  tableRowDimSort?: ('asc' | 'desc' | 'none')[];
+  /** Per-dimension sort for table column dimensions. Each entry is 'asc', 'desc', or 'none'. */
+  tableColDimSort?: ('asc' | 'desc' | 'none')[];
   /** Handlebars template for display. Variables: `value` (the aggregated number), `date`, row fields.
    *  Supports {{dateFormat date 'MMM D, YYYY'}}. e.g. "{{value}} kg" */
   valueFormat?: string;

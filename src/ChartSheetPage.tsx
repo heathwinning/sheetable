@@ -356,34 +356,66 @@ const ChartRenderer: React.FC<{
     }
     const pivot = buildPivotTable(rows, rowDims, colDims, config.yColumn, config.aggregate, resolveColumnPath, config.table);
 
-    // Apply row ordering
-    const rowOrder = config.rowOrder ?? 'natural';
-    if (rowOrder !== 'natural') {
+    // Apply row ordering — per-dimension sort takes priority over legacy rowOrder
+    const rowDimSort = config.tableRowDimSort ?? [];
+    const hasRowDimSort = rowDimSort.some(d => d && d !== 'none');
+    if (hasRowDimSort) {
       pivot.rowKeys.sort((a, b) => {
-        if (rowOrder === 'label-asc' || rowOrder === 'label-desc') {
-          const ka = a.map((v, i) => fmtDimVal(v, rowDims[i])).join('\0').toLowerCase();
-          const kb = b.map((v, i) => fmtDimVal(v, rowDims[i])).join('\0').toLowerCase();
-          return rowOrder === 'label-asc' ? ka.localeCompare(kb) : kb.localeCompare(ka);
+        for (let i = 0; i < rowDims.length; i++) {
+          const dir = rowDimSort[i] ?? 'none';
+          if (dir === 'none') continue;
+          const ka = fmtDimVal(a[i], rowDims[i]).toLowerCase();
+          const kb = fmtDimVal(b[i], rowDims[i]).toLowerCase();
+          const cmp = ka.localeCompare(kb);
+          if (cmp !== 0) return dir === 'asc' ? cmp : -cmp;
         }
-        const va = pivot.rowTotals.get(a.join('\0')) ?? 0;
-        const vb = pivot.rowTotals.get(b.join('\0')) ?? 0;
-        return rowOrder === 'value-asc' ? va - vb : vb - va;
+        return 0;
       });
+    } else {
+      const rowOrder = config.rowOrder ?? 'natural';
+      if (rowOrder !== 'natural') {
+        pivot.rowKeys.sort((a, b) => {
+          if (rowOrder === 'label-asc' || rowOrder === 'label-desc') {
+            const ka = a.map((v, i) => fmtDimVal(v, rowDims[i])).join('\0').toLowerCase();
+            const kb = b.map((v, i) => fmtDimVal(v, rowDims[i])).join('\0').toLowerCase();
+            return rowOrder === 'label-asc' ? ka.localeCompare(kb) : kb.localeCompare(ka);
+          }
+          const va = pivot.rowTotals.get(a.join('\0')) ?? 0;
+          const vb = pivot.rowTotals.get(b.join('\0')) ?? 0;
+          return rowOrder === 'value-asc' ? va - vb : vb - va;
+        });
+      }
     }
 
-    // Apply column ordering
-    const colOrder = config.colOrder ?? 'natural';
-    if (colOrder !== 'natural' && pivot.colKeys.length > 0) {
+    // Apply column ordering — per-dimension sort takes priority over legacy colOrder
+    const colDimSort = config.tableColDimSort ?? [];
+    const hasColDimSort = colDimSort.some(d => d && d !== 'none');
+    if (hasColDimSort && pivot.colKeys.length > 0) {
       pivot.colKeys.sort((a, b) => {
-        if (colOrder === 'label-asc' || colOrder === 'label-desc') {
-          const ka = a.map((v, i) => fmtDimVal(v, colDims[i])).join('\0').toLowerCase();
-          const kb = b.map((v, i) => fmtDimVal(v, colDims[i])).join('\0').toLowerCase();
-          return colOrder === 'label-asc' ? ka.localeCompare(kb) : kb.localeCompare(ka);
+        for (let i = 0; i < colDims.length; i++) {
+          const dir = colDimSort[i] ?? 'none';
+          if (dir === 'none') continue;
+          const ka = fmtDimVal(a[i], colDims[i]).toLowerCase();
+          const kb = fmtDimVal(b[i], colDims[i]).toLowerCase();
+          const cmp = ka.localeCompare(kb);
+          if (cmp !== 0) return dir === 'asc' ? cmp : -cmp;
         }
-        const va = pivot.colTotals.get(a.join('\0')) ?? 0;
-        const vb = pivot.colTotals.get(b.join('\0')) ?? 0;
-        return colOrder === 'value-asc' ? va - vb : vb - va;
+        return 0;
       });
+    } else {
+      const colOrder = config.colOrder ?? 'natural';
+      if (colOrder !== 'natural' && pivot.colKeys.length > 0) {
+        pivot.colKeys.sort((a, b) => {
+          if (colOrder === 'label-asc' || colOrder === 'label-desc') {
+            const ka = a.map((v, i) => fmtDimVal(v, colDims[i])).join('\0').toLowerCase();
+            const kb = b.map((v, i) => fmtDimVal(v, colDims[i])).join('\0').toLowerCase();
+            return colOrder === 'label-asc' ? ka.localeCompare(kb) : kb.localeCompare(ka);
+          }
+          const va = pivot.colTotals.get(a.join('\0')) ?? 0;
+          const vb = pivot.colTotals.get(b.join('\0')) ?? 0;
+          return colOrder === 'value-asc' ? va - vb : vb - va;
+        });
+      }
     }
     const hasColDims = pivot.colKeys.length > 0;
 
@@ -704,23 +736,6 @@ const AGGREGATE_OPTIONS = [
   { value: 'none', label: 'None (raw)' },
 ];
 
-
-const ROW_ORDER_OPTIONS: { value: ChartConfig['rowOrder']; label: string }[] = [
-  { value: 'natural', label: 'Natural (data order)' },
-  { value: 'label-asc', label: 'Label A → Z' },
-  { value: 'label-desc', label: 'Label Z → A' },
-  { value: 'value-asc', label: 'Value ↑ (smallest first)' },
-  { value: 'value-desc', label: 'Value ↓ (largest first)' },
-];
-
-const COL_ORDER_OPTIONS: { value: ChartConfig['colOrder']; label: string }[] = [
-  { value: 'natural', label: 'Natural (data order)' },
-  { value: 'label-asc', label: 'Label A → Z' },
-  { value: 'label-desc', label: 'Label Z → A' },
-  { value: 'value-asc', label: 'Value ↑ (smallest first)' },
-  { value: 'value-desc', label: 'Value ↓ (largest first)' },
-];
-
 const DATE_FEATURES: { value: DateFeature; label: string }[] = [
   { value: 'year', label: 'Year' },
   { value: 'quarter', label: 'Quarter' },
@@ -731,6 +746,82 @@ const DATE_FEATURES: { value: DateFeature; label: string }[] = [
   { value: 'day', label: 'Day of month' },
   { value: 'hour', label: 'Hour' },
 ];
+
+// ── Per-dimension sort configuration grid ────────────────────────────────────
+
+const DIM_SORT_OPTIONS = [
+  { value: 'none', label: '— none —' },
+  { value: 'asc', label: 'A → Z / ↑' },
+  { value: 'desc', label: 'Z → A / ↓' },
+];
+
+interface DimSortRow { _idx: number; label: string; sort: string; }
+
+const DimSortGrid: React.FC<{
+  label: string;
+  dims: string[];
+  sorts: ('asc' | 'desc' | 'none')[];
+  getLabel: (dim: string) => string;
+  onChange: (sorts: ('asc' | 'desc' | 'none')[]) => void;
+}> = ({ label, dims, sorts, getLabel, onChange }) => {
+  if (!dims.length) return null;
+
+  const rowData: DimSortRow[] = dims.map((dim, i) => ({
+    _idx: i,
+    label: getLabel(dim),
+    sort: sorts[i] ?? 'none',
+  }));
+
+  const colDefs: ColDef<DimSortRow>[] = [
+    {
+      headerName: label,
+      field: 'label',
+      flex: 2,
+      editable: false,
+    },
+    {
+      headerName: 'Sort',
+      field: 'sort',
+      flex: 1,
+      editable: true,
+      cellEditor: 'agSelectCellEditor',
+      cellEditorParams: { values: DIM_SORT_OPTIONS.map(o => o.value) },
+      valueFormatter: (p) => DIM_SORT_OPTIONS.find(o => o.value === p.value)?.label ?? p.value,
+      singleClickEdit: true,
+      valueSetter: (params) => {
+        const newSorts = [...sorts];
+        while (newSorts.length <= params.data._idx) newSorts.push('none');
+        newSorts[params.data._idx] = (params.newValue ?? 'none') as 'asc' | 'desc' | 'none';
+        onChange(newSorts);
+        return true;
+      },
+    },
+  ];
+
+  const dimSortGridTheme = themeQuartz.withParams({
+    cellHorizontalPaddingScale: 0.6,
+    headerFontSize: 11,
+    fontSize: 12,
+    rowHeight: 26,
+    headerHeight: 26,
+    columnBorder: true,
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <AgGridReact<DimSortRow>
+        theme={dimSortGridTheme}
+        modules={[AllCommunityModule]}
+        rowData={rowData}
+        columnDefs={colDefs}
+        defaultColDef={{ sortable: false, suppressMovable: true, resizable: false }}
+        domLayout="autoHeight"
+        stopEditingWhenCellsLoseFocus={true}
+        getRowId={(p) => String(p.data._idx)}
+      />
+    </div>
+  );
+};
 
 const ChartConfigModal: React.FC<{
   config: ChartConfig;
@@ -922,27 +1013,23 @@ const ChartConfigModal: React.FC<{
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Row order</label>
-                  <Select
-                    styles={dialogSelectStyles}
-                    isSearchable={false}
-                    value={ROW_ORDER_OPTIONS.find(o => o.value === (draft.rowOrder ?? 'natural')) ?? null}
-                    options={ROW_ORDER_OPTIONS}
-                    onChange={opt => set('rowOrder', (opt?.value ?? 'natural') as ChartConfig['rowOrder'])}
-                    menuPortalTarget={document.body}
-                    menuPlacement="auto"
+                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Row sort</label>
+                  <DimSortGrid
+                    label="Row dimension"
+                    dims={draft.tableRows ?? []}
+                    sorts={(draft.tableRowDimSort ?? []) as ('asc' | 'desc' | 'none')[]}
+                    getLabel={(dim) => colOptionsFlat.find(o => o.value === dim)?.label ?? dim}
+                    onChange={(sorts) => set('tableRowDimSort', sorts)}
                   />
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Column order</label>
-                  <Select
-                    styles={dialogSelectStyles}
-                    isSearchable={false}
-                    value={COL_ORDER_OPTIONS.find(o => o.value === (draft.colOrder ?? 'natural')) ?? null}
-                    options={COL_ORDER_OPTIONS}
-                    onChange={opt => set('colOrder', (opt?.value ?? 'natural') as ChartConfig['colOrder'])}
-                    menuPortalTarget={document.body}
-                    menuPlacement="auto"
+                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Column sort</label>
+                  <DimSortGrid
+                    label="Col dimension"
+                    dims={draft.tableColumns ?? []}
+                    sorts={(draft.tableColDimSort ?? []) as ('asc' | 'desc' | 'none')[]}
+                    getLabel={(dim) => colOptionsFlat.find(o => o.value === dim)?.label ?? dim}
+                    onChange={(sorts) => set('tableColDimSort', sorts)}
                   />
                 </div>
               </div>
