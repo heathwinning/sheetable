@@ -946,8 +946,6 @@ const DIM_SORT_OPTIONS = [
   { value: 'desc', label: 'Z → A / ↓' },
 ];
 
-interface DimConfigRow { _idx: number; dim: string; sort: string; }
-
 const DimConfigGrid: React.FC<{
   label: string;
   dims: string[];
@@ -955,99 +953,51 @@ const DimConfigGrid: React.FC<{
   colOptions: { value: string; label: string }[];
   onChange: (dims: string[], sorts: ('asc' | 'desc' | 'none')[]) => void;
 }> = ({ label, dims, sorts, colOptions, onChange }) => {
-  const rowData: DimConfigRow[] = dims.map((dim, i) => ({
-    _idx: i,
-    dim,
-    sort: sorts[i] ?? 'none',
-  }));
-
-  const colValues = colOptions.map(o => o.value);
-  const labelMap = new Map(colOptions.map(o => [o.value, o.label]));
-
-  const update = (rows: DimConfigRow[]) => {
-    onChange(rows.map(r => r.dim), rows.map(r => (r.sort ?? 'none') as 'asc' | 'desc' | 'none'));
+  const updateRow = (i: number, dim: string, sort: 'asc' | 'desc' | 'none') => {
+    const newDims = [...dims]; newDims[i] = dim;
+    const newSorts = [...sorts]; newSorts[i] = sort;
+    onChange(newDims, newSorts);
   };
-
-  const colDefs: ColDef<DimConfigRow>[] = [
-    {
-      headerName: label,
-      field: 'dim',
-      flex: 3,
-      editable: true,
-      cellEditor: 'agSelectCellEditor',
-      cellEditorParams: { values: colValues },
-      valueFormatter: (p) => labelMap.get(p.value) ?? p.value,
-      singleClickEdit: true,
-      valueSetter: (params) => {
-        const updated = rowData.map(r => r._idx === params.data._idx ? { ...r, dim: params.newValue } : r);
-        update(updated);
-        return true;
-      },
-    },
-    {
-      headerName: 'Sort',
-      field: 'sort',
-      flex: 1,
-      minWidth: 110,
-      editable: true,
-      cellEditor: 'agSelectCellEditor',
-      cellEditorParams: { values: DIM_SORT_OPTIONS.map(o => o.value) },
-      valueFormatter: (p) => DIM_SORT_OPTIONS.find(o => o.value === p.value)?.label ?? p.value,
-      singleClickEdit: true,
-      valueSetter: (params) => {
-        const updated = rowData.map(r => r._idx === params.data._idx ? { ...r, sort: params.newValue ?? 'none' } : r);
-        update(updated);
-        return true;
-      },
-    },
-    {
-      headerName: '',
-      field: '_idx',
-      width: 32,
-      maxWidth: 32,
-      editable: false,
-      sortable: false,
-      cellRenderer: () => (
-        <span style={{ cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 14, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>×</span>
-      ),
-      onCellClicked: (params) => {
-        if (!params.data) return;
-        const updated = rowData.filter(r => r._idx !== params.data!._idx);
-        update(updated);
-      },
-    },
-  ];
-
-  const dimConfigGridTheme = themeQuartz.withParams({
-    cellHorizontalPaddingScale: 0.6,
-    headerFontSize: 11,
-    fontSize: 12,
-    rowHeight: 26,
-    headerHeight: 26,
-    columnBorder: true,
-  });
-
+  const removeRow = (i: number) => {
+    onChange(dims.filter((_, j) => j !== i), sorts.filter((_, j) => j !== i));
+  };
   const addRow = () => {
     const firstUnused = colOptions.find(o => !dims.includes(o.value));
     const newDim = firstUnused?.value ?? colOptions[0]?.value ?? '';
-    const updated = [...rowData, { _idx: rowData.length, dim: newDim, sort: 'none' }];
-    update(updated);
+    onChange([...dims, newDim], [...sorts, 'none']);
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      {dims.length > 0 && (
-        <AgGridReact<DimConfigRow>
-          theme={dimConfigGridTheme}
-          modules={[AllCommunityModule]}
-          rowData={rowData}
-          columnDefs={colDefs}
-          defaultColDef={{ sortable: false, suppressMovable: true, resizable: false }}
-          domLayout="autoHeight"
-          stopEditingWhenCellsLoseFocus={true}
-          getRowId={(p) => String(p.data._idx)}
-        />
-      )}
+      {dims.map((dim, i) => (
+        <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <div style={{ flex: 1 }}>
+            <Select
+              styles={dialogSelectStyles}
+              options={colOptions}
+              value={colOptions.find(o => o.value === dim) ?? null}
+              onChange={opt => updateRow(i, opt?.value ?? dim, (sorts[i] ?? 'none') as 'asc' | 'desc' | 'none')}
+              menuPortalTarget={document.body}
+              menuPlacement="auto"
+              placeholder={label}
+            />
+          </div>
+          <select
+            className="app-dialog-select"
+            style={{ width: 90, flexShrink: 0 }}
+            value={sorts[i] ?? 'none'}
+            onChange={e => updateRow(i, dim, e.target.value as 'asc' | 'desc' | 'none')}
+          >
+            {DIM_SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <button
+            type="button"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 16, lineHeight: 1, padding: '0 4px', flexShrink: 0 }}
+            onClick={() => removeRow(i)}
+            aria-label="Remove"
+          >×</button>
+        </div>
+      ))}
       <button
         type="button"
         className="btn-secondary btn-sm"
@@ -1221,8 +1171,8 @@ const ChartConfigModal: React.FC<{
           </div>
           {isTableType ? (
             <>
-              <div style={{ display: 'flex', gap: 12 }}>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label className="app-dialog-label" style={{ marginBottom: 0 }}>Rows</label>
                   <DimConfigGrid
                     label="Data column"
@@ -1232,7 +1182,7 @@ const ChartConfigModal: React.FC<{
                     onChange={(dims, sorts) => setDraft(d => ({ ...d, tableRows: dims, tableRowDimSort: sorts }))}
                   />
                 </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label className="app-dialog-label" style={{ marginBottom: 0 }}>
                     Columns <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
                   </label>
