@@ -4,7 +4,7 @@ import Select from 'react-select';
 import { dialogSelectStyles } from './selectStyles';
 import { DATE_FORMATS } from './dateFormatsList';
 import type { ColumnDef, ColumnType, ListItemType, Row, TableSchema } from './types';
-import { INTERNAL_ROW_ID } from './types';
+import { INTERNAL_ROW_ID, typeOptions, listItemTypeOptions } from './types';
 import type { UseAppStateReturn } from './useAppState';
 import { useDialog } from './DialogProvider';
 import { AgGridReact } from 'ag-grid-react';
@@ -15,30 +15,6 @@ import { previewMigration, applyMigration, previewExtract } from './typeMigratio
 import type { MigrationPreview } from './typeMigration';
 import { sharedDefaultColDef } from './gridDefaults';
 import * as api from './api';
-
-const typeOptions: { value: ColumnType; label: string }[] = [
-  { value: 'text', label: 'Text' },
-  { value: 'integer', label: 'Integer' },
-  { value: 'decimal', label: 'Decimal' },
-  { value: 'date', label: 'Date' },
-  { value: 'datetime', label: 'Datetime' },
-  { value: 'bool', label: 'Boolean' },
-  { value: 'reference', label: 'Reference' },
-  { value: 'image', label: 'Image' },
-  { value: 'calculated', label: 'Calculated' },
-  { value: 'list', label: 'List…' },
-];
-
-const listItemTypeOptions: { value: ListItemType; label: string }[] = [
-  { value: 'text', label: 'Text' },
-  { value: 'integer', label: 'Integer' },
-  { value: 'decimal', label: 'Decimal' },
-  { value: 'date', label: 'Date' },
-  { value: 'datetime', label: 'Datetime' },
-  { value: 'bool', label: 'Boolean' },
-  { value: 'image', label: 'Image' },
-  { value: 'reference', label: 'Reference' },
-];
 
 function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorProps) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -75,19 +51,7 @@ function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorP
             onValueChange(o.value);
             stopEditing();
           }}
-          style={{
-            padding: '4px 10px',
-            fontSize: 13,
-            cursor: 'pointer',
-            background: o.value === value ? 'var(--primary, #2563eb)' : 'transparent',
-            color: o.value === value ? 'var(--color-surface)' : 'var(--text)',
-          }}
-          onMouseEnter={(e) => {
-            if (o.value !== value) e.currentTarget.style.background = 'var(--cell-selected, #e0e7ff)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = o.value === value ? 'var(--primary, #2563eb)' : 'transparent';
-          }}
+          className={`type-cell-editor-item${o.value === value ? ' type-cell-editor-item--selected' : ''}`}
         >
           {o.label}
         </div>
@@ -188,9 +152,7 @@ const ExprInput: React.FC<{
             <div
               key={col.id}
               onMouseDown={e => { e.preventDefault(); insertColumn(col.id); }}
-              style={{ padding: '5px 10px', fontSize: 12, cursor: 'pointer', display: 'flex', gap: 8, alignItems: 'center' }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-cell-selected, #e0e7ff)')}
-              onMouseLeave={e => (e.currentTarget.style.background = '')}
+              className="expr-input-dropdown-item"
             >
               <span style={{ fontFamily: 'monospace' }}>{`{${col.id}}`}</span>
               {col.label !== col.id && <span style={{ color: 'var(--color-text-muted)', fontSize: 11 }}>{col.label}</span>}

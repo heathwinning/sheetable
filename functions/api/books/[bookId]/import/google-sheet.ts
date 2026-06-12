@@ -51,5 +51,8 @@ export const onRequestPost: PagesFunction<Env, 'bookId', RequestData> = async (c
   }
 
   const csvText = await res.text();
+  if (csvText.length > 10 * 1024 * 1024) {
+    return error('Sheet is too large (max 10 MB)');
+  }
   return json({ csvText });
 };

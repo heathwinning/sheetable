@@ -6,6 +6,30 @@ export type ColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 
 
 export type ListItemType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'bool' | 'image' | 'reference';
 
+export const typeOptions: { value: ColumnType; label: string }[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'integer', label: 'Integer' },
+  { value: 'decimal', label: 'Decimal' },
+  { value: 'date', label: 'Date' },
+  { value: 'datetime', label: 'Datetime' },
+  { value: 'bool', label: 'Boolean' },
+  { value: 'reference', label: 'Reference' },
+  { value: 'image', label: 'Image' },
+  { value: 'calculated', label: 'Calculated' },
+  { value: 'list', label: 'List…' },
+];
+
+export const listItemTypeOptions: { value: ListItemType; label: string }[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'integer', label: 'Integer' },
+  { value: 'decimal', label: 'Decimal' },
+  { value: 'date', label: 'Date' },
+  { value: 'datetime', label: 'Datetime' },
+  { value: 'bool', label: 'Boolean' },
+  { value: 'image', label: 'Image' },
+  { value: 'reference', label: 'Reference' },
+];
+
 export interface ColumnDef {
   name: string;
   displayName?: string;

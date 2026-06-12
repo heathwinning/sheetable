@@ -24,6 +24,18 @@ interface SchemaBody {
 
 const VALID_TYPES = new Set(['text', 'integer', 'decimal', 'date', 'datetime', 'bool', 'reference', 'image', 'calculated', 'list']);
 
+/**
+ * Validate a column name for safe interpolation into DDL.
+ * Allows letters, digits, spaces, hyphens, underscores, and parentheses.
+ * Rejects embedded double-quotes (which would break identifier quoting) and
+ * names that are empty or over 64 chars.
+ */
+function isValidColumnName(name: string): boolean {
+  if (!name || name.length > 64) return false;
+  if (name.includes('"')) return false;
+  return true;
+}
+
 // PUT /api/books/:bookId/tables/:name/schema → update column definitions and table settings
 export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = async (context) => {
   requireUser(context.data);
@@ -58,6 +70,7 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
     // Validate
     for (const col of body.columns) {
       if (!col.name?.trim()) return error('column name is required');
+      if (!isValidColumnName(col.name.trim())) return error(`invalid column name: "${col.name.trim()}"`);
       if (!VALID_TYPES.has(col.type)) return error(`invalid column type: ${col.type}`);
     }
 

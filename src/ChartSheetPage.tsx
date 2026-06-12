@@ -1226,7 +1226,7 @@ const ChartConfigModal: React.FC<{
         </div>
         <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label className="app-dialog-label" style={{ marginBottom: 0 }}>Title</label>
+            <label className="app-dialog-label">Title</label>
             <input
               className="app-dialog-input"
               style={{ marginBottom: 0 }}
@@ -1237,7 +1237,7 @@ const ChartConfigModal: React.FC<{
           </div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label className="app-dialog-label" style={{ marginBottom: 0 }}>Type</label>
+              <label className="app-dialog-label">Type</label>
               <Select
                 styles={dialogSelectStyles}
                 isSearchable={false}
@@ -1249,7 +1249,7 @@ const ChartConfigModal: React.FC<{
               />
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label className="app-dialog-label" style={{ marginBottom: 0 }}>Table</label>
+              <label className="app-dialog-label">Table</label>
               <Select
                 styles={dialogSelectStyles}
                 isSearchable={false}
@@ -1274,7 +1274,7 @@ const ChartConfigModal: React.FC<{
                     }
                   }}
                 />
-                <label htmlFor="chart-stacked-cb" className="app-dialog-label" style={{ marginBottom: 0 }}>Stacked</label>
+                <label htmlFor="chart-stacked-cb" className="app-dialog-label">Stacked</label>
               </div>
             )}
           </div>
@@ -1282,7 +1282,7 @@ const ChartConfigModal: React.FC<{
             <>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Rows</label>
+                  <label className="app-dialog-label">Rows</label>
                   <DimConfigGrid
                     dims={draft.tableRows ?? []}
                     sorts={(draft.tableRowDimSort ?? []) as ('asc' | 'desc' | 'none')[]}
@@ -1291,7 +1291,7 @@ const ChartConfigModal: React.FC<{
                   />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>
+                  <label className="app-dialog-label">
                     Columns <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
                   </label>
                   <DimConfigGrid
@@ -1304,7 +1304,7 @@ const ChartConfigModal: React.FC<{
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Aggregate</label>
+                  <label className="app-dialog-label">Aggregate</label>
                   <Select
                     styles={dialogSelectStyles}
                     isSearchable={false}
@@ -1319,7 +1319,7 @@ const ChartConfigModal: React.FC<{
               <div style={{ display: 'flex', gap: 12 }}>
                 {needsYCol && (
                   <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label className="app-dialog-label" style={{ marginBottom: 0 }}>Value column</label>
+                    <label className="app-dialog-label">Value column</label>
                     <Select
                       styles={dialogSelectStyles}
                       value={colOptionsFlat.find(o => o.value === draft.yColumn) ?? null}
@@ -1347,7 +1347,7 @@ const ChartConfigModal: React.FC<{
             <>
               <div style={{ display: 'flex', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>X column</label>
+                  <label className="app-dialog-label">X column</label>
                   <Select
                     styles={dialogSelectStyles}
                     value={colOptionsFlatXYG.find(o => o.value === xColPath) ?? null}
@@ -1382,14 +1382,14 @@ const ChartConfigModal: React.FC<{
                 </div>
                 {draft.type !== 'pie' && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label className="app-dialog-label" style={{ marginBottom: 0 }}>X axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span></label>
+                    <label className="app-dialog-label">X axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span></label>
                     <input className="app-dialog-input" style={{ marginBottom: 0 }} value={draft.xLabel ?? ''} onChange={e => set('xLabel', e.target.value || undefined)} placeholder="X axis label" />
                   </div>
                 )}
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Aggregate</label>
+                  <label className="app-dialog-label">Aggregate</label>
                   <Select
                     styles={dialogSelectStyles}
                     isSearchable={false}
@@ -1402,7 +1402,7 @@ const ChartConfigModal: React.FC<{
                 </div>
                 {needsYCol && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label className="app-dialog-label" style={{ marginBottom: 0 }}>Y column</label>
+                    <label className="app-dialog-label">Y column</label>
                     <Select
                       styles={dialogSelectStyles}
                       value={colOptionsFlatXYG.find(o => o.value === draft.yColumn) ?? null}
@@ -1417,14 +1417,14 @@ const ChartConfigModal: React.FC<{
                 )}
                 {needsYCol && draft.type !== 'pie' && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label className="app-dialog-label" style={{ marginBottom: 0 }}>Y axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span></label>
+                    <label className="app-dialog-label">Y axis label <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span></label>
                     <input className="app-dialog-input" style={{ marginBottom: 0 }} value={draft.yLabel ?? ''} onChange={e => set('yLabel', e.target.value || undefined)} placeholder="Y axis label" />
                   </div>
                 )}
               </div>
               {hasGroupBy && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>
+                  <label className="app-dialog-label">
                     Group by <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
                   </label>
                   <Select

@@ -87,7 +87,12 @@ export const onRequestGet: PagesFunction<Env, string, RequestData> = async (cont
         'DELETE FROM book_invites WHERE email = ?'
       ).bind(userInfo.email)
     );
-    await context.env.DB.batch(stmts);
+    try {
+      await context.env.DB.batch(stmts);
+    } catch (e) {
+      console.error('Failed to redeem invites for', userInfo.email, e);
+      // Non-fatal: allow login to proceed
+    }
   }
 
   // Sign session cookie

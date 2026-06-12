@@ -42,6 +42,7 @@ export const onRequestPost: PagesFunction<Env, 'bookId', RequestData> = async (c
     const resp = await fetch(url, {
       headers: { 'Accept': 'text/csv, text/plain, */*' },
       redirect: 'follow',
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!resp.ok) {

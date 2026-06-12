@@ -18,6 +18,9 @@ export const onRequestGet: PagesFunction<Env, 'bookId' | 'key', RequestData> = a
   return new Response(object.body, { headers });
 };
 
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024; // 25 MB
+
 // PUT /api/books/:bookId/images/:key → upload image to R2
 export const onRequestPut: PagesFunction<Env, 'bookId' | 'key', RequestData> = async (context) => {
   requireUser(context.data);
@@ -26,10 +29,19 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'key', RequestData> = a
   const bookId = context.params.bookId as string;
   const key = `${bookId}/${decodeURIComponent(context.params.key as string)}`;
 
-  const contentType = context.request.headers.get('Content-Type') ?? 'application/octet-stream';
+  const contentType = context.request.headers.get('Content-Type') ?? '';
+  const mimeType = contentType.split(';')[0].trim().toLowerCase();
+  if (!ALLOWED_IMAGE_TYPES.has(mimeType)) {
+    return error('Unsupported image type. Allowed: jpeg, png, webp, gif, avif', 415);
+  }
+
+  const contentLength = context.request.headers.get('Content-Length');
+  if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_BYTES) {
+    return error('Image too large (max 25 MB)', 413);
+  }
 
   await context.env.BUCKET.put(key, context.request.body, {
-    httpMetadata: { contentType },
+    httpMetadata: { contentType: mimeType },
   });
 
   return new Response(JSON.stringify({ ok: true, key }), {

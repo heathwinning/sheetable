@@ -12,6 +12,7 @@ async function getTableId(db: D1Database, bookId: string, name: string): Promise
 // GET /api/books/:bookId/tables/:name/rows → get all rows
 export const onRequestGet: PagesFunction<Env, 'bookId' | 'name', RequestData> = async (context) => {
   requireUser(context.data);
+  if (!context.data.bookRole) return error('Forbidden', 403);
 
   const bookId = context.params.bookId as string;
   const name = decodeURIComponent(context.params.name as string);

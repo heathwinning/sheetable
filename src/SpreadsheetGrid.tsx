@@ -60,6 +60,7 @@ const OpenRecordButton: React.FC<CustomCellRendererProps & { onOpen: (row: Row) 
   return (
     <button
       title="Open record"
+      aria-label="Open record"
       onClick={(e) => { e.stopPropagation(); onOpen(data as Row); }}
       style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, padding: 0, lineHeight: 1, color: 'var(--color-text-muted,#888)', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >

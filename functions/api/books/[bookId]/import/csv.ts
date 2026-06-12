@@ -68,8 +68,22 @@ export const onRequestPost: PagesFunction<Env, 'bookId', RequestData> = async (c
   }
 
   const BATCH_SIZE = 100;
-  for (let i = 0; i < insertStmts.length; i += BATCH_SIZE) {
-    await context.env.DB.batch(insertStmts.slice(i, i + BATCH_SIZE));
+  try {
+    for (let i = 0; i < insertStmts.length; i += BATCH_SIZE) {
+      await context.env.DB.batch(insertStmts.slice(i, i + BATCH_SIZE));
+    }
+  } catch (e) {
+    // Clean up the partially-created table and metadata so the import leaves no orphans
+    try {
+      await context.env.DB.batch([
+        context.env.DB.prepare(`DROP TABLE IF EXISTS t_${tableId}`),
+        context.env.DB.prepare('DELETE FROM _columns WHERE table_id = ?').bind(tableId),
+        context.env.DB.prepare('DELETE FROM _tables WHERE id = ?').bind(tableId),
+      ]);
+    } catch {
+      // best-effort cleanup
+    }
+    return error('Failed to import rows — no data was saved', 500);
   }
 
   return json({ name: body.tableName.trim(), rowCount: dataRows.length }, 201);

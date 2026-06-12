@@ -172,7 +172,7 @@ const TabOrderModal: React.FC<{ open: boolean; onClose: () => void; state: UseAp
         <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '70vh', overflowY: 'auto' }}>
           {sections.map((section) => (
             <div key={section.title} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div className="app-dialog-label" style={{ marginBottom: 0 }}>{section.title}</div>
+              <div className="app-dialog-label">{section.title}</div>
               {section.ids.length === 0 ? (
                 <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>No {section.title.toLowerCase()}.</div>
               ) : (
@@ -876,7 +876,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             </div>
             <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label className="app-dialog-label" style={{ marginBottom: 0 }}>View name</label>
+                <label className="app-dialog-label">View name</label>
                 <input
                   className="app-dialog-input"
                   value={editName}
@@ -885,13 +885,13 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
                 />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label className="app-dialog-label" style={{ marginBottom: 0 }}>Table</label>
+                <label className="app-dialog-label">Table</label>
                 <select className="app-dialog-select" value={editTable} onChange={e => { setEditTable(e.target.value); setEditDateCol(''); }}>
                   {state.tableIds.map(id => <option key={id} value={id}>{id}</option>)}
                 </select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label className="app-dialog-label" style={{ marginBottom: 0 }}>View type</label>
+                <label className="app-dialog-label">View type</label>
                 <select className="app-dialog-select" value={editViewType} onChange={e => setEditViewType(e.target.value as 'grid' | 'calendar')}>
                   <option value="grid">Grid</option>
                   <option value="calendar">Calendar</option>
@@ -899,7 +899,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               </div>
               {editViewType === 'calendar' && dateColumnsForTable.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Date column</label>
+                  <label className="app-dialog-label">Date column</label>
                   <select className="app-dialog-select" value={editDateCol || dateColumnsForTable[0]?.name} onChange={e => setEditDateCol(e.target.value)}>
                     {dateColumnsForTable.map(c => <option key={c.name} value={c.name}>{c.displayName ?? c.name}</option>)}
                   </select>
@@ -907,7 +907,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
               )}
               {editViewType === 'calendar' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <label className="app-dialog-label" style={{ marginBottom: 0 }}>Event text columns</label>
+                  <label className="app-dialog-label">Event text columns</label>
                   {displayableColsForTable.length === 0 ? (
                     <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>No columns available</div>
                   ) : (

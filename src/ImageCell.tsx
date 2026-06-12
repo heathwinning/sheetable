@@ -30,7 +30,7 @@ function pickAndUploadImage(
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      (showAlert ?? window.alert)('Please select an image file');
+      showAlert?.('Please select an image file');
       return;
     }
 
@@ -40,7 +40,7 @@ function pickAndUploadImage(
       onComplete(key);
     } catch (err) {
       console.error('Image upload failed:', err);
-      (showAlert ?? window.alert)('Failed to upload image');
+      showAlert?.('Failed to upload image');
       onError?.(err);
     }
   });
