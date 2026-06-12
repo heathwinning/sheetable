@@ -72,7 +72,7 @@ export const onRequestPost: PagesFunction<Env, 'bookId', RequestData> = async (c
     for (let i = 0; i < insertStmts.length; i += BATCH_SIZE) {
       await context.env.DB.batch(insertStmts.slice(i, i + BATCH_SIZE));
     }
-  } catch (e) {
+  } catch {
     // Clean up the partially-created table and metadata so the import leaves no orphans
     try {
       await context.env.DB.batch([
