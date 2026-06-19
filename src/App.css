@@ -940,7 +940,7 @@ body {
   /* The inline search input — inherits cell font */
 }
 .ref-editor-dropdown {
-  @apply bg-surface border border-border shadow-lg;
+  @apply bg-surface border border-border shadow-lg overflow-hidden;
   border-radius: 0 0 0.375rem 0.375rem;
 }
 .ref-editor-dropdown-above {

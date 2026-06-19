@@ -145,11 +145,11 @@ export default function RefCellEditor(props: RefCellEditorProps) {
 
   const dropdown = (
     <div
-      ref={listRef}
       className={`ref-editor-dropdown${dropdownAbove ? ' ref-editor-dropdown-above' : ''}`}
       style={dropdownStyle}
       onMouseDown={(e) => { e.preventDefault(); }}
     >
+      <div className="ref-editor-list" ref={listRef}>
       <div
         className={`ref-editor-option ref-editor-clear ${selectedIndex === 0 ? 'selected' : ''}`}
         data-select-index={0}
@@ -179,6 +179,7 @@ export default function RefCellEditor(props: RefCellEditorProps) {
       {filtered.length === 0 && (
         <div className="ref-editor-option" style={{ opacity: 0.5, cursor: 'default' }}>No matches</div>
       )}
+      </div>
     </div>
   );
 
