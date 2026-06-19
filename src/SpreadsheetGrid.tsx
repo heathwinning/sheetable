@@ -189,21 +189,30 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     // so there's comfortable room for the editor and the keyboard below.
     const targetTop = visibleHeight * 0.3;
 
-    // Find the editing cell — AG Grid adds these classes when a cell enters edit mode.
-    const editingCell = gridEl.querySelector(
+    // Find the source cell. Inline editors get .ag-cell-inline-editing.
+    // Popup editors (date, ref, list, bool) don't — look up the cell by
+    // the row-index/col-id stored in editingCellPos.
+    let sourceCell: HTMLElement | null = gridEl.querySelector(
       '.ag-cell-inline-editing, .ag-cell-editing',
     ) as HTMLElement | null;
 
-    if (editingCell) {
-      const cellTop = editingCell.getBoundingClientRect().top;
-      // Only scroll down if the cell is below the target position.
+    if (!sourceCell) {
+      const pos = editingCellPos.current;
+      if (pos) {
+        sourceCell = gridEl.querySelector(
+          `.ag-row[row-index="${pos.rowIndex}"] .ag-cell[col-id="${CSS.escape(pos.colId)}"]`,
+        ) as HTMLElement | null;
+      }
+    }
+
+    if (sourceCell) {
+      const cellTop = sourceCell.getBoundingClientRect().top;
       if (cellTop > targetTop) {
         bodyViewport.scrollTop += cellTop - targetTop;
       }
     }
 
-    // For popup editors (date picker, ref selector, list editor, bool select),
-    // also ensure the popup itself isn't cut off by the keyboard.
+    // For popup editors also ensure the popup itself isn't cut off.
     const popup = document.querySelector('.ag-popup:not(.ag-hidden)') as HTMLElement | null;
     if (popup) {
       const popupBottom = popup.getBoundingClientRect().bottom;

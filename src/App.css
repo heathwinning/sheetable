@@ -544,6 +544,67 @@ body {
   padding: 0;
 }
 
+/* ── Snapshot Preview Modal ── */
+.preview-dialog {
+  max-width: 750px;
+  width: 95vw;
+  max-height: 85vh;
+  overflow: auto;
+}
+.preview-table-card {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  background: var(--color-surface-2);
+  border-radius: 6px;
+}
+.preview-table-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.preview-table-info {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.preview-table-actions {
+  display: flex;
+  gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.preview-table-schema {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preview-grid-wrapper {
+  margin-top: 8px;
+  height: 360px;
+}
+
+@media (max-width: 600px) {
+  .preview-table-header {
+    flex-wrap: wrap;
+  }
+  .preview-table-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .preview-grid-wrapper {
+    height: min(360px, 50vh);
+  }
+  .preview-table-schema {
+    white-space: normal;
+    word-break: break-word;
+  }
+}
+
 .calendar-col-select {
   @apply w-full py-2 px-2.5 text-sm border border-border rounded-md outline-none bg-surface text-text cursor-pointer;
 }
@@ -893,7 +954,122 @@ body {
 /* ============================================================
    Date Cell Editor
    ============================================================ */
-.date-cell-editor { @apply bg-surface rounded-md shadow-lg p-1; }
+.date-cell-editor {
+  @apply bg-surface rounded-md shadow-lg p-1;
+  /* React-datepicker theme overrides — scoped inside our wrapper */
+  --rdp-bg: var(--color-surface);
+  --rdp-header-bg: var(--color-bg);
+  --rdp-text: var(--color-text);
+  --rdp-text-muted: var(--color-text-muted);
+  --rdp-border: var(--color-border);
+  --rdp-primary: var(--color-primary);
+  --rdp-primary-text: #fff;
+  --rdp-day-hover: var(--color-cell-selected);
+  --rdp-today: var(--color-primary);
+  --rdp-outside-month: var(--color-text-muted);
+}
+
+/* ── Main container ── */
+.date-cell-editor .react-datepicker {
+  font-family: inherit;
+  border: none;
+  background: var(--rdp-bg);
+  color: var(--rdp-text);
+  border-radius: 0.5rem;
+}
+
+/* ── Header ── */
+.date-cell-editor .react-datepicker__header {
+  background: var(--rdp-header-bg);
+  border-bottom: 1px solid var(--rdp-border);
+  border-radius: 0.5rem 0.5rem 0 0;
+  padding-top: 6px;
+}
+.date-cell-editor .react-datepicker__current-month {
+  color: var(--rdp-text);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+/* ── Day names row ── */
+.date-cell-editor .react-datepicker__day-name {
+  color: var(--rdp-text-muted);
+  font-size: 0.7rem;
+  width: 1.7rem;
+  line-height: 1.7rem;
+  margin: 0;
+}
+
+/* ── Day cells ── */
+.date-cell-editor .react-datepicker__day {
+  color: var(--rdp-text);
+  width: 1.7rem;
+  line-height: 1.7rem;
+  margin: 0;
+  border-radius: 9999px;
+  font-size: 0.78rem;
+}
+.date-cell-editor .react-datepicker__day:hover {
+  background: var(--rdp-day-hover);
+  color: var(--rdp-text);
+}
+
+/* ── Outside-month days ── */
+.date-cell-editor .react-datepicker__day--outside-month {
+  color: var(--rdp-outside-month);
+}
+
+/* ── Today ── */
+.date-cell-editor .react-datepicker__day--today {
+  font-weight: 700;
+  color: var(--rdp-today);
+  background: transparent;
+}
+
+/* ── Selected day ── */
+.date-cell-editor .react-datepicker__day--selected,
+.date-cell-editor .react-datepicker__day--keyboard-selected {
+  background: var(--rdp-primary);
+  color: var(--rdp-primary-text);
+  font-weight: 600;
+}
+.date-cell-editor .react-datepicker__day--selected:hover,
+.date-cell-editor .react-datepicker__day--keyboard-selected:hover {
+  background: var(--color-primary-hover);
+}
+
+/* ── Navigation arrows ── */
+.date-cell-editor .react-datepicker__navigation {
+  top: 8px;
+}
+.date-cell-editor .react-datepicker__navigation-icon::before {
+  border-color: var(--rdp-text-muted);
+}
+.date-cell-editor .react-datepicker__navigation:hover .react-datepicker__navigation-icon::before {
+  border-color: var(--rdp-text);
+}
+
+/* ── Month / Year dropdown selects ── */
+.date-cell-editor .react-datepicker__month-select,
+.date-cell-editor .react-datepicker__year-select {
+  background: var(--rdp-bg);
+  color: var(--rdp-text);
+  border: 1px solid var(--rdp-border);
+  border-radius: 0.375rem;
+  font-size: 0.78rem;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.date-cell-editor .react-datepicker__month-select:focus,
+.date-cell-editor .react-datepicker__year-select:focus {
+  outline: none;
+  border-color: var(--rdp-primary);
+}
+
+/* ── Week row ── */
+.date-cell-editor .react-datepicker__week {
+  display: flex;
+}
 
 /* AG Grid row class */
 .draft-row { @apply italic; opacity: 0.6; }

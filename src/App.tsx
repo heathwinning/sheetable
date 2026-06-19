@@ -1399,7 +1399,7 @@ const BackupModal: React.FC<{
         {/* Preview Modal (nested) */}
         {previewId && (
           <div className="app-dialog-overlay" onClick={() => { setPreviewId(null); setPreviewData(null); }} style={{ zIndex: 10 }}>
-            <div className="app-dialog" style={{ maxWidth: 750, maxHeight: '85vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div className="app-dialog preview-dialog" onClick={e => e.stopPropagation()}>
               <button className="app-dialog-close" onClick={() => { setPreviewId(null); setPreviewData(null); }}>×</button>
               <h3 style={{ margin: '0 0 12px 0' }}>Snapshot Preview</h3>
               {previewLoading && <div className="book-settings-note">Loading…</div>}
@@ -1409,19 +1409,20 @@ const BackupModal: React.FC<{
                     {previewData.label || 'Unnamed'} · {new Date(previewData.createdAt).toLocaleString()}
                   </div>
                   {previewData.data.tables.map(t => (
-                    <div key={t.name} style={{ marginBottom: 8, padding: '8px 12px', background: 'var(--color-surface-2)', borderRadius: 6 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setExpandedTable(expandedTable === t.name ? null : t.name)}>
-                          <strong>{t.name}</strong>
-                          <span className="text-text-muted" style={{ marginLeft: 8, fontSize: 13 }}>
+                    <div key={t.name} className="preview-table-card">
+                      <div className="preview-table-header">
+                        <div className="preview-table-info" onClick={() => setExpandedTable(expandedTable === t.name ? null : t.name)}>
+                          <strong style={{ display: 'block', marginBottom: 3 }}>{t.name}</strong>
+                          <span className="text-text-muted" style={{ fontSize: 12 }}>
                             {t.rows.length} row{t.rows.length !== 1 ? 's' : ''}
                             {t.schema && ` · ${t.schema.columns.length} column${t.schema.columns.length !== 1 ? 's' : ''}`}
                           </span>
-                          <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--color-primary)' }}>
-                            {expandedTable === t.name ? '▲ collapse' : '▼ expand'}
-                          </span>
+                          <button className="btn-ghost btn-sm" style={{ marginLeft: 6, padding: '0 4px', fontSize: 10, lineHeight: 1 }}
+                            tabIndex={-1} aria-hidden="true">
+                            {expandedTable === t.name ? '▲' : '▼'}
+                          </button>
                         </div>
-                        <div style={{ display: 'flex', gap: 4, marginLeft: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                        <div className="preview-table-actions">
                           <button className="btn-secondary btn-sm"
                             onClick={() => { void doRestoreTable(previewId!, t.name); }}
                             disabled={restoringTable === `${previewId}:${t.name}`}>
@@ -1436,7 +1437,7 @@ const BackupModal: React.FC<{
                         </div>
                       </div>
                       {t.schema && (
-                        <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>
+                        <div className="preview-table-schema">
                           {t.schema.columns.map(c => c.name).join(', ')}
                         </div>
                       )}
@@ -1453,22 +1454,22 @@ const BackupModal: React.FC<{
                           headerName: k === '_rowId' ? 'ID' : k,
                           width: k === '_rowId' ? 220 : 130,
                           suppressSizeToFit: false,
+                          wrapHeaderText: false,
+                          headerTooltip: k,
                         }));
                         return (
-                          <div style={{ marginTop: 8, height: Math.min(t.rows.length, 25) * 28 + 32, maxHeight: 400 }}>
+                          <div className="preview-grid-wrapper">
                             <AgGridReact
                               theme={previewGridTheme}
                               modules={[AllCommunityModule]}
-                              rowData={t.rows.slice(0, 25)}
+                              rowData={t.rows}
                               columnDefs={colDefs}
                               defaultColDef={sharedDefaultColDef}
-                              domLayout="autoHeight"
+                              suppressMovableColumns={true}
+                              pagination={true}
+                              paginationPageSize={50}
+                              domLayout="normal"
                             />
-                            {t.rows.length > 25 && (
-                              <div className="text-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
-                                Showing 25 of {t.rows.length} rows.
-                              </div>
-                            )}
                           </div>
                         );
                       })()}
