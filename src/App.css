@@ -965,11 +965,17 @@ body {
 .ref-editor-option.ref-editor-create { color: var(--color-primary); font-weight: 600; }
 
 /* ============================================================
-   Date Cell Editor
+   Date Cell Editor (inline input + portal date picker)
    ============================================================ */
-.date-cell-editor {
-  @apply bg-surface rounded-md shadow-lg p-1;
-  /* React-datepicker theme overrides — scoped inside our wrapper */
+.date-cell-popover {
+  @apply bg-surface shadow-lg p-1;
+  border-radius: 0 0 0.5rem 0.5rem;
+}
+.date-cell-popover-above {
+  border-radius: 0.5rem 0.5rem 0 0;
+}
+/* React-datepicker theme overrides — scoped inside our wrapper */
+.date-cell-popover {
   --rdp-bg: var(--color-surface);
   --rdp-header-bg: var(--color-bg);
   --rdp-text: var(--color-text);
@@ -981,8 +987,11 @@ body {
   --rdp-today: var(--color-primary);
   --rdp-outside-month: var(--color-text-muted);
 }
+/* Keep old class too for any stale references */
+.date-cell-editor { @apply bg-surface rounded-md shadow-lg p-1; }
 
 /* ── Main container ── */
+.date-cell-popover .react-datepicker,
 .date-cell-editor .react-datepicker {
   font-family: inherit;
   border: none;
@@ -992,6 +1001,7 @@ body {
 }
 
 /* ── Header ── */
+.date-cell-popover .react-datepicker__header,
 .date-cell-editor .react-datepicker__header {
   background: var(--rdp-header-bg);
   border-bottom: 1px solid var(--rdp-border);
@@ -999,6 +1009,9 @@ body {
   padding: 0;
 }
 /* Hide the native header elements we replace with renderCustomHeader */
+.date-cell-popover .react-datepicker__current-month,
+.date-cell-popover .react-datepicker__header__dropdown,
+.date-cell-popover .react-datepicker__navigation,
 .date-cell-editor .react-datepicker__current-month,
 .date-cell-editor .react-datepicker__header__dropdown,
 .date-cell-editor .react-datepicker__navigation {
@@ -1102,6 +1115,7 @@ body {
 }
 
 /* ── Day names row ── */
+.date-cell-popover .react-datepicker__day-name,
 .date-cell-editor .react-datepicker__day-name {
   color: var(--rdp-text-muted);
   font-size: 0.7rem;
@@ -1111,6 +1125,7 @@ body {
 }
 
 /* ── Day cells ── */
+.date-cell-popover .react-datepicker__day,
 .date-cell-editor .react-datepicker__day {
   color: var(--rdp-text);
   width: 1.7rem;
@@ -1119,17 +1134,20 @@ body {
   border-radius: 9999px;
   font-size: 0.78rem;
 }
+.date-cell-popover .react-datepicker__day:hover,
 .date-cell-editor .react-datepicker__day:hover {
   background: var(--rdp-day-hover);
   color: var(--rdp-text);
 }
 
 /* ── Outside-month days ── */
+.date-cell-popover .react-datepicker__day--outside-month,
 .date-cell-editor .react-datepicker__day--outside-month {
   color: var(--rdp-outside-month);
 }
 
 /* ── Today ── */
+.date-cell-popover .react-datepicker__day--today,
 .date-cell-editor .react-datepicker__day--today {
   font-weight: 700;
   color: var(--rdp-today);
@@ -1137,18 +1155,23 @@ body {
 }
 
 /* ── Selected day ── */
+.date-cell-popover .react-datepicker__day--selected,
+.date-cell-popover .react-datepicker__day--keyboard-selected,
 .date-cell-editor .react-datepicker__day--selected,
 .date-cell-editor .react-datepicker__day--keyboard-selected {
   background: var(--rdp-primary);
   color: var(--rdp-primary-text);
   font-weight: 600;
 }
+.date-cell-popover .react-datepicker__day--selected:hover,
+.date-cell-popover .react-datepicker__day--keyboard-selected:hover,
 .date-cell-editor .react-datepicker__day--selected:hover,
 .date-cell-editor .react-datepicker__day--keyboard-selected:hover {
   background: var(--color-primary-hover);
 }
 
 /* ── Week row ── */
+.date-cell-popover .react-datepicker__week,
 .date-cell-editor .react-datepicker__week {
   display: flex;
 }

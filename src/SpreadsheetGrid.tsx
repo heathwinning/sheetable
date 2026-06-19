@@ -196,7 +196,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   const startPopupObserver = useCallback(() => {
     popupObserver.current?.disconnect();
     const obs = new MutationObserver(() => {
-      const popup = document.querySelector('.ag-popup:not(.ag-hidden), .ref-editor-dropdown');
+      const popup = document.querySelector('.ag-popup:not(.ag-hidden), .ref-editor-dropdown, .date-cell-popover');
       if (popup) {
         obs.disconnect();
         requestAnimationFrame(() => {
@@ -723,11 +723,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         };
       }
 
-      // Date columns: react-datepicker popup
+      // Date columns: inline editor with portal date picker
       if (col.type === 'date' || col.type === 'datetime') {
         def.cellEditor = DateCellEditor;
-        def.cellEditorPopup = true;
-        def.cellEditorPopupPosition = 'under';
       }
 
       // Truncate mode: fixed display width, ellipsis for overflow (AG Grid default cell behaviour)

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import type { CustomCellEditorProps } from 'ag-grid-react';
 import DatePicker from 'react-datepicker';
 import type { ReactDatePickerCustomHeaderProps } from 'react-datepicker';
@@ -132,26 +133,133 @@ function CustomHeader({
   );
 }
 
-// ── DateCellEditor ─────────────────────────────────────────────────────────
+// ── DateCellEditor (inline text + portal DatePicker) ──────────────────────
 
 export default function DateCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorProps) {
   const [selectedDate, setSelectedDate] = useState<Date | null>(parseDate(value ?? ''));
+  const [text, setText] = useState(() => {
+    const d = parseDate(value ?? '');
+    return d ? formatDate(d) : (value ?? '');
+  });
+  const inputRef = useRef<HTMLInputElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
-  return (
-    <div className="date-cell-editor ag-custom-component-popup">
+  // Portal position (above / below the cell)
+  const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties>({});
+  const [popoverAbove, setPopoverAbove] = useState(false);
+
+  const updatePopoverPos = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const vv = window.visualViewport;
+    const viewH = vv ? vv.height : window.innerHeight;
+    // The inline date picker is ~300px tall
+    const pickerH = 310;
+    const belowRoom = viewH - rect.bottom;
+    const showAbove = belowRoom < pickerH + 8;
+
+    setPopoverAbove(showAbove);
+    setPopoverStyle({
+      position: 'fixed',
+      left: Math.min(rect.left, window.innerWidth - 320),
+      ...(showAbove
+        ? { bottom: window.innerHeight - rect.top }
+        : { top: rect.bottom }),
+      zIndex: 9999,
+    });
+  }, []);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    updatePopoverPos();
+    const onScroll = () => updatePopoverPos();
+    const vp = document.querySelector('.ag-body-viewport');
+    vp?.addEventListener('scroll', onScroll);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      vp?.removeEventListener('scroll', onScroll);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [updatePopoverPos]);
+
+  const commitText = useCallback(() => {
+    const d = parseDate(text);
+    if (d) {
+      const formatted = formatDate(d);
+      log('DateCellEditor typed:', formatted);
+      onValueChange(formatted);
+      setSelectedDate(d);
+      setText(formatted);
+      // Don't stop editing — let the user keep typing or pick from calendar
+    }
+  }, [text, onValueChange]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitText();
+      stopEditing();
+    } else if (e.key === 'Escape') {
+      stopEditing();
+    }
+  };
+
+  const handlePick = (date: Date | null) => {
+    setSelectedDate(date);
+    const formatted = formatDate(date);
+    log('DateCellEditor picked:', formatted);
+    onValueChange(formatted);
+    setText(formatted);
+    setTimeout(() => stopEditing(), 0);
+  };
+
+  const popover = (
+    <div
+      ref={popoverRef}
+      className={`date-cell-popover${popoverAbove ? ' date-cell-popover-above' : ''}`}
+      style={popoverStyle}
+      onMouseDown={(e) => { e.preventDefault(); }}
+    >
       <DatePicker
         selected={selectedDate}
-        onChange={(date: Date | null) => {
-          setSelectedDate(date);
-          const formatted = formatDate(date);
-          log('DateCellEditor selected:', formatted);
-          onValueChange(formatted);
-          setTimeout(() => stopEditing(), 0);
-        }}
+        onChange={handlePick}
         dateFormat="yyyy/MM/dd"
         inline
         renderCustomHeader={CustomHeader}
       />
+    </div>
+  );
+
+  return (
+    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center' }}>
+      <input
+        ref={inputRef}
+        type="text"
+        value={text}
+        onChange={e => { setText(e.target.value); setSelectedDate(parseDate(e.target.value)); }}
+        onBlur={() => {
+          commitText();
+          // Delay stopEditing so clicks on the date picker can register first
+          setTimeout(() => stopEditing(), 150);
+        }}
+        onKeyDown={handleKeyDown}
+        placeholder="yyyy/MM/dd"
+        style={{
+          width: '100%',
+          height: '100%',
+          border: 'none',
+          outline: 'none',
+          background: 'transparent',
+          fontSize: 'inherit',
+          fontFamily: 'inherit',
+          padding: '0 4px',
+          boxSizing: 'border-box',
+        }}
+      />
+      {createPortal(popover, document.body)}
     </div>
   );
 }
