@@ -24,17 +24,29 @@ export default function RefCellEditor(props: RefCellEditorProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Dropdown position (portal-rendered, attached below the cell input)
+  // Dropdown position (portal-rendered, anchored to the cell input).
+  // Shows below the cell unless there isn't enough room, then shows above.
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
+  const [dropdownAbove, setDropdownAbove] = useState(false);
   const updateDropdownPos = useCallback(() => {
     const el = inputRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
+    const vv = window.visualViewport;
+    const viewH = vv ? vv.height : window.innerHeight;
+    const maxDropdownH = 240; // matches .ref-editor-list max-h-60
+    const belowRoom = viewH - rect.bottom;
+    const showAbove = belowRoom < maxDropdownH + 16;
+
+    setDropdownAbove(showAbove);
     setDropdownStyle({
       position: 'fixed',
       left: rect.left,
-      top: rect.bottom,
+      ...(showAbove
+        ? { bottom: window.innerHeight - rect.top }
+        : { top: rect.bottom }),
       minWidth: Math.max(rect.width, 200),
+      maxHeight: showAbove ? Math.min(maxDropdownH, rect.top - 8) : Math.min(maxDropdownH, belowRoom - 8),
       zIndex: 9999,
     });
   }, []);
@@ -134,7 +146,7 @@ export default function RefCellEditor(props: RefCellEditorProps) {
   const dropdown = (
     <div
       ref={listRef}
-      className="ref-editor-dropdown"
+      className={`ref-editor-dropdown${dropdownAbove ? ' ref-editor-dropdown-above' : ''}`}
       style={dropdownStyle}
       onMouseDown={(e) => { e.preventDefault(); }}
     >

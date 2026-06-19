@@ -940,18 +940,24 @@ body {
   /* The inline search input — inherits cell font */
 }
 .ref-editor-dropdown {
-  @apply bg-surface border border-border rounded-md shadow-lg;
+  @apply bg-surface border border-border shadow-lg;
+  border-radius: 0 0 0.375rem 0.375rem;
+}
+.ref-editor-dropdown-above {
+  border-radius: 0.375rem 0.375rem 0 0;
 }
 .ref-editor-list { @apply overflow-y-auto max-h-60; }
 .ref-editor-option {
   @apply py-1.5 px-2.5 cursor-pointer text-[13px] text-text whitespace-nowrap
          overflow-hidden text-ellipsis;
 }
-.ref-editor-option:first-child {
-  border-radius: 0.375rem 0.375rem 0 0;
-}
-.ref-editor-option:last-child {
+/* Below: last option inherits the dropdown's bottom rounding */
+.ref-editor-dropdown:not(.ref-editor-dropdown-above) .ref-editor-option:last-child {
   border-radius: 0 0 0.375rem 0.375rem;
+}
+/* Above: first option inherits the dropdown's top rounding */
+.ref-editor-dropdown-above .ref-editor-option:first-child {
+  border-radius: 0.375rem 0.375rem 0 0;
 }
 .ref-editor-option:hover, .ref-editor-option.selected { @apply bg-cell-selected; }
 .ref-editor-option.current { border-left: 3px solid var(--ref-color); }
