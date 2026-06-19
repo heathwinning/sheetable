@@ -174,11 +174,54 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     onCellSelectionStats?.(null);
   }, [onCellSelectionStats]);
 
+  // ── Mobile keyboard avoidance helpers ────────────────────────────────────
+  const editingCellPos = useRef<{ rowIndex: number; colId: string } | null>(null);
+
+  const scrollEditingCellIntoView = useCallback(() => {
+    const gridEl = gridWrapperRef.current;
+    if (!gridEl) return;
+    const bodyViewport = gridEl.querySelector('.ag-body-viewport') as HTMLElement | null;
+    if (!bodyViewport) return;
+    const vv = window.visualViewport;
+    const visibleBottom = vv ? vv.height : window.innerHeight;
+
+    // Check for open popup editors (date picker, ref selector, list editor, bool select)
+    const popup = document.querySelector('.ag-popup:not(.ag-hidden)') as HTMLElement | null;
+    if (popup) {
+      const popupBottom = popup.getBoundingClientRect().bottom;
+      if (popupBottom > visibleBottom - 8) {
+        bodyViewport.scrollTop += (popupBottom - visibleBottom + 24);
+      }
+      return;
+    }
+
+    // Check for inline cell editor (text/number cells)
+    const inlineEdit = gridEl.querySelector('.ag-cell-inline-editing') as HTMLElement | null;
+    if (inlineEdit) {
+      const cellBottom = inlineEdit.getBoundingClientRect().bottom;
+      if (cellBottom > visibleBottom - 8) {
+        bodyViewport.scrollTop += (cellBottom - visibleBottom + 16);
+      }
+    }
+  }, []);
+
   const onCellEditingStarted = useCallback((event: CellEditingStartedEvent) => {
     if (selectModeRef.current) {
       event.api.stopEditing(true);
+      return;
     }
-  }, []);
+    // Store cell position for keyboard avoidance
+    const colId = event.column.getColId();
+    const rowIndex = event.node.rowIndex;
+    if (rowIndex !== null) {
+      editingCellPos.current = { rowIndex, colId };
+    }
+    // Delayed checks: some mobile keyboards animate in over 300-500ms.
+    // Scroll the editor into view after the keyboard has settled.
+    [200, 450].forEach(delay => {
+      setTimeout(() => scrollEditingCellIntoView(), delay);
+    });
+  }, [scrollEditingCellIntoView]);
 
   const onDisplayedColumnsChanged = useCallback((_event: DisplayedColumnsChangedEvent) => {
     updateColOrder();
@@ -930,6 +973,29 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       el.removeEventListener('pointerup', onPointerUp);
     };
   }, [clearCellSelection, onCellSelectionStats]);
+
+  // ── Mobile keyboard avoidance continued ──────────────────────────────────
+  // Listen to visualViewport resize events (fires when mobile keyboard appears/disappears)
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    let prevHeight = vv.height;
+    const KEYBOARD_THRESHOLD = 100;
+
+    const onViewportResize = () => {
+      const heightDiff = prevHeight - vv.height;
+      prevHeight = vv.height;
+      if (heightDiff > KEYBOARD_THRESHOLD) {
+        // Keyboard just opened — scroll editor into view
+        requestAnimationFrame(() => {
+          scrollEditingCellIntoView();
+        });
+      }
+    };
+
+    vv.addEventListener('resize', onViewportResize);
+    return () => vv.removeEventListener('resize', onViewportResize);
+  }, [scrollEditingCellIntoView]);
 
   return (
     <div className="spreadsheet-container" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>

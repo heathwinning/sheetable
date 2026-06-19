@@ -1,0 +1,12 @@
+name = "sheetable-cron"
+main = "index.ts"
+compatibility_date = "2024-12-01"
+
+# Cron trigger — runs every hour, the endpoint itself checks which books are due
+[triggers]
+crons = ["0 * * * *"]
+
+[vars]
+PAGES_URL = "https://sheetable.pages.dev"
+
+# Set via: npx wrangler secret put CRON_SECRET --config cron-worker/wrangler.toml

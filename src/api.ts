@@ -343,6 +343,119 @@ export function imageUrl(bookId: string, key: string): string {
   return `${BASE}/books/${bookId}/images/${encodeURIComponent(key)}`;
 }
 
+// ---- Export / Backup ----
+
+export interface ExportPayload {
+  version: number;
+  exportedAt: string;
+  bookName: string;
+  tables: {
+    name: string;
+    schema: {
+      columns: {
+        name: string;
+        displayName?: string;
+        type: string;
+        width?: number;
+        refTable?: string;
+        refDisplayColumns?: string[];
+        refSearchColumns?: string[];
+        expression?: string;
+        showInGrid?: boolean;
+        listOf?: string;
+      }[];
+      uniqueKeys: string[];
+      defaultSort?: { column: string; direction: string }[];
+      draftRowPosition?: string;
+    } | null;
+    rows: (Record<string, string> & { _resolved: Record<string, string> })[];
+  }[];
+  views: { name: string; tableName: string; viewType: string; dateColumn?: string }[];
+  charts: { name: string; tableName?: string; mode?: string; charts?: unknown }[];
+}
+
+export async function exportBook(bookId: string): Promise<ExportPayload> {
+  return request(`/books/${bookId}/export`);
+}
+
+export async function importBook(data: ExportPayload): Promise<{ bookId: string; bookName: string; tableCount: number; rowCount: number; viewCount: number; chartCount: number }> {
+  return request('/backup/restore', { method: 'POST', body: JSON.stringify(data) });
+}
+
+// ---- Snapshots ----
+
+export interface SnapshotMeta {
+  id: string;
+  bookId: string;
+  label: string | null;
+  createdAt: string;
+  tableCount: number;
+  rowCount: number;
+  viewCount: number;
+  chartCount: number;
+}
+
+export interface SnapshotDetail extends SnapshotMeta {
+  data: ExportPayload;
+}
+
+export async function listSnapshots(bookId: string): Promise<SnapshotMeta[]> {
+  return request(`/books/${bookId}/snapshots`);
+}
+
+export async function createSnapshot(bookId: string, label?: string): Promise<SnapshotMeta> {
+  return request(`/books/${bookId}/snapshots`, {
+    method: 'POST',
+    body: JSON.stringify({ label }),
+  });
+}
+
+export async function getSnapshot(bookId: string, snapshotId: string): Promise<SnapshotDetail> {
+  return request(`/books/${bookId}/snapshots/${encodeURIComponent(snapshotId)}`);
+}
+
+export async function deleteSnapshot(bookId: string, snapshotId: string): Promise<void> {
+  await request(`/books/${bookId}/snapshots/${encodeURIComponent(snapshotId)}`, { method: 'DELETE' });
+}
+
+export async function restoreSnapshot(bookId: string, snapshotId: string): Promise<{ bookId: string; bookName: string; tableCount: number; rowCount: number; viewCount: number; chartCount: number }> {
+  return request(`/books/${bookId}/snapshots/${encodeURIComponent(snapshotId)}/restore`, { method: 'POST' });
+}
+
+export async function restoreSnapshotTable(bookId: string, snapshotId: string, tableName: string, replace?: boolean): Promise<{ tableName: string; rowCount: number; replaced?: boolean }> {
+  return request(`/books/${bookId}/snapshots/${encodeURIComponent(snapshotId)}/restore-table`, {
+    method: 'POST',
+    body: JSON.stringify({ tableName, replace }),
+  });
+}
+
+export async function swapRestoredTable(bookId: string, restoredName: string): Promise<{ originalName: string; newName: string; oldName: string }> {
+  return request(`/books/${bookId}/swap-restored`, {
+    method: 'POST',
+    body: JSON.stringify({ restoredName }),
+  });
+}
+
+// ---- Snapshot Schedule ----
+
+export interface SnapshotSchedule {
+  enabled: boolean;
+  intervalDays: number;
+  nextRunAt: string | null;
+  updatedAt: string | null;
+}
+
+export async function getSnapshotSchedule(bookId: string): Promise<SnapshotSchedule> {
+  return request(`/books/${bookId}/snapshot-schedule`);
+}
+
+export async function updateSnapshotSchedule(bookId: string, updates: Partial<SnapshotSchedule>): Promise<SnapshotSchedule> {
+  return request(`/books/${bookId}/snapshot-schedule`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+}
+
 // ---- Import ----
 
 export async function importCsv(bookId: string, tableName: string, csvText: string): Promise<{ name: string; rowCount: number }> {

@@ -6,6 +6,7 @@ export interface Env {
   GOOGLE_API_KEY: string;
   SESSION_SECRET: string;
   DEV_LOGIN_KEY: string;
+  CRON_SECRET?: string;
 }
 
 export interface SessionUser {

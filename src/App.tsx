@@ -14,6 +14,7 @@ import * as api from './api';
 import type { UseAppStateReturn } from './useAppState';
 import type { BookMember, BookInvite, Row, TableSchema } from './types';
 import { INTERNAL_ROW_ID } from './types';
+import { sharedDefaultColDef } from './gridDefaults';
 import { CalendarView } from './CalendarView';
 import { RecordCard } from './RecordCard';
 import './App.css';
@@ -1033,6 +1034,7 @@ const SheetTypeBadge: React.FC<{ value: SheetOrderItem['type'] }> = ({ value }) 
 );
 
 const sheetOrderTheme = themeQuartz.withParams({ rowHeight: 32, fontSize: 13, spacing: 4 });
+const previewGridTheme = themeQuartz.withParams({ rowHeight: 28, fontSize: 12, spacing: 4, cellHorizontalPaddingScale: 0.5 });
 
 const SheetOrderGrid: React.FC<{
   sheets: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[];
@@ -1110,6 +1112,320 @@ const SheetOrderGrid: React.FC<{
   );
 };
 
+// --- Backup Modal ---
+
+const BackupModal: React.FC<{
+  bookId: string;
+  onRestored: (newBookName: string) => void;
+  onTableRestored: () => void;
+  onClose: () => void;
+}> = ({ bookId, onRestored, onTableRestored, onClose }) => {
+  const alertDialog = useAlert();
+
+  // Schedule state
+  const [schedule, setSchedule] = useState<api.SnapshotSchedule>({ enabled: false, intervalDays: 1, nextRunAt: null, updatedAt: null });
+  const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+
+  useEffect(() => {
+    api.getSnapshotSchedule(bookId).then(setSchedule).catch(() => {}).finally(() => setScheduleLoading(false));
+  }, [bookId]);
+
+  const saveSchedule = async (updates: Partial<api.SnapshotSchedule>) => {
+    setScheduleSaving(true);
+    try {
+      const result = await api.updateSnapshotSchedule(bookId, updates);
+      setSchedule(result);
+    } catch (err) {
+      void alertDialog(`Failed to save schedule: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setScheduleSaving(false);
+    }
+  };
+
+  const doExport = async () => {
+    try {
+      const data = await api.exportBook(bookId);
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${data.bookName.replace(/[^a-zA-Z0-9_-]/g, '_')}-export-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      void alertDialog(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const nextRunLabel = schedule.nextRunAt
+    ? new Date(schedule.nextRunAt).toLocaleString()
+    : 'Not scheduled';
+
+  // Snapshot list state
+  const [snapshots, setSnapshots] = useState<api.SnapshotMeta[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [restoring, setRestoring] = useState<string | null>(null);
+
+  // Preview state
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<api.SnapshotDetail | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [restoringTable, setRestoringTable] = useState<string | null>(null);
+  const [expandedTable, setExpandedTable] = useState<string | null>(null);
+
+  const loadSnapshots = useCallback(async () => {
+    try { setSnapshots(await api.listSnapshots(bookId)); } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, [bookId]);
+
+  useEffect(() => { void loadSnapshots(); }, [loadSnapshots]);
+
+  const doCreate = async () => {
+    setCreating(true);
+    try { await api.createSnapshot(bookId, `Snapshot ${new Date().toLocaleDateString()}`); await loadSnapshots(); }
+    catch (err) { void alertDialog(`Failed: ${err instanceof Error ? err.message : String(err)}`); }
+    finally { setCreating(false); }
+  };
+
+  const doRestore = async (snapshotId: string) => {
+    setRestoring(snapshotId);
+    try { const r = await api.restoreSnapshot(bookId, snapshotId); onRestored(r.bookName); }
+    catch (err) { void alertDialog(`Restore failed: ${err instanceof Error ? err.message : String(err)}`); }
+    finally { setRestoring(null); }
+  };
+
+  const doRestoreFile = async () => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.json';
+    input.onchange = async () => {
+      const file = input.files?.[0]; if (!file) return;
+      try {
+        const data = JSON.parse(await file.text()) as api.ExportPayload;
+        if (!data.version || !data.bookName || !data.tables) { void alertDialog('Invalid backup file.'); return; }
+        const r = await api.importBook(data);
+        onRestored(r.bookName);
+      } catch (err) { void alertDialog(`Restore failed: ${err instanceof Error ? err.message : String(err)}`); }
+    };
+    input.click();
+  };
+
+  const doDelete = async (snapshotId: string) => {
+    try { await api.deleteSnapshot(bookId, snapshotId); await loadSnapshots(); }
+    catch (err) { void alertDialog(`Delete failed: ${err instanceof Error ? err.message : String(err)}`); }
+  };
+
+  const doPreview = async (snapshotId: string) => {
+    setPreviewId(snapshotId); setPreviewLoading(true); setExpandedTable(null);
+    try { setPreviewData(await api.getSnapshot(bookId, snapshotId)); }
+    catch (err) { void alertDialog(`Preview failed: ${err instanceof Error ? err.message : String(err)}`); setPreviewId(null); }
+    finally { setPreviewLoading(false); }
+  };
+
+  const doRestoreTable = async (snapshotId: string, tableName: string, replace = false) => {
+    setRestoringTable(`${snapshotId}:${tableName}`);
+    try { await api.restoreSnapshotTable(bookId, snapshotId, tableName, replace); onTableRestored(); }
+    catch (err) { void alertDialog(`Restore table failed: ${err instanceof Error ? err.message : String(err)}`); }
+    finally { setRestoringTable(null); }
+  };
+
+  return (
+    <div className="app-dialog-overlay" onClick={onClose}>
+      <div className="app-dialog" style={{ maxWidth: 700, maxHeight: '85vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+        <button className="app-dialog-close" onClick={onClose}>×</button>
+        <h3 style={{ margin: '0 0 16px 0' }}>Backups</h3>
+
+        {/* ── Snapshots ── */}
+        <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--color-surface-2)', borderRadius: 8 }}>
+          <label className="app-dialog-label" style={{ marginBottom: 0 }}>Snapshots</label>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <button className="btn-primary" onClick={doCreate} disabled={creating}>
+              {creating ? 'Creating…' : 'Create Snapshot'}
+            </button>
+            <button className="btn-secondary" onClick={doExport}>
+              Download JSON
+            </button>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            {loading && <div className="book-settings-note">Loading snapshots…</div>}
+            {!loading && snapshots.length === 0 && <div className="book-settings-note">No snapshots yet.</div>}
+            {snapshots.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {snapshots.map(s => (
+              <div key={s.id} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 14px', borderRadius: 8,
+                border: '1px solid var(--color-border)',
+                background: 'var(--color-surface)',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 3 }}>
+                    {s.label || 'Unnamed snapshot'}
+                  </div>
+                  <div className="text-text-muted" style={{ fontSize: 12 }}>
+                    {new Date(s.createdAt).toLocaleString()} · {s.tableCount} table{s.tableCount !== 1 ? 's' : ''} · {s.rowCount} row{s.rowCount !== 1 ? 's' : ''}
+                    {s.viewCount > 0 && ` · ${s.viewCount} view${s.viewCount !== 1 ? 's' : ''}`}
+                    {s.chartCount > 0 && ` · ${s.chartCount} chart${s.chartCount !== 1 ? 's' : ''}`}
+                  </div>
+                </div>
+                <span style={{ display: 'flex', gap: 4, whiteSpace: 'nowrap', flexShrink: 0, marginLeft: 12 }}>
+                  <button className="btn-secondary btn-sm" onClick={() => { void doPreview(s.id); }}>Preview</button>
+                  <button className="btn-secondary btn-sm" onClick={() => { void doRestore(s.id); }} disabled={restoring === s.id}>
+                    {restoring === s.id ? 'Restoring…' : 'Restore'}
+                  </button>
+                  <button className="btn-ghost btn-sm" onClick={() => { void doDelete(s.id); }}>Delete</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+          </div>
+        </div>
+
+        {/* ── Restore ── */}
+        <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--color-surface-2)', borderRadius: 8 }}>
+          <label className="app-dialog-label" style={{ marginBottom: 0 }}>Restore</label>
+          <div style={{ marginTop: 8 }}>
+            <button className="btn-secondary" onClick={doRestoreFile}>
+              Restore from File
+            </button>
+            <span className="text-text-muted" style={{ marginLeft: 12, fontSize: 12 }}>
+              Upload a previously exported JSON backup to create a new book.
+            </span>
+          </div>
+        </div>
+
+        {/* ── Schedule ── */}
+        <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--color-surface-2)', borderRadius: 8 }}>
+          <label className="app-dialog-label" style={{ marginBottom: 0 }}>Auto-Snapshot Schedule</label>
+          {scheduleLoading ? <div className="book-settings-note">Loading…</div> : (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={schedule.enabled}
+                    onChange={e => { void saveSchedule({ enabled: e.target.checked }); }} disabled={scheduleSaving} />
+                  Enabled
+                </label>
+                {scheduleSaving && <span className="book-settings-note">Saving…</span>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                <label className="app-dialog-label" style={{ marginBottom: 0, fontSize: 13 }}>Every</label>
+                <input className="app-dialog-input" type="number" min={1} max={365} value={schedule.intervalDays}
+                  onChange={e => setSchedule({ ...schedule, intervalDays: Math.max(1, Math.min(365, Number(e.target.value) || 1)) })}
+                  onBlur={() => { void saveSchedule({ intervalDays: schedule.intervalDays }); }}
+                  style={{ width: 60, marginBottom: 0 }} />
+                <span className="text-text-muted" style={{ fontSize: 12 }}>days</span>
+              </div>
+              <div className="book-settings-note" style={{ marginTop: 6 }}>
+                {schedule.enabled ? `Next: ${nextRunLabel}` : 'Enable to auto-create snapshots.'}<br />
+                Retention: last 30 daily, 12 monthly, annual unlimited.
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Preview Modal (nested) */}
+        {previewId && (
+          <div className="app-dialog-overlay" onClick={() => { setPreviewId(null); setPreviewData(null); }} style={{ zIndex: 10 }}>
+            <div className="app-dialog" style={{ maxWidth: 750, maxHeight: '85vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+              <button className="app-dialog-close" onClick={() => { setPreviewId(null); setPreviewData(null); }}>×</button>
+              <h3 style={{ margin: '0 0 12px 0' }}>Snapshot Preview</h3>
+              {previewLoading && <div className="book-settings-note">Loading…</div>}
+              {previewData && (
+                <div>
+                  <div className="text-text-muted" style={{ marginBottom: 12, fontSize: 13 }}>
+                    {previewData.label || 'Unnamed'} · {new Date(previewData.createdAt).toLocaleString()}
+                  </div>
+                  {previewData.data.tables.map(t => (
+                    <div key={t.name} style={{ marginBottom: 8, padding: '8px 12px', background: 'var(--color-surface-2)', borderRadius: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setExpandedTable(expandedTable === t.name ? null : t.name)}>
+                          <strong>{t.name}</strong>
+                          <span className="text-text-muted" style={{ marginLeft: 8, fontSize: 13 }}>
+                            {t.rows.length} row{t.rows.length !== 1 ? 's' : ''}
+                            {t.schema && ` · ${t.schema.columns.length} column${t.schema.columns.length !== 1 ? 's' : ''}`}
+                          </span>
+                          <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--color-primary)' }}>
+                            {expandedTable === t.name ? '▲ collapse' : '▼ expand'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 4, marginLeft: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                          <button className="btn-secondary btn-sm"
+                            onClick={() => { void doRestoreTable(previewId!, t.name); }}
+                            disabled={restoringTable === `${previewId}:${t.name}`}>
+                            {restoringTable === `${previewId}:${t.name}` ? 'Restoring…' : 'Restore'}
+                          </button>
+                          <button className="btn-secondary btn-sm"
+                            onClick={() => { void doRestoreTable(previewId!, t.name, true); }}
+                            disabled={restoringTable === `${previewId}:${t.name}`}
+                            title="Swap this restored table in place of the original. All referencing columns update automatically.">
+                            {restoringTable === `${previewId}:${t.name}` ? 'Restoring…' : 'Replace'}
+                          </button>
+                        </div>
+                      </div>
+                      {t.schema && (
+                        <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>
+                          {t.schema.columns.map(c => c.name).join(', ')}
+                        </div>
+                      )}
+                      {expandedTable === t.name && (
+                        <div className="book-settings-note" style={{ marginTop: 6, fontSize: 12 }}>
+                          Tip: Restore first to inspect, then Replace to swap it in.
+                        </div>
+                      )}
+                      {/* Expanded row view */}
+                      {expandedTable === t.name && t.rows.length > 0 && (() => {
+                        const colKeys = Object.keys(t.rows[0]).filter(k => k !== '_resolved');
+                        const colDefs: ColDef[] = colKeys.map(k => ({
+                          field: k,
+                          headerName: k === '_rowId' ? 'ID' : k,
+                          width: k === '_rowId' ? 220 : 130,
+                          suppressSizeToFit: false,
+                        }));
+                        return (
+                          <div style={{ marginTop: 8, height: Math.min(t.rows.length, 25) * 28 + 32, maxHeight: 400 }}>
+                            <AgGridReact
+                              theme={previewGridTheme}
+                              modules={[AllCommunityModule]}
+                              rowData={t.rows.slice(0, 25)}
+                              columnDefs={colDefs}
+                              defaultColDef={sharedDefaultColDef}
+                              domLayout="autoHeight"
+                            />
+                            {t.rows.length > 25 && (
+                              <div className="text-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+                                Showing 25 of {t.rows.length} rows.
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ))}
+                  {previewData.data.views.length > 0 && (
+                    <div style={{ marginTop: 12, fontSize: 13 }}>
+                      <strong>Views:</strong> {previewData.data.views.map(v => `${v.name} (${v.viewType})`).join(', ')}
+                    </div>
+                  )}
+                  {previewData.data.charts.length > 0 && (
+                    <div style={{ marginTop: 4, fontSize: 13 }}>
+                      <strong>Charts:</strong> {previewData.data.charts.map(c => c.name).join(', ')}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolean }> = ({ state, createMode = false }) => {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
@@ -1141,6 +1457,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
   const [members, setMembers] = useState<BookMember[]>([]);
   const [invites, setInvites] = useState<BookInvite[]>([]);
   const [status, setStatus] = useState<string | null>(null);
+  const [backupOpen, setBackupOpen] = useState(false);
 
   useEffect(() => {
     if (createMode) {
@@ -1423,6 +1740,30 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
           </div>
         )}
 
+        {!createMode && currentBook && (
+          <div className="book-settings-section">
+            <label className="book-settings-label">Backups</label>
+            <div className="book-settings-row">
+              <button className="btn-secondary" onClick={() => setBackupOpen(true)}>
+                Manage Backups
+              </button>
+            </div>
+            {backupOpen && (
+              <BackupModal
+                bookId={currentBook.id}
+                onRestored={(newBookName) => {
+                  setBackupOpen(false);
+                  void state.refreshBooks().then(() => {
+                    navigate(`/book/${encodeURIComponent(newBookName)}`);
+                  });
+                }}
+                onTableRestored={() => { void state.refreshBooks(); }}
+                onClose={() => setBackupOpen(false)}
+              />
+            )}
+          </div>
+        )}
+
         {!createMode && currentBook && isOwner && (
           <div className="book-settings-section">
             <label className="book-settings-label">Danger Zone</label>
@@ -1535,6 +1876,7 @@ const App: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const confirm = useConfirm();
+  const alertDialog = useAlert();
 
   // Sync AG Grid dark mode with system preference
   useEffect(() => {
@@ -1870,6 +2212,25 @@ const App: React.FC = () => {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 <span className="header-action-label">Export</span>
               </button>
+              {canEdit && /\(restored from .+\)$/.test(headerTableId) && (
+                <button
+                  className="header-action-btn"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        await api.swapRestoredTable(headerBookId!, headerTableId);
+                        await state.refreshBooks();
+                      } catch (err) {
+                        void alertDialog(`Replace failed: ${err instanceof Error ? err.message : String(err)}`);
+                      }
+                    })();
+                  }}
+                  title="Swap this restored table in place of the original"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+                  <span className="header-action-label">Replace Original</span>
+                </button>
+              )}
               {canEdit && (
                 <Link
                   className="header-action-btn"

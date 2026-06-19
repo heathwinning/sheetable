@@ -1,0 +1,17 @@
+# Directories (trailing slash required)
+.git/
+node_modules/
+venv/
+__pycache__/
+.brain/
+dist/
+build/
+tmp/
+
+# File/Folder patterns
+**/test/
+**/tests/
+.env
+*.log
+*.lock
+*.pyc
