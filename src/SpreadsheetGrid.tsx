@@ -185,41 +185,57 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     const vv = window.visualViewport;
     const visibleHeight = vv ? vv.height : window.innerHeight;
 
-    // Target: position the editing cell at ~30% from the top of the visible area
-    // so there's comfortable room for the editor and the keyboard below.
+    // Position the editing cell at ~30% from the top of the visible area.
     const targetTop = visibleHeight * 0.3;
 
-    // Find the source cell. Inline editors get .ag-cell-inline-editing.
-    // Popup editors (date, ref, list, bool) don't — look up the cell by
-    // the row-index/col-id stored in editingCellPos.
-    let sourceCell: HTMLElement | null = gridEl.querySelector(
-      '.ag-cell-inline-editing, .ag-cell-editing',
-    ) as HTMLElement | null;
-
-    if (!sourceCell) {
-      const pos = editingCellPos.current;
-      if (pos) {
-        sourceCell = gridEl.querySelector(
-          `.ag-row[row-index="${pos.rowIndex}"] .ag-cell[col-id="${CSS.escape(pos.colId)}"]`,
-        ) as HTMLElement | null;
-      }
-    }
-
-    if (sourceCell) {
-      const cellTop = sourceCell.getBoundingClientRect().top;
+    // ── Inline editors (text, number) ──────────────────────────────────────
+    const inlineCell = gridEl.querySelector('.ag-cell-inline-editing') as HTMLElement | null;
+    if (inlineCell) {
+      const cellTop = inlineCell.getBoundingClientRect().top;
       if (cellTop > targetTop) {
         bodyViewport.scrollTop += cellTop - targetTop;
       }
+      return;
     }
 
-    // For popup editors also ensure the popup itself isn't cut off.
-    const popup = document.querySelector('.ag-popup:not(.ag-hidden)') as HTMLElement | null;
-    if (popup) {
-      const popupBottom = popup.getBoundingClientRect().bottom;
-      if (popupBottom > visibleHeight - 8) {
-        bodyViewport.scrollTop += popupBottom - visibleHeight + 24;
+    // ── Popup editors (date, ref, list, bool) ──────────────────────────────
+    const pos = editingCellPos.current;
+    const api = gridRef.current?.api;
+    if (!pos || !api) return;
+
+    // Find the source cell. Visible rows are in the DOM; virtualised rows
+    // need ensureIndexVisible to force-render them first.
+    const cellSel = `.ag-row[row-index="${pos.rowIndex}"] .ag-cell[col-id="${CSS.escape(pos.colId)}"]`;
+    const cell = gridEl.querySelector(cellSel) as HTMLElement | null;
+
+    const scrollCellToTarget = (c: HTMLElement) => {
+      const cellTop = c.getBoundingClientRect().top;
+      if (cellTop > targetTop) {
+        bodyViewport.scrollTop += cellTop - targetTop;
       }
+    };
+
+    if (cell) {
+      scrollCellToTarget(cell);
+    } else {
+      api.ensureIndexVisible(pos.rowIndex, 'top');
+      requestAnimationFrame(() => {
+        const c = gridEl.querySelector(cellSel) as HTMLElement | null;
+        if (c) scrollCellToTarget(c);
+      });
     }
+
+    // After the popup renders, check it isn't behind the keyboard.
+    setTimeout(() => {
+      const popup = document.querySelector('.ag-popup:not(.ag-hidden)') as HTMLElement | null;
+      if (popup) {
+        const popupBottom = popup.getBoundingClientRect().bottom;
+        const vh = window.visualViewport?.height ?? window.innerHeight;
+        if (popupBottom > vh - 8) {
+          bodyViewport.scrollTop += popupBottom - vh + 24;
+        }
+      }
+    }, 300);
   }, []);
 
   const onCellEditingStarted = useCallback((event: CellEditingStartedEvent) => {
@@ -233,9 +249,10 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     if (rowIndex !== null) {
       editingCellPos.current = { rowIndex, colId };
     }
-    // Delayed checks: some mobile keyboards animate in over 300-500ms.
-    // Scroll the editor into view after the keyboard has settled.
-    [200, 450].forEach(delay => {
+    // Delayed checks: mobile keyboards animate in over 200-600ms.
+    // We retry at multiple intervals so the last check runs with the final
+    // reduced viewport height.
+    [200, 450, 750].forEach(delay => {
       setTimeout(() => scrollEditingCellIntoView(), delay);
     });
   }, [scrollEditingCellIntoView]);
