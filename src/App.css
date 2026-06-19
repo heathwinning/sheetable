@@ -983,19 +983,109 @@ body {
   background: var(--rdp-header-bg);
   border-bottom: 1px solid var(--rdp-border);
   border-radius: 0.5rem 0.5rem 0 0;
-  padding: 8px 28px 6px;
+  padding: 0;
 }
-/* Hide the redundant month/year title — the dropdowns already show the selection */
-.date-cell-editor .react-datepicker__current-month {
+/* Hide the native header elements we replace with renderCustomHeader */
+.date-cell-editor .react-datepicker__current-month,
+.date-cell-editor .react-datepicker__header__dropdown,
+.date-cell-editor .react-datepicker__navigation {
   display: none;
 }
 
-/* ── Month / Year dropdown row — seamless "June 2026" style ── */
-.date-cell-editor .react-datepicker__header__dropdown {
+/* ── Custom Header ── */
+.date-custom-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px 4px;
+}
+.date-custom-header__selects {
   display: flex;
   gap: 2px;
   align-items: baseline;
-  justify-content: center;
+}
+
+/* ── Navigation arrows (replicating react-datepicker's) ── */
+.date-custom-header__nav {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+.date-custom-header__nav:hover { background: var(--rdp-day-hover); }
+.date-custom-header__nav:disabled { opacity: 0.3; cursor: default; }
+.date-custom-header__nav:disabled:hover { background: none; }
+
+.date-custom-header__nav-icon {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-style: solid;
+  border-width: 1.5px 1.5px 0 0;
+  border-color: var(--rdp-text-muted);
+}
+.date-custom-header__nav:hover .date-custom-header__nav-icon {
+  border-color: var(--rdp-text);
+}
+.date-custom-header__nav-icon--prev { transform: rotate(-135deg); }
+.date-custom-header__nav-icon--next { transform: rotate(45deg); }
+
+/* ── Popover trigger buttons — seamless "June 2026" inline text ── */
+.date-popover-trigger {
+  background: transparent;
+  color: var(--rdp-text);
+  border: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 1px 3px 2px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s;
+}
+.date-popover-trigger:hover { background-color: var(--rdp-day-hover); }
+.date-popover-month { text-align: right; }
+
+/* ── Popover menu — small anchored dropdown ── */
+.date-popover-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 100;
+  background: var(--rdp-bg);
+  border: 1px solid var(--rdp-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  max-height: 220px;
+  overflow-y: auto;
+  min-width: 100px;
+  padding: 4px 0;
+}
+.date-popover-option {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  color: var(--rdp-text);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.date-popover-option:hover { background: var(--rdp-day-hover); }
+.date-popover-option--active {
+  background: var(--rdp-primary);
+  color: var(--rdp-primary-text);
+  font-weight: 600;
+}
+.date-popover-option--active:hover {
+  background: var(--color-primary-hover);
+  color: var(--rdp-primary-text);
 }
 
 /* ── Day names row ── */
@@ -1043,50 +1133,6 @@ body {
 .date-cell-editor .react-datepicker__day--selected:hover,
 .date-cell-editor .react-datepicker__day--keyboard-selected:hover {
   background: var(--color-primary-hover);
-}
-
-/* ── Navigation arrows ── */
-.date-cell-editor .react-datepicker__navigation {
-  top: 10px;
-}
-.date-cell-editor .react-datepicker__navigation-icon::before {
-  border-color: var(--rdp-text-muted);
-}
-.date-cell-editor .react-datepicker__navigation:hover .react-datepicker__navigation-icon::before {
-  border-color: var(--rdp-text);
-}
-
-/* ── Month / Year dropdown selects — seamless inline text with subtle hover ── */
-.date-cell-editor .react-datepicker__month-select,
-.date-cell-editor .react-datepicker__year-select {
-  background: transparent;
-  color: var(--rdp-text);
-  border: none;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  padding: 1px 2px 2px;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  transition: background-color 0.15s;
-}
-.date-cell-editor .react-datepicker__month-select {
-  text-align: right;
-  text-align-last: right;
-}
-.date-cell-editor .react-datepicker__month-select:hover,
-.date-cell-editor .react-datepicker__year-select:hover {
-  background-color: var(--rdp-day-hover);
-}
-.date-cell-editor .react-datepicker__year-select {
-  min-width: 52px;
-}
-.date-cell-editor .react-datepicker__month-select:focus-visible,
-.date-cell-editor .react-datepicker__year-select:focus-visible {
-  outline: none;
-  background-color: var(--rdp-day-hover);
-  box-shadow: 0 0 0 1.5px var(--rdp-primary);
 }
 
 /* ── Week row ── */
