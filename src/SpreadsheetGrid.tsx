@@ -183,24 +183,32 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     const bodyViewport = gridEl.querySelector('.ag-body-viewport') as HTMLElement | null;
     if (!bodyViewport) return;
     const vv = window.visualViewport;
-    const visibleBottom = vv ? vv.height : window.innerHeight;
+    const visibleHeight = vv ? vv.height : window.innerHeight;
 
-    // Check for open popup editors (date picker, ref selector, list editor, bool select)
+    // Target: position the editing cell at ~30% from the top of the visible area
+    // so there's comfortable room for the editor and the keyboard below.
+    const targetTop = visibleHeight * 0.3;
+
+    // Find the editing cell — AG Grid adds these classes when a cell enters edit mode.
+    const editingCell = gridEl.querySelector(
+      '.ag-cell-inline-editing, .ag-cell-editing',
+    ) as HTMLElement | null;
+
+    if (editingCell) {
+      const cellTop = editingCell.getBoundingClientRect().top;
+      // Only scroll down if the cell is below the target position.
+      if (cellTop > targetTop) {
+        bodyViewport.scrollTop += cellTop - targetTop;
+      }
+    }
+
+    // For popup editors (date picker, ref selector, list editor, bool select),
+    // also ensure the popup itself isn't cut off by the keyboard.
     const popup = document.querySelector('.ag-popup:not(.ag-hidden)') as HTMLElement | null;
     if (popup) {
       const popupBottom = popup.getBoundingClientRect().bottom;
-      if (popupBottom > visibleBottom - 8) {
-        bodyViewport.scrollTop += (popupBottom - visibleBottom + 24);
-      }
-      return;
-    }
-
-    // Check for inline cell editor (text/number cells)
-    const inlineEdit = gridEl.querySelector('.ag-cell-inline-editing') as HTMLElement | null;
-    if (inlineEdit) {
-      const cellBottom = inlineEdit.getBoundingClientRect().bottom;
-      if (cellBottom > visibleBottom - 8) {
-        bodyViewport.scrollTop += (cellBottom - visibleBottom + 16);
+      if (popupBottom > visibleHeight - 8) {
+        bodyViewport.scrollTop += popupBottom - visibleHeight + 24;
       }
     }
   }, []);

@@ -287,12 +287,26 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       prevHeight = vv.height;
       if (heightDiff > KEYBOARD_THRESHOLD) {
         requestAnimationFrame(() => {
+          const visibleHeight = vv.height;
+          const targetTop = visibleHeight * 0.3;
+
+          // Scroll editing cell into a comfortable position
+          const editingCell = document.querySelector(
+            '.ag-cell-inline-editing, .ag-cell-editing',
+          ) as HTMLElement | null;
+          if (editingCell) {
+            const cellTop = editingCell.getBoundingClientRect().top;
+            if (cellTop > targetTop) {
+              window.scrollBy(0, cellTop - targetTop);
+            }
+          }
+
+          // Also ensure any open popup isn't cut off
           const popup = document.querySelector('.ag-popup:not(.ag-hidden)') as HTMLElement | null;
           if (popup) {
             const popupBottom = popup.getBoundingClientRect().bottom;
-            const visibleBottom = vv.height;
-            if (popupBottom > visibleBottom - 8) {
-              window.scrollBy(0, popupBottom - visibleBottom + 24);
+            if (popupBottom > visibleHeight - 8) {
+              window.scrollBy(0, popupBottom - visibleHeight + 24);
             }
           }
         });
