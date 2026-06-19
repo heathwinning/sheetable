@@ -1097,6 +1097,13 @@ body {
 /* AG Grid row class */
 .draft-row { @apply italic; opacity: 0.6; }
 
+/* Highlight for cells edited with popup editors (AG Grid only highlights inline). */
+.ag-cell-popup-editing {
+  outline: 2px solid var(--color-primary) !important;
+  outline-offset: -2px;
+  z-index: 1;
+}
+
 /* ============================================================
    Chart Sheet
    ============================================================ */

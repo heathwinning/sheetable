@@ -5,7 +5,7 @@ import { log } from './DebugLogger';
 import { useConfirm } from './DialogProvider';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
-import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnResizedEvent, FirstDataRenderedEvent, CellEditingStartedEvent, DisplayedColumnsChangedEvent } from 'ag-grid-community';
+import type { ColDef, GetRowIdParams, ValueSetterParams, RowClassParams, SelectionChangedEvent, PostSortRowsParams, FilterChangedEvent, ColumnResizedEvent, FirstDataRenderedEvent, CellEditingStartedEvent, CellEditingStoppedEvent, DisplayedColumnsChangedEvent } from 'ag-grid-community';
 import { SelectionSumBar } from './SelectionSumBar';
 import type { SelectionStats } from './SelectionSumBar';
 import type { CustomCellRendererProps } from 'ag-grid-react';
@@ -176,6 +176,45 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
   // ── Mobile keyboard avoidance helpers ────────────────────────────────────
   const editingCellPos = useRef<{ rowIndex: number; colId: string } | null>(null);
+  const popupObserver = useRef<MutationObserver | null>(null);
+
+  // Highlight / un-highlight the cell being edited (AG Grid doesn't highlight
+  // cells that use popup editors).
+  const setCellHighlight = useCallback((rowIndex: number | null, colId: string | null, on: boolean) => {
+    if (rowIndex === null || !colId) return;
+    const gridEl = gridWrapperRef.current;
+    if (!gridEl) return;
+    const cell = gridEl.querySelector(
+      `.ag-row[row-index="${rowIndex}"] .ag-cell[col-id="${CSS.escape(colId)}"]`,
+    ) as HTMLElement | null;
+    if (cell) {
+      cell.classList.toggle('ag-cell-popup-editing', on);
+    }
+  }, []);
+
+  // Watch for the popup to appear in the DOM, then scroll it into view.
+  const startPopupObserver = useCallback(() => {
+    popupObserver.current?.disconnect();
+    const obs = new MutationObserver(() => {
+      const popup = document.querySelector('.ag-popup:not(.ag-hidden)');
+      if (popup) {
+        obs.disconnect();
+        // Scroll the popup above the keyboard after it renders.
+        requestAnimationFrame(() => {
+          const vv = window.visualViewport;
+          const vh = vv ? vv.height : window.innerHeight;
+          const bodyViewport = gridWrapperRef.current?.querySelector('.ag-body-viewport') as HTMLElement | null;
+          if (!bodyViewport) return;
+          const popupBottom = popup.getBoundingClientRect().bottom;
+          if (popupBottom > vh - 8) {
+            bodyViewport.scrollTop += popupBottom - vh + 24;
+          }
+        });
+      }
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+    popupObserver.current = obs;
+  }, []);
 
   const scrollEditingCellIntoView = useCallback(() => {
     const gridEl = gridWrapperRef.current;
@@ -243,11 +282,14 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       event.api.stopEditing(true);
       return;
     }
-    // Store cell position for keyboard avoidance
     const colId = event.column.getColId();
     const rowIndex = event.node.rowIndex;
     if (rowIndex !== null) {
       editingCellPos.current = { rowIndex, colId };
+      // Highlight the cell (AG Grid only highlights inline editors by default).
+      setCellHighlight(rowIndex, colId, true);
+      // Watch for the popup to appear so we can scroll it above the keyboard.
+      startPopupObserver();
     }
     // Delayed checks: mobile keyboards animate in over 200-600ms.
     // We retry at multiple intervals so the last check runs with the final
@@ -255,7 +297,16 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     [200, 450, 750].forEach(delay => {
       setTimeout(() => scrollEditingCellIntoView(), delay);
     });
-  }, [scrollEditingCellIntoView]);
+  }, [scrollEditingCellIntoView, setCellHighlight, startPopupObserver]);
+
+  const onCellEditingStopped = useCallback((event: CellEditingStoppedEvent) => {
+    const colId = event.column.getColId();
+    const rowIndex = event.node.rowIndex;
+    setCellHighlight(rowIndex ?? null, colId, false);
+    popupObserver.current?.disconnect();
+    popupObserver.current = null;
+    editingCellPos.current = null;
+  }, [setCellHighlight]);
 
   const onDisplayedColumnsChanged = useCallback((_event: DisplayedColumnsChangedEvent) => {
     updateColOrder();
@@ -1133,6 +1184,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           onColumnResized={onColumnResized}
           onDisplayedColumnsChanged={onDisplayedColumnsChanged}
           onCellEditingStarted={onCellEditingStarted}
+          onCellEditingStopped={onCellEditingStopped}
         />
       </div>
       <SelectionSumBar stats={cellStats} />
