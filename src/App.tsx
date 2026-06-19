@@ -1178,6 +1178,17 @@ const BackupModal: React.FC<{
   const [restoringTable, setRestoringTable] = useState<string | null>(null);
   const [expandedTable, setExpandedTable] = useState<string | null>(null);
 
+  // Restored tables list
+  const [restoredTables, setRestoredTables] = useState<string[]>([]);
+
+  const refreshRestoredTables = useCallback(() => {
+    api.listTables(bookId).then(tables => {
+      setRestoredTables(tables.filter(t => /\(restored from .+\)$/.test(t.name)).map(t => t.name));
+    }).catch(() => {});
+  }, [bookId]);
+
+  useEffect(() => { refreshRestoredTables(); }, [refreshRestoredTables]);
+
   const loadSnapshots = useCallback(async () => {
     try { setSnapshots(await api.listSnapshots(bookId)); } catch { /* ignore */ }
     finally { setLoading(false); }
@@ -1228,7 +1239,7 @@ const BackupModal: React.FC<{
 
   const doRestoreTable = async (snapshotId: string, tableName: string, replace = false) => {
     setRestoringTable(`${snapshotId}:${tableName}`);
-    try { await api.restoreSnapshotTable(bookId, snapshotId, tableName, replace); onTableRestored(); }
+    try { await api.restoreSnapshotTable(bookId, snapshotId, tableName, replace); onTableRestored(); refreshRestoredTables(); }
     catch (err) { void alertDialog(`Restore table failed: ${err instanceof Error ? err.message : String(err)}`); }
     finally { setRestoringTable(null); }
   };
@@ -1254,7 +1265,7 @@ const BackupModal: React.FC<{
             {loading && <div className="book-settings-note">Loading snapshots…</div>}
             {!loading && snapshots.length === 0 && <div className="book-settings-note">No snapshots yet.</div>}
             {snapshots.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
             {snapshots.map(s => (
               <div key={s.id} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -1286,16 +1297,67 @@ const BackupModal: React.FC<{
           </div>
         </div>
 
+        {/* ── Restored Tables ── */}
+        {restoredTables.length > 0 && (
+          <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--color-surface-2)', borderRadius: 8 }}>
+            <label className="app-dialog-label" style={{ marginBottom: 0 }}>Restored Tables</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+              {restoredTables.map(name => {
+                const originalName = name.replace(/\s*\(restored from .+\)$/, '');
+                return (
+                  <div key={name} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '10px 14px', borderRadius: 8,
+                    border: '1px solid var(--color-border)',
+                    background: 'var(--color-surface)',
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{name}</div>
+                      <div className="text-text-muted" style={{ fontSize: 12 }}>
+                        Replaces &ldquo;{originalName}&rdquo;
+                      </div>
+                    </div>
+                    <button className="btn-primary btn-sm" style={{ marginLeft: 12, whiteSpace: 'nowrap', flexShrink: 0 }}
+                      onClick={async () => {
+                        try {
+                          await api.swapRestoredTable(bookId, name);
+                          onTableRestored();
+                          setRestoredTables(prev => prev.filter(n => n !== name));
+                        } catch (err) {
+                          void alertDialog(`Use This Version failed: ${err instanceof Error ? err.message : String(err)}`);
+                        }
+                      }}>
+                      Use This Version
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ── Restore ── */}
         <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--color-surface-2)', borderRadius: 8 }}>
           <label className="app-dialog-label" style={{ marginBottom: 0 }}>Restore</label>
           <div style={{ marginTop: 8 }}>
-            <button className="btn-secondary" onClick={doRestoreFile}>
-              Restore from File
-            </button>
-            <span className="text-text-muted" style={{ marginLeft: 12, fontSize: 12 }}>
-              Upload a previously exported JSON backup to create a new book.
-            </span>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 14px', borderRadius: 8,
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-surface)',
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 3 }}>
+                  Restore from File
+                </div>
+                <div className="text-text-muted" style={{ fontSize: 12 }}>
+                  Upload a previously exported JSON backup to create a new book.
+                </div>
+              </div>
+              <button className="btn-secondary btn-sm" onClick={doRestoreFile} style={{ marginLeft: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                Restore…
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1303,26 +1365,32 @@ const BackupModal: React.FC<{
         <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--color-surface-2)', borderRadius: 8 }}>
           <label className="app-dialog-label" style={{ marginBottom: 0 }}>Auto-Snapshot Schedule</label>
           {scheduleLoading ? <div className="book-settings-note">Loading…</div> : (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={schedule.enabled}
-                    onChange={e => { void saveSchedule({ enabled: e.target.checked }); }} disabled={scheduleSaving} />
-                  Enabled
-                </label>
-                {scheduleSaving && <span className="book-settings-note">Saving…</span>}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                <label className="app-dialog-label" style={{ marginBottom: 0, fontSize: 13 }}>Every</label>
-                <input className="app-dialog-input" type="number" min={1} max={365} value={schedule.intervalDays}
-                  onChange={e => setSchedule({ ...schedule, intervalDays: Math.max(1, Math.min(365, Number(e.target.value) || 1)) })}
-                  onBlur={() => { void saveSchedule({ intervalDays: schedule.intervalDays }); }}
-                  style={{ width: 60, marginBottom: 0 }} />
-                <span className="text-text-muted" style={{ fontSize: 12 }}>days</span>
-              </div>
-              <div className="book-settings-note" style={{ marginTop: 6 }}>
-                {schedule.enabled ? `Next: ${nextRunLabel}` : 'Enable to auto-create snapshots.'}<br />
-                Retention: last 30 daily, 12 monthly, annual unlimited.
+            <div style={{ marginTop: 8 }}>
+              <div style={{
+                padding: '10px 14px', borderRadius: 8,
+                border: '1px solid var(--color-border)',
+                background: 'var(--color-surface)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={schedule.enabled}
+                      onChange={e => { void saveSchedule({ enabled: e.target.checked }); }} disabled={scheduleSaving} />
+                    Enabled
+                  </label>
+                  {scheduleSaving && <span className="book-settings-note">Saving…</span>}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <label className="app-dialog-label" style={{ marginBottom: 0, fontSize: 13 }}>Every</label>
+                  <input className="app-dialog-input" type="number" min={1} max={365} value={schedule.intervalDays}
+                    onChange={e => setSchedule({ ...schedule, intervalDays: Math.max(1, Math.min(365, Number(e.target.value) || 1)) })}
+                    onBlur={() => { void saveSchedule({ intervalDays: schedule.intervalDays }); }}
+                    style={{ width: 60, marginBottom: 0 }} />
+                  <span className="text-text-muted" style={{ fontSize: 12 }}>days</span>
+                </div>
+                <div className="book-settings-note" style={{ marginTop: 6 }}>
+                  {schedule.enabled ? `Next: ${nextRunLabel}` : 'Enable to auto-create snapshots.'}<br />
+                  Retention: last 30 daily, 12 monthly, annual unlimited.
+                </div>
               </div>
             </div>
           )}
@@ -2221,7 +2289,7 @@ const App: React.FC = () => {
                         await api.swapRestoredTable(headerBookId!, headerTableId);
                         await state.refreshBooks();
                       } catch (err) {
-                        void alertDialog(`Replace failed: ${err instanceof Error ? err.message : String(err)}`);
+                        void alertDialog(`Use This Version failed: ${err instanceof Error ? err.message : String(err)}`);
                       }
                     })();
                   }}
