@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import type { Row } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { log } from './DebugLogger';
@@ -23,6 +24,21 @@ export default function RefCellEditor(props: RefCellEditorProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
+  // Dropdown position (portal-rendered, attached below the cell input)
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
+  const updateDropdownPos = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setDropdownStyle({
+      position: 'fixed',
+      left: rect.left,
+      top: rect.bottom,
+      minWidth: Math.max(rect.width, 200),
+      zIndex: 9999,
+    });
+  }, []);
+
   // Pre-resolve display and search text for all rows (handles nested references)
   const resolvedRows = useMemo(() => {
     const dCols = displayColumns.length > 0 ? displayColumns : searchColumns;
@@ -43,7 +59,23 @@ export default function RefCellEditor(props: RefCellEditorProps) {
 
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+    updateDropdownPos();
+    // Reposition on any scroll (grid viewport, window) or resize
+    const onScroll = () => updateDropdownPos();
+    const vp = document.querySelector('.ag-body-viewport');
+    vp?.addEventListener('scroll', onScroll);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      vp?.removeEventListener('scroll', onScroll);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [updateDropdownPos]);
+
+  useEffect(() => {
+    updateDropdownPos();
+  }, [filtered, updateDropdownPos]);
 
   useEffect(() => {
     if (selectedIndex >= 0 && listRef.current) {
@@ -93,50 +125,78 @@ export default function RefCellEditor(props: RefCellEditorProps) {
       }
     } else if (e.key === 'Escape') {
       stopEditing();
+    } else if (e.key === 'Tab') {
+      // Allow Tab to move to next cell
+      return;
     }
   };
 
+  const dropdown = (
+    <div
+      ref={listRef}
+      className="ref-editor-dropdown"
+      style={dropdownStyle}
+      onMouseDown={(e) => { e.preventDefault(); }}
+    >
+      <div
+        className={`ref-editor-option ref-editor-clear ${selectedIndex === 0 ? 'selected' : ''}`}
+        data-select-index={0}
+        onClick={() => selectValue('')}
+      >
+        <em>Clear</em>
+      </div>
+      {filtered.map((r, i) => (
+        <div
+          key={r.row[INTERNAL_ROW_ID]}
+          className={`ref-editor-option ${selectedIndex === i + 1 ? 'selected' : ''} ${r.row[INTERNAL_ROW_ID] === props.value ? 'current' : ''}`}
+          data-select-index={i + 1}
+          onClick={() => selectValue(r.row[INTERNAL_ROW_ID])}
+        >
+          {r.displayText || <span style={{ opacity: 0.5 }}>Row {r.row[INTERNAL_ROW_ID]}</span>}
+        </div>
+      ))}
+      {showCreateOption && (
+        <div
+          className={`ref-editor-option ref-editor-create ${selectedIndex === createOptionIndex ? 'selected' : ''}`}
+          data-select-index={createOptionIndex}
+          onClick={() => { void handleCreateRecord(); }}
+        >
+          {isCreating ? 'Creating…' : `+ Add new record in ${refTable}`}
+        </div>
+      )}
+      {filtered.length === 0 && (
+        <div className="ref-editor-option" style={{ opacity: 0.5, cursor: 'default' }}>No matches</div>
+      )}
+    </div>
+  );
+
   return (
-    <div className="ref-editor" onKeyDown={handleKeyDown} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+    <div className="ref-editor-inline" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center' }}>
       <input
         ref={inputRef}
         type="text"
         value={search}
         onChange={e => { setSearch(e.target.value); setSelectedIndex(-1); }}
+        onKeyDown={handleKeyDown}
+        onBlur={() => {
+          // Delay to allow dropdown click to register
+          setTimeout(() => stopEditing(), 150);
+        }}
         placeholder="Search…"
-        className="ref-editor-search"
+        className="ref-editor-search-inline"
+        style={{
+          width: '100%',
+          height: '100%',
+          border: 'none',
+          outline: 'none',
+          background: 'transparent',
+          fontSize: 'inherit',
+          fontFamily: 'inherit',
+          padding: '0 4px',
+          boxSizing: 'border-box',
+        }}
       />
-      <div className="ref-editor-list" ref={listRef}>
-        <div
-          className={`ref-editor-option ref-editor-clear ${selectedIndex === 0 ? 'selected' : ''}`}
-          data-select-index={0}
-          onClick={() => selectValue('')}
-        >
-          <em>Clear</em>
-        </div>
-        {filtered.map((r, i) => (
-          <div
-            key={r.row[INTERNAL_ROW_ID]}
-            className={`ref-editor-option ${selectedIndex === i + 1 ? 'selected' : ''} ${r.row[INTERNAL_ROW_ID] === props.value ? 'current' : ''}`}
-            data-select-index={i + 1}
-            onClick={() => selectValue(r.row[INTERNAL_ROW_ID])}
-          >
-            {r.displayText || <span style={{ opacity: 0.5 }}>Row {r.row[INTERNAL_ROW_ID]}</span>}
-          </div>
-        ))}
-        {showCreateOption && (
-          <div
-            className={`ref-editor-option ref-editor-create ${selectedIndex === createOptionIndex ? 'selected' : ''}`}
-            data-select-index={createOptionIndex}
-            onClick={() => { void handleCreateRecord(); }}
-          >
-            {isCreating ? 'Creating…' : `+ Add new record in ${refTable}`}
-          </div>
-        )}
-        {filtered.length === 0 && (
-          <div className="ref-editor-option" style={{ opacity: 0.5, cursor: 'default' }}>No matches</div>
-        )}
-      </div>
+      {createPortal(dropdown, document.body)}
     </div>
   );
 }

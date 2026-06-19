@@ -931,20 +931,27 @@ body {
 }
 
 /* ============================================================
-   Reference Cell Editor
+   Reference Cell Editor (inline input + portal dropdown)
    ============================================================ */
-.ref-editor {
-  @apply bg-surface border border-border rounded-md w-[260px] max-h-[300px]
-         flex flex-col shadow-lg;
+.ref-editor-inline {
+  /* Container is the AG Grid inline editor cell */
 }
-.ref-editor-search {
-  @apply py-1.5 px-2 border-none border-b border-border bg-transparent text-text
-         text-[13px] outline-none;
+.ref-editor-search-inline {
+  /* The inline search input — inherits cell font */
+}
+.ref-editor-dropdown {
+  @apply bg-surface border border-border rounded-md shadow-lg;
 }
 .ref-editor-list { @apply overflow-y-auto max-h-60; }
 .ref-editor-option {
   @apply py-1.5 px-2.5 cursor-pointer text-[13px] text-text whitespace-nowrap
          overflow-hidden text-ellipsis;
+}
+.ref-editor-option:first-child {
+  border-radius: 0.375rem 0.375rem 0 0;
+}
+.ref-editor-option:last-child {
+  border-radius: 0 0 0.375rem 0.375rem;
 }
 .ref-editor-option:hover, .ref-editor-option.selected { @apply bg-cell-selected; }
 .ref-editor-option.current { border-left: 3px solid var(--ref-color); }

@@ -192,14 +192,13 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     }
   }, []);
 
-  // Watch for the popup to appear in the DOM, then scroll it into view.
+  // Watch for popups and portal dropdowns to appear, then scroll them into view.
   const startPopupObserver = useCallback(() => {
     popupObserver.current?.disconnect();
     const obs = new MutationObserver(() => {
-      const popup = document.querySelector('.ag-popup:not(.ag-hidden)');
+      const popup = document.querySelector('.ag-popup:not(.ag-hidden), .ref-editor-dropdown');
       if (popup) {
         obs.disconnect();
-        // Scroll the popup above the keyboard after it renders.
         requestAnimationFrame(() => {
           const vv = window.visualViewport;
           const vh = vv ? vv.height : window.innerHeight;
@@ -645,8 +644,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         def.cellEditorSelector = () => {
           return {
             component: RefCellEditor,
-            popup: true,
-            popupPosition: 'under',
             params: {
               refRows: getReferenceRows(refTable),
               refTable,
