@@ -60,6 +60,132 @@ function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorP
   );
 }
 
+function DefaultValueCellEditor({ value, onValueChange, stopEditing, data }: CustomCellEditorProps & { data?: { type: string } }) {
+  const colType = data?.type;
+  const isTemporal = colType === 'date' || colType === 'datetime';
+  const hasDynamicOptions = isTemporal;
+
+  const [mode, setMode] = React.useState<'menu' | 'custom'>(hasDynamicOptions ? 'menu' : 'custom');
+  const [customValue, setCustomValue] = React.useState(
+    value && value !== '__TODAY__' ? value : ''
+  );
+  const inputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (mode === 'menu') {
+      menuRef.current?.focus();
+    } else {
+      // Small delay to let the input mount, then focus and select
+      setTimeout(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }, 0);
+    }
+  }, [mode]);
+
+  const selectToday = () => {
+    onValueChange('__TODAY__');
+    stopEditing();
+  };
+
+  const selectCustom = () => {
+    setMode('custom');
+  };
+
+  const commitCustom = () => {
+    onValueChange(customValue.trim() || '');
+    stopEditing();
+  };
+
+  if (mode === 'custom') {
+    return (
+      <div
+        className="ag-custom-component-popup"
+        style={{
+          background: 'var(--color-surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 4,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
+          padding: 6,
+          minWidth: 140,
+          display: 'flex',
+          gap: 6,
+          alignItems: 'center',
+        }}
+      >
+        <input
+          ref={inputRef}
+          className="app-dialog-input"
+          style={{ marginBottom: 0, flex: 1, fontSize: 13 }}
+          value={customValue}
+          onChange={e => setCustomValue(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') commitCustom();
+            if (e.key === 'Escape') stopEditing();
+          }}
+          onBlur={() => {
+            // Delay to allow button clicks to register
+            setTimeout(() => {
+              // If the menu ref no longer exists, we've already committed
+              if (menuRef.current) commitCustom();
+            }, 150);
+          }}
+          placeholder="Enter default value…"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={menuRef}
+      tabIndex={0}
+      className="ag-custom-component-popup"
+      onBlur={() => stopEditing()}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') stopEditing();
+      }}
+      style={{
+        background: 'var(--color-surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 4,
+        boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
+        overflow: 'auto',
+        maxHeight: 240,
+        minWidth: 140,
+        outline: 'none',
+      }}
+    >
+      <div
+        onMouseDown={(e) => { e.preventDefault(); selectToday(); }}
+        style={{
+          padding: '8px 12px',
+          cursor: 'pointer',
+          fontSize: 13,
+          background: value === '__TODAY__' ? 'var(--color-cell-selected, rgba(37,99,235,0.08))' : undefined,
+        }}
+        className="type-cell-editor-item"
+      >
+        Today
+      </div>
+      <div
+        onMouseDown={(e) => { e.preventDefault(); selectCustom(); }}
+        style={{
+          padding: '8px 12px',
+          cursor: 'pointer',
+          fontSize: 13,
+          borderTop: '1px solid var(--border)',
+          color: value && value !== '__TODAY__' ? undefined : 'var(--color-text-muted, #999)',
+        }}
+        className="type-cell-editor-item"
+      >
+        Custom…
+      </div>
+    </div>
+  );
+}
+
 const selectStyles = dialogSelectStyles;
 
 export function slugify(s: string): string {
@@ -622,6 +748,8 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         if (params.data?.type === 'calculated') return false;
         return true;
       },
+      cellEditor: DefaultValueCellEditor,
+      cellEditorPopup: true,
       flex: 2,
       minWidth: 100,
       cellRenderer: (params: { value: string; data: { type: string; defaultValue: string; _idx: number } }) => {
@@ -644,7 +772,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         if (isTemporal && !v) {
           return React.createElement('span', {
             style: { color: 'var(--color-text-muted, #999)', fontSize: 11 },
-          }, 'type "today"');
+          }, 'click to set');
         }
         if (colType === 'calculated') return '';
         return v || '';
@@ -657,14 +785,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       valueSetter: (params: ValueSetterParams) => {
         const idx = params.data._idx;
         const rawValue = (params.newValue ?? '') as string;
-        const colType = columns[idx]?.type;
-        const isTemporal = colType === 'date' || colType === 'datetime';
-        // "today" keyword (case-insensitive) maps to __TODAY__ for date/datetime columns
-        if (isTemporal && rawValue.trim().toLowerCase() === 'today') {
-          updateColumn(idx, { defaultValue: '__TODAY__' });
-        } else {
-          updateColumn(idx, { defaultValue: rawValue.trim() || undefined });
-        }
+        updateColumn(idx, { defaultValue: rawValue.trim() || undefined });
         return true;
       },
     },
