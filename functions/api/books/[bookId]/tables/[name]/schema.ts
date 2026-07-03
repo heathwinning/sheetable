@@ -12,6 +12,7 @@ interface ColumnInput {
   expression?: string;
   showInGrid?: boolean;
   listOf?: string;
+  defaultValue?: string;
 }
 
 interface SchemaBody {
@@ -91,8 +92,8 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
       const col = body.columns[i];
       stmts.push(
         context.env.DB.prepare(
-          `INSERT INTO _columns (table_id, name, display_name, type, display_order, width, ref_table, ref_display, ref_search, expression, show_in_grid, list_of)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO _columns (table_id, name, display_name, type, display_order, width, ref_table, ref_display, ref_search, expression, show_in_grid, list_of, default_value)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           table.id,
           col.name.trim(),
@@ -106,6 +107,7 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
           col.expression || null,
           col.showInGrid ? 1 : 0,
           col.listOf || null,
+          col.defaultValue || null,
         )
       );
     }

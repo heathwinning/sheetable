@@ -46,6 +46,8 @@ export interface ColumnDef {
   showInGrid?: boolean;
   // List columns (type === 'list')
   listOf?: ListItemType;
+  /** Default value for new rows. Special values: '__TODAY__' for date/datetime columns = current date. */
+  defaultValue?: string;
 }
 
 /** @deprecated Use columns with type === 'calculated' instead. Kept for backward-compat migration. */

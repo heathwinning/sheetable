@@ -108,6 +108,8 @@ interface ApiTable {
     refSearchColumns?: string[];
     expression?: string;
     showInGrid?: boolean;
+    listOf?: string;
+    defaultValue?: string;
   }[];
 }
 
@@ -123,6 +125,8 @@ export async function listTables(bookId: string): Promise<TableSchema[]> {
       refSearchColumns: c.refSearchColumns,
       expression: c.expression,
       showInGrid: c.showInGrid,
+      listOf: c.listOf as import('./types').ListItemType | undefined,
+      defaultValue: c.defaultValue,
     }));
     // Migrate legacy calculatedColumns into the columns array
     const legacyCalcCols = (t.calculatedColumns ?? []).map(calc => ({
@@ -162,6 +166,7 @@ export async function createTable(bookId: string, schema: TableSchema, rows?: Ro
         expression: c.expression,
         showInGrid: c.showInGrid,
         listOf: c.listOf,
+        defaultValue: c.defaultValue,
       })),
       uniqueKeys: schema.uniqueKeys,
       defaultSort: schema.defaultSort,
@@ -208,6 +213,7 @@ export async function updateTableSchema(bookId: string, name: string, schema: Ta
         expression: c.expression,
         showInGrid: c.showInGrid,
         listOf: c.listOf,
+        defaultValue: c.defaultValue,
       })),
       uniqueKeys: schema.uniqueKeys,
       defaultSort: schema.defaultSort,

@@ -357,6 +357,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       refDisplayColumns: col.refDisplayColumns ?? [],
       refSearchColumns: col.refSearchColumns ?? [],
       listOf: col.listOf,
+      defaultValue: col.defaultValue ?? '',
     })),
      
     [columns, uniqueKeys, defaultSort]
@@ -610,6 +611,59 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
           });
         } else {
           setDefaultSort(prev => prev.filter(s => s.column !== colName));
+        }
+        return true;
+      },
+    },
+    {
+      headerName: 'Default Value',
+      field: 'defaultValue',
+      editable: (params: { data?: { type: string } }) => {
+        if (params.data?.type === 'calculated') return false;
+        return true;
+      },
+      flex: 2,
+      minWidth: 100,
+      cellRenderer: (params: { value: string; data: { type: string; defaultValue: string; _idx: number } }) => {
+        const v = params.value as string;
+        const colType = params.data?.type as string;
+        const isTemporal = colType === 'date' || colType === 'datetime';
+
+        if (isTemporal && v === '__TODAY__') {
+          return React.createElement('span', {
+            style: {
+              background: 'var(--color-primary, #2563eb)',
+              color: '#fff',
+              borderRadius: 3,
+              padding: '1px 6px',
+              fontSize: 11,
+              fontWeight: 500,
+            },
+          }, 'Today');
+        }
+        if (isTemporal && !v) {
+          return React.createElement('span', {
+            style: { color: 'var(--color-text-muted, #999)', fontSize: 11 },
+          }, 'type "today"');
+        }
+        if (colType === 'calculated') return '';
+        return v || '';
+      },
+      cellStyle: (params: { data: { type: string } }) => {
+        const colType = params.data?.type as string;
+        if (colType === 'calculated') return { color: 'var(--color-text-muted, #999)', fontStyle: 'italic' };
+        return null;
+      },
+      valueSetter: (params: ValueSetterParams) => {
+        const idx = params.data._idx;
+        const rawValue = (params.newValue ?? '') as string;
+        const colType = columns[idx]?.type;
+        const isTemporal = colType === 'date' || colType === 'datetime';
+        // "today" keyword (case-insensitive) maps to __TODAY__ for date/datetime columns
+        if (isTemporal && rawValue.trim().toLowerCase() === 'today') {
+          updateColumn(idx, { defaultValue: '__TODAY__' });
+        } else {
+          updateColumn(idx, { defaultValue: rawValue.trim() || undefined });
         }
         return true;
       },

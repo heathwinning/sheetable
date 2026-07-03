@@ -290,13 +290,28 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       // Watch for the popup to appear so we can scroll it above the keyboard.
       startPopupObserver();
     }
+    // Show numeric keypad on mobile for number columns (integer / decimal).
+    // AG Grid's default text editor renders a plain <input type="text">,
+    // so we set inputMode after the editor element appears in the DOM.
+    const colField = event.colDef.field;
+    if (colField) {
+      const colType = schema.columns.find(c => c.name === colField)?.type;
+      if (colType === 'integer' || colType === 'decimal') {
+        setTimeout(() => {
+          const input = document.querySelector('.ag-cell-inline-editing input') as HTMLInputElement | null;
+          if (input) {
+            input.inputMode = 'decimal';
+          }
+        }, 0);
+      }
+    }
     // Delayed checks: mobile keyboards animate in over 200-600ms.
     // We retry at multiple intervals so the last check runs with the final
     // reduced viewport height.
     [200, 450, 750].forEach(delay => {
       setTimeout(() => scrollEditingCellIntoView(), delay);
     });
-  }, [scrollEditingCellIntoView, setCellHighlight, startPopupObserver]);
+  }, [schema, scrollEditingCellIntoView, setCellHighlight, startPopupObserver]);
 
   const onCellEditingStopped = useCallback((event: CellEditingStoppedEvent) => {
     const colId = event.column.getColId();
@@ -315,8 +330,20 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   const makeDraftRow = useCallback((): Row => {
     draftCounter.current += 1;
     const row: Row = { [INTERNAL_ROW_ID]: DRAFT_ROW_ID };
+    const now = new Date();
     for (const col of schema.columns) {
-      row[col.name] = '';
+      const dv = col.defaultValue;
+      if (dv === '__TODAY__') {
+        if (col.type === 'datetime') {
+          row[col.name] = formatDateTimeCanonical(now);
+        } else {
+          row[col.name] = formatDateCanonical(now);
+        }
+      } else if (dv) {
+        row[col.name] = dv;
+      } else {
+        row[col.name] = '';
+      }
     }
     return row;
   }, [schema]);
