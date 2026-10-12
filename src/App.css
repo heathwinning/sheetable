@@ -437,10 +437,15 @@ body {
   z-index: 1;
 }
 
+.grid-wrapper .ag-root {
+  overflow: visible;
+}
+
 .grid-wrapper--bottom-draft-spacer .ag-body-viewport,
 .grid-wrapper--bottom-draft-spacer .ag-center-cols-viewport,
 .grid-wrapper--bottom-draft-spacer .ag-body-vertical-scroll-viewport {
-  padding-bottom: clamp(120px, 20vh, 260px);
+  padding-bottom: 100vh;
+  padding-bottom: 100svh;
 }
 
 /* AG Grid derived reference styling */

@@ -399,49 +399,6 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   );
 
   const columnGridRef = useRef<AgGridReact>(null);
-  const editGridWrapperRef = useRef<HTMLDivElement>(null);
-
-  // ── Mobile keyboard avoidance ─────────────────────────────────────────────
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    let prevHeight = vv.height;
-    const KEYBOARD_THRESHOLD = 100;
-
-    const onViewportResize = () => {
-      const heightDiff = prevHeight - vv.height;
-      prevHeight = vv.height;
-      if (heightDiff > KEYBOARD_THRESHOLD) {
-        requestAnimationFrame(() => {
-          const visibleHeight = vv.height;
-          const targetTop = visibleHeight * 0.3;
-
-          // Scroll editing cell into a comfortable position
-          const editingCell = document.querySelector(
-            '.ag-cell-inline-editing, .ag-cell-editing',
-          ) as HTMLElement | null;
-          if (editingCell) {
-            const cellTop = editingCell.getBoundingClientRect().top;
-            if (cellTop > targetTop) {
-              window.scrollBy(0, cellTop - targetTop);
-            }
-          }
-
-          // Also ensure any open popup isn't cut off
-          const popup = document.querySelector('.ag-popup:not(.ag-hidden)') as HTMLElement | null;
-          if (popup) {
-            const popupBottom = popup.getBoundingClientRect().bottom;
-            if (popupBottom > visibleHeight - 8) {
-              window.scrollBy(0, popupBottom - visibleHeight + 24);
-            }
-          }
-        });
-      }
-    };
-
-    vv.addEventListener('resize', onViewportResize);
-    return () => vv.removeEventListener('resize', onViewportResize);
-  }, []);
 
   // AG Grid theme matching SpreadsheetGrid
   const editGridTheme = useMemo(() => {
@@ -1413,7 +1370,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         {/* AG Grid column editor */}
         <div className="edit-table-columns">
           <h3>Columns</h3>
-          <div style={{ width: '100%' }} ref={editGridWrapperRef}>
+          <div style={{ width: '100%' }}>
             <AgGridReact
               ref={columnGridRef}
               theme={editGridTheme}

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import type { TableSchema, Row, ValidationError } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { log } from './DebugLogger';
@@ -18,6 +18,8 @@ import { getCalc } from './chartFormat';
 import { sharedDefaultColDef } from './gridDefaults';
 
 const DRAFT_ROW_ID = '_draft';
+const isDraftRowId = (rowId: unknown): rowId is string =>
+  typeof rowId === 'string' && rowId.startsWith(DRAFT_ROW_ID);
 
 function parseListItems(value: string): string[] {
   if (!value) return [];
@@ -56,7 +58,7 @@ const ListTagsRenderer: React.FC<CustomCellRendererProps> = ({ value }) => {
 };
 
 const OpenRecordButton: React.FC<CustomCellRendererProps & { onOpen: (row: Row) => void }> = ({ data, onOpen }) => {
-  if (!data || data[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return null;
+  if (!data || isDraftRowId(data[INTERNAL_ROW_ID])) return null;
   return (
     <button
       title="Open record"
@@ -135,16 +137,31 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   const gridRef = useRef<AgGridReact>(null);
   const gridWrapperRef = useRef<HTMLDivElement>(null);
   const draftCounter = useRef(0);
+  const draftIdCounter = useRef(0);
+  const draftRowsRef = useRef(new Map<string, Row>());
+  const draftSchemaRef = useRef(schema);
+  const [draftIds, setDraftIds] = useState([DRAFT_ROW_ID]);
   const { openDialog, dialogElement } = useImageDialog();
   const [filterActive, setFilterActive] = useState(false);
   const [displayedRowCount, setDisplayedRowCount] = useState<number | null>(null);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [bulkEditCol, setBulkEditCol] = useState('');
   const [bulkEditValue, setBulkEditValue] = useState('');
+  const callbacksRef = useRef({ onEdit, onInsert, onOpenRecord, onCreateReferenceRow });
+  useLayoutEffect(() => {
+    callbacksRef.current = { onEdit, onInsert, onOpenRecord, onCreateReferenceRow };
+  }, [onEdit, onInsert, onOpenRecord, onCreateReferenceRow]);
+  const commitRowEdit = useCallback((rowIndex: number, columnName: string, newValue: string) =>
+    callbacksRef.current.onEdit(rowIndex, columnName, newValue), []);
+  const insertDraftRow = useCallback((row: Row) => callbacksRef.current.onInsert(row), []);
+  const openRecord = useCallback((row: Row) => callbacksRef.current.onOpenRecord?.(row), []);
+  const createReferenceRow = useCallback((refTable: string, seedText: string) =>
+    callbacksRef.current.onCreateReferenceRow?.(refTable, seedText) ?? Promise.resolve(null), []);
+  const hasOpenRecordColumn = Boolean(onOpenRecord);
 
   const onSelectionChanged = useCallback((event: SelectionChangedEvent) => {
     const selected = event.api.getSelectedRows() as Row[];
-    const ids = new Set(selected.map(r => r[INTERNAL_ROW_ID]).filter(id => id !== DRAFT_ROW_ID));
+    const ids = new Set(selected.map(r => r[INTERNAL_ROW_ID]).filter(id => !isDraftRowId(id)));
     setSelectedRowIds(ids);
   }, []);
 
@@ -169,14 +186,10 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
   const clearCellSelection = useCallback(() => {
     selectionRef.current = null;
-    gridRef.current?.api.refreshCells({ force: true });
+    gridRef.current?.api?.refreshCells({ force: true });
     setCellStats(null);
     onCellSelectionStats?.(null);
   }, [onCellSelectionStats]);
-
-  // ── Mobile keyboard avoidance helpers ────────────────────────────────────
-  const editingCellPos = useRef<{ rowIndex: number; colId: string } | null>(null);
-  const popupObserver = useRef<MutationObserver | null>(null);
 
   // Highlight / un-highlight the cell being edited (AG Grid doesn't highlight
   // cells that use popup editors).
@@ -192,88 +205,29 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     }
   }, []);
 
-  // Watch for popups and portal dropdowns to appear, then scroll them into view.
-  const startPopupObserver = useCallback(() => {
-    popupObserver.current?.disconnect();
-    const obs = new MutationObserver(() => {
-      const popup = document.querySelector('.ag-popup:not(.ag-hidden), .ref-editor-dropdown, .date-cell-popover');
-      if (popup) {
-        obs.disconnect();
-        requestAnimationFrame(() => {
-          const vv = window.visualViewport;
-          const vh = vv ? vv.height : window.innerHeight;
-          const bodyViewport = gridWrapperRef.current?.querySelector('.ag-body-viewport') as HTMLElement | null;
-          if (!bodyViewport) return;
-          const popupBottom = popup.getBoundingClientRect().bottom;
-          if (popupBottom > vh - 8) {
-            bodyViewport.scrollTop += popupBottom - vh + 24;
-          }
-        });
-      }
-    });
-    obs.observe(document.body, { childList: true, subtree: true });
-    popupObserver.current = obs;
+  const createDraftId = useCallback(() => {
+    draftIdCounter.current += 1;
+    return `${DRAFT_ROW_ID}_${draftIdCounter.current}`;
   }, []);
 
-  const scrollEditingCellIntoView = useCallback(() => {
-    const gridEl = gridWrapperRef.current;
-    if (!gridEl) return;
-    const bodyViewport = gridEl.querySelector('.ag-body-viewport') as HTMLElement | null;
-    if (!bodyViewport) return;
-    const vv = window.visualViewport;
-    const visibleHeight = vv ? vv.height : window.innerHeight;
-
-    // Position the editing cell at ~30% from the top of the visible area.
-    const targetTop = visibleHeight * 0.3;
-
-    // ── Inline editors (text, number) ──────────────────────────────────────
-    const inlineCell = gridEl.querySelector('.ag-cell-inline-editing') as HTMLElement | null;
-    if (inlineCell) {
-      const cellTop = inlineCell.getBoundingClientRect().top;
-      if (cellTop > targetTop) {
-        bodyViewport.scrollTop += cellTop - targetTop;
+  const activateDraftRow = useCallback((activeDraftId: string) => {
+    const newReserveId = createDraftId();
+    setDraftIds(current => {
+      if (current.includes(activeDraftId)) {
+        if (current.length === 2) return current;
+        if (current.length < 2) return [...current, newReserveId];
+        const reserveId = [...current].reverse().find(id => id !== activeDraftId);
+        return current.filter(id => id === activeDraftId || id === reserveId);
       }
-      return;
-    }
+      const reserveId = current[current.length - 1] ?? newReserveId;
+      return [activeDraftId, reserveId];
+    });
+  }, [createDraftId]);
 
-    // ── Popup editors (date, ref, list, bool) ──────────────────────────────
-    const pos = editingCellPos.current;
-    const api = gridRef.current?.api;
-    if (!pos || !api) return;
-
-    // Find the source cell. Visible rows are in the DOM; virtualised rows
-    // need ensureIndexVisible to force-render them first.
-    const cellSel = `.ag-row[row-index="${pos.rowIndex}"] .ag-cell[col-id="${CSS.escape(pos.colId)}"]`;
-    const cell = gridEl.querySelector(cellSel) as HTMLElement | null;
-
-    const scrollCellToTarget = (c: HTMLElement) => {
-      const cellTop = c.getBoundingClientRect().top;
-      if (cellTop > targetTop) {
-        bodyViewport.scrollTop += cellTop - targetTop;
-      }
-    };
-
-    if (cell) {
-      scrollCellToTarget(cell);
-    } else {
-      api.ensureIndexVisible(pos.rowIndex, 'top');
-      requestAnimationFrame(() => {
-        const c = gridEl.querySelector(cellSel) as HTMLElement | null;
-        if (c) scrollCellToTarget(c);
-      });
-    }
-
-    // After the popup renders, check it isn't behind the keyboard.
-    setTimeout(() => {
-      const popup = document.querySelector('.ag-popup:not(.ag-hidden)') as HTMLElement | null;
-      if (popup) {
-        const popupBottom = popup.getBoundingClientRect().bottom;
-        const vh = window.visualViewport?.height ?? window.innerHeight;
-        if (popupBottom > vh - 8) {
-          bodyViewport.scrollTop += popupBottom - vh + 24;
-        }
-      }
-    }, 300);
+  const removeDraftRow = useCallback((draftId: string) => {
+    setDraftIds(current => current.includes(draftId)
+      ? current.filter(id => id !== draftId)
+      : current);
   }, []);
 
   const onCellEditingStarted = useCallback((event: CellEditingStartedEvent) => {
@@ -284,11 +238,10 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     const colId = event.column.getColId();
     const rowIndex = event.node.rowIndex;
     if (rowIndex !== null) {
-      editingCellPos.current = { rowIndex, colId };
+      const rowId = String(event.node.data?.[INTERNAL_ROW_ID] ?? event.node.id ?? '');
+      if (isDraftRowId(rowId)) activateDraftRow(rowId);
       // Highlight the cell (AG Grid only highlights inline editors by default).
       setCellHighlight(rowIndex, colId, true);
-      // Watch for the popup to appear so we can scroll it above the keyboard.
-      startPopupObserver();
     }
     // Show numeric keypad on mobile for number columns (integer / decimal).
     // AG Grid's default text editor renders a plain <input type="text">,
@@ -305,21 +258,36 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         }, 0);
       }
     }
-    // Delayed checks: mobile keyboards animate in over 200-600ms.
-    // We retry at multiple intervals so the last check runs with the final
-    // reduced viewport height.
-    [200, 450, 750].forEach(delay => {
-      setTimeout(() => scrollEditingCellIntoView(), delay);
-    });
-  }, [schema, scrollEditingCellIntoView, setCellHighlight, startPopupObserver]);
+  }, [schema, activateDraftRow, setCellHighlight]);
 
   const onCellEditingStopped = useCallback((event: CellEditingStoppedEvent) => {
     const colId = event.column.getColId();
     const rowIndex = event.node.rowIndex;
     setCellHighlight(rowIndex ?? null, colId, false);
-    popupObserver.current?.disconnect();
-    popupObserver.current = null;
-    editingCellPos.current = null;
+    const stoppedDraftId = event.node.data?.[INTERNAL_ROW_ID];
+    requestAnimationFrame(() => {
+      const activeDraftId = event.api.getEditingCells()
+        .map(cell => event.api.getDisplayedRowAtIndex(cell.rowIndex)?.data?.[INTERNAL_ROW_ID])
+        .find(isDraftRowId);
+      setDraftIds(current => {
+        let next: string[];
+        if (activeDraftId) {
+          const reserveId = [...current].reverse().find(id => id !== activeDraftId);
+          if (!reserveId) return current;
+          next = current.filter(id => id === activeDraftId || id === reserveId);
+        } else {
+          const preferredId = isDraftRowId(stoppedDraftId) ? stoppedDraftId : null;
+          const retainedId = preferredId && current.includes(preferredId)
+            ? preferredId
+            : current[current.length - 1];
+          if (!retainedId) return current;
+          next = [retainedId];
+        }
+        return next.length === current.length && next.every((id, index) => id === current[index])
+          ? current
+          : next;
+      });
+    });
   }, [setCellHighlight]);
 
   const onDisplayedColumnsChanged = useCallback((_event: DisplayedColumnsChangedEvent) => {
@@ -327,9 +295,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   }, [updateColOrder]);
 
   // Create a fresh draft row (local-only, not yet persisted)
-  const makeDraftRow = useCallback((): Row => {
+  const makeDraftRow = useCallback((rowId: string): Row => {
     draftCounter.current += 1;
-    const row: Row = { [INTERNAL_ROW_ID]: DRAFT_ROW_ID };
+    const row: Row = { [INTERNAL_ROW_ID]: rowId };
     const now = new Date();
     for (const col of schema.columns) {
       const dv = col.defaultValue;
@@ -349,28 +317,51 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   }, [schema]);
 
   const draftPosition = schema.draftRowPosition ?? 'bottom';
+  const showBottomDraftSpacer = !readOnly && !filterActive && draftPosition === 'bottom';
 
   const rowData = useMemo(() => {
     if (readOnly) return [...rows];
-    const draft = filterActive ? null : makeDraftRow();
-    if (!draft) return [...rows];
-    return draftPosition === 'top' ? [draft, ...rows] : [...rows, draft];
+    if (draftSchemaRef.current !== schema) {
+      draftRowsRef.current.clear();
+      draftSchemaRef.current = schema;
+    }
+    const visibleDraftIds = filterActive ? [] : draftIds;
+    const drafts = visibleDraftIds.map(rowId => {
+      let draftRow = draftRowsRef.current.get(rowId);
+      if (!draftRow) {
+        draftRow = makeDraftRow(rowId);
+        draftRowsRef.current.set(rowId, draftRow);
+      }
+      return draftRow;
+    });
+    const visibleDraftIdSet = new Set(visibleDraftIds);
+    for (const rowId of draftRowsRef.current.keys()) {
+      if (!visibleDraftIdSet.has(rowId)) draftRowsRef.current.delete(rowId);
+    }
+    if (drafts.length === 0) return [...rows];
+    return draftPosition === 'top' ? [...drafts, ...rows] : [...rows, ...drafts];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, revision, makeDraftRow, draftPosition, filterActive]);
+  }, [rows, rows.length, makeDraftRow, draftIds, draftPosition, filterActive, readOnly]);
 
   // Keep draft row pinned at top or bottom regardless of sorting
   const postSortRows = useCallback((params: PostSortRowsParams) => {
     if (filterActive) return;
     const nodes = params.nodes;
-    const draftIdx = nodes.findIndex(n => n.data?.[INTERNAL_ROW_ID] === DRAFT_ROW_ID);
-    if (draftIdx < 0) return;
-    const [draftNode] = nodes.splice(draftIdx, 1);
-    if (draftPosition === 'top') {
-      nodes.unshift(draftNode);
-    } else {
-      nodes.push(draftNode);
+    const draftNodes = nodes.filter(n => isDraftRowId(n.data?.[INTERNAL_ROW_ID]));
+    if (draftNodes.length === 0) return;
+    draftNodes.sort((left, right) =>
+      draftIds.indexOf(String(left.data?.[INTERNAL_ROW_ID])) - draftIds.indexOf(String(right.data?.[INTERNAL_ROW_ID])),
+    );
+    for (const draftNode of draftNodes) {
+      const draftIdx = nodes.indexOf(draftNode);
+      if (draftIdx >= 0) nodes.splice(draftIdx, 1);
     }
-  }, [draftPosition, filterActive]);
+    if (draftPosition === 'top') {
+      nodes.unshift(...draftNodes);
+    } else {
+      nodes.push(...draftNodes);
+    }
+  }, [draftIds, draftPosition, filterActive]);
 
   const onFilterChanged = useCallback((event: FilterChangedEvent) => {
     const model = event.api.getFilterModel();
@@ -382,9 +373,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   const hasAutosized = useRef(false);
   const hasInitialDraftScroll = useRef(false);
 
-  useEffect(() => {
-    hasInitialDraftScroll.current = false;
-  }, [schema.name, draftPosition]);
 
   const autosizeGridColumns = useCallback((api: FirstDataRenderedEvent['api']) => {
     // Autosize columns that lack an explicit user-set width and aren't truncate-mode.
@@ -403,28 +391,16 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     if (colIds.length > 0) api.autoSizeColumns(colIds, false);
   }, [schema.columns]);
 
-  // Scroll to the last row accounting for the CSS padding-bottom on the viewport.
   const scrollToDraftBottom = useCallback((api: FirstDataRenderedEvent['api']) => {
     const displayedCount = api.getDisplayedRowCount();
-    if (displayedCount === 0) return;
+    if (displayedCount === 0) return false;
     api.ensureIndexVisible(displayedCount - 1, 'bottom');
-    // AG Grid doesn't account for the CSS padding-bottom we add for the draft spacer.
-    // Read it from the DOM and add it to the scroll position.
-    requestAnimationFrame(() => {
-      const viewport = gridWrapperRef.current?.querySelector<HTMLElement>('.ag-body-viewport');
-      if (!viewport) return;
-      const pad = parseFloat(getComputedStyle(viewport).paddingBottom) || 0;
-      if (pad > 0) {
-        viewport.scrollTop += pad;
-      }
-    });
+    return true;
   }, []);
 
   const onFirstDataRendered = useCallback((event: FirstDataRenderedEvent) => {
-    // Scroll to bottom if draft is pinned there.
-    if (draftPosition === 'bottom' && !readOnly && !filterActive && rows.length > 0) {
-      scrollToDraftBottom(event.api);
-      hasInitialDraftScroll.current = true;
+    if (!hasInitialDraftScroll.current && draftPosition === 'bottom' && !readOnly && !filterActive && rows.length > 0) {
+      hasInitialDraftScroll.current = scrollToDraftBottom(event.api);
     }
     autosizeGridColumns(event.api);
     hasAutosized.current = true;
@@ -436,18 +412,17 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   // run autosize once when the first non-empty batch appears.
   const onRowDataUpdated = useCallback((event: { api: FirstDataRenderedEvent['api'] }) => {
     if (!hasInitialDraftScroll.current && draftPosition === 'bottom' && !readOnly && !filterActive && rows.length > 0) {
-      scrollToDraftBottom(event.api);
-      hasInitialDraftScroll.current = true;
+      hasInitialDraftScroll.current = scrollToDraftBottom(event.api);
     }
 
     if (hasAutosized.current) return;
     if (event.api.getDisplayedRowCount() === 0) return;
     autosizeGridColumns(event.api);
     hasAutosized.current = true;
-  }, [draftPosition, readOnly, filterActive, rows.length, autosizeGridColumns]);
+  }, [draftPosition, readOnly, filterActive, rows.length, autosizeGridColumns, scrollToDraftBottom]);
 
   const clearAllFilters = useCallback(() => {
-    gridRef.current?.api.setFilterModel(null);
+    gridRef.current?.api?.setFilterModel(null);
     setFilterActive(false);
   }, []);
 
@@ -473,7 +448,14 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     rows.forEach((row, i) => map.set(row[INTERNAL_ROW_ID], i));
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, revision]);
+  }, [rows, rows.length]);
+
+  const rowIdToIndexRef = useRef(rowIdToIndex);
+  useLayoutEffect(() => {
+    rowIdToIndexRef.current = rowIdToIndex;
+  }, [rowIdToIndex]);
+
+  const getCurrentRowIndex = useCallback((rowId: string) => rowIdToIndexRef.current.get(rowId), []);
 
   const confirm = useConfirm();
 
@@ -509,7 +491,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       setError(null);
     }
     setBulkEditValue('');
-    gridRef.current?.api.deselectAll();
+    gridRef.current?.api?.deselectAll();
   }, [bulkEditCol, bulkEditValue, schema.columns, schema.uniqueKeys, selectedRowIds, rowIdToIndex, onEdit, confirm]);
 
   const deleteSelectedRows = useCallback(() => {
@@ -526,12 +508,16 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     } else {
       setError(null);
     }
-    gridRef.current?.api.deselectAll();
+    gridRef.current?.api?.deselectAll();
   }, [selectedRowIds, rowIdToIndex, onDeleteRows]);
 
   const getRowId = useCallback((params: GetRowIdParams) => {
     return params.data[INTERNAL_ROW_ID] ?? 'fallback';
   }, []);
+
+  useEffect(() => {
+    gridRef.current?.api?.refreshCells({ force: true });
+  }, [revision]);
 
   // Build AG Grid column definitions with valueSetter for validation
   const columnDefs: ColDef[] = useMemo(() => {
@@ -557,7 +543,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
             const rowId = params.data[INTERNAL_ROW_ID];
 
             // Draft row: insert it via API
-            if (rowId === DRAFT_ROW_ID) {
+            if (isDraftRowId(rowId)) {
               const newRow: Row = {};
               for (const c of schema.columns) {
                 newRow[c.name] = c.name === col.name ? newValue : (params.data[c.name] ?? '');
@@ -568,25 +554,26 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
                   newRow[keyColName] = `new-${draftCounter.current}`;
                 }
               }
-              const errors = onInsert(newRow);
+              const errors = insertDraftRow(newRow);
               if (errors.length > 0) {
                 setError(errors[0].message);
                 log('draft insert error:', errors[0].message);
                 return false;
               }
               setError(null);
+              removeDraftRow(rowId);
               log('draft promoted via', col.name, '->', newValue);
               return false; // Return false because the real data comes from the newly inserted row
             }
 
             // Normal row: apply edit via API
-            const idx = rowIdToIndex.get(rowId);
+            const idx = getCurrentRowIndex(rowId);
             if (idx === undefined) {
               log('valueSetter: row not found for', rowId);
               return false;
             }
 
-            const errors = onEdit(idx, col.name, newValue);
+            const errors = commitRowEdit(idx, col.name, newValue);
             if (errors.length > 0) {
               setError(errors[0].message);
               log('valueSetter error:', errors[0].message);
@@ -612,7 +599,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           const rowId = params.data?.[INTERNAL_ROW_ID];
 
           // Draft row: insert it via API
-          if (rowId === DRAFT_ROW_ID) {
+          if (isDraftRowId(rowId)) {
             const newRow: Row = {};
             for (const c of schema.columns) {
               if (c.name === col.name) {
@@ -626,18 +613,19 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
                 newRow[keyColName] = `new-${draftCounter.current}`;
               }
             }
-            const errors = onInsert(newRow);
+            const errors = insertDraftRow(newRow);
             if (errors.length > 0) {
               setError(errors[0].message);
               return false;
             }
             setError(null);
+            removeDraftRow(rowId);
             return false;
           }
 
-          const idx = rowIdToIndex.get(rowId);
+          const idx = getCurrentRowIndex(rowId);
           if (idx === undefined) return false;
-          const errors = onEdit(idx, col.name, newValue);
+          const errors = commitRowEdit(idx, col.name, newValue);
           if (errors.length > 0) {
             setError(errors[0].message);
             return false;
@@ -677,7 +665,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
               resolveColumnPath,
               searchColumns: searchCols,
               displayColumns: displayCols,
-              onCreateRecord: onCreateReferenceRow,
+              onCreateRecord: createReferenceRow,
             },
           };
         };
@@ -780,13 +768,13 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
             return;
           }
           const rowId = params.data[INTERNAL_ROW_ID];
-          if (rowId === DRAFT_ROW_ID) return;
+          if (isDraftRowId(rowId)) return;
 
           const currentKey = params.value || null;
           openDialog(currentKey, bookId, schema.name, (newKey) => {
-            const idx = rowIdToIndex.get(rowId);
+            const idx = getCurrentRowIndex(rowId);
             if (idx !== undefined) {
-              const errors = onEdit(idx, col.name, newKey ?? '');
+              const errors = commitRowEdit(idx, col.name, newKey ?? '');
               if (errors.length > 0) {
                 setError(errors[0].message);
               }
@@ -809,7 +797,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         editable: false,
         suppressMovable: true,
         valueGetter: (params) => {
-          if (!params.data || params.data[INTERNAL_ROW_ID] === DRAFT_ROW_ID) return '';
+          if (!params.data || isDraftRowId(params.data[INTERNAL_ROW_ID])) return '';
           const ctx: Record<string, number> = {};
           for (const n of dataColNames) ctx[n] = Number(params.data[n]) || 0;
           const result = calcFn(0, ctx);
@@ -820,7 +808,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     }
 
     // Open-record button column (leading, narrow)
-    if (onOpenRecord) {
+    if (hasOpenRecordColumn) {
       cols.unshift({
         colId: '__open_record__',
         headerName: '',
@@ -833,18 +821,18 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         editable: false,
         suppressMovable: true,
         cellRenderer: (params: CustomCellRendererProps) => (
-          <OpenRecordButton {...params} onOpen={onOpenRecord} />
+          <OpenRecordButton {...params} onOpen={openRecord} />
         ),
       });
     }
 
     return cols;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schema, revision, rowIdToIndex, onEdit, onInsert, bookId, onOpenRecord, getReferencedRow, getReferenceRows, resolveColumnPath, resolveColumnPathLabel, onCreateReferenceRow]);
+  }, [schema, bookId, hasOpenRecordColumn, getReferencedRow, getReferenceRows, resolveColumnPath, resolveColumnPathLabel, removeDraftRow, getCurrentRowIndex, insertDraftRow, commitRowEdit, createReferenceRow, openRecord]);
 
   // Style draft row with dimmer text
   const getRowClass = useCallback((params: RowClassParams) => {
-    if (params.data?.[INTERNAL_ROW_ID] === DRAFT_ROW_ID) {
+    if (isDraftRowId(params.data?.[INTERNAL_ROW_ID])) {
       return 'draft-row';
     }
     return undefined;
@@ -861,7 +849,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
 
   const isRowSelectable = useCallback((params: { data?: Row }) => {
-    return params.data?.[INTERNAL_ROW_ID] !== DRAFT_ROW_ID;
+    return !isDraftRowId(params.data?.[INTERNAL_ROW_ID]);
   }, []);
 
   const rowSelectionConfig = useMemo(() => ({
@@ -900,8 +888,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       .map(c => ({ value: c.name, label: c.displayName || c.name })),
     [schema],
   );
-
-  const showBottomDraftSpacer = !readOnly && !filterActive && draftPosition === 'bottom';
 
   const ZOOM_KEY = 'sheetable-grid-zoom';
   const [zoom, setZoom] = useState(() => {
@@ -1081,29 +1067,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     };
   }, [clearCellSelection, onCellSelectionStats]);
 
-  // ── Mobile keyboard avoidance continued ──────────────────────────────────
-  // Listen to visualViewport resize events (fires when mobile keyboard appears/disappears)
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    let prevHeight = vv.height;
-    const KEYBOARD_THRESHOLD = 100;
-
-    const onViewportResize = () => {
-      const heightDiff = prevHeight - vv.height;
-      prevHeight = vv.height;
-      if (heightDiff > KEYBOARD_THRESHOLD) {
-        // Keyboard just opened — scroll editor into view
-        requestAnimationFrame(() => {
-          scrollEditingCellIntoView();
-        });
-      }
-    };
-
-    vv.addEventListener('resize', onViewportResize);
-    return () => vv.removeEventListener('resize', onViewportResize);
-  }, [scrollEditingCellIntoView]);
-
   return (
     <div className="spreadsheet-container" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
       {error && (
@@ -1149,7 +1112,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           <button className="btn-danger btn-sm" onClick={deleteSelectedRows}>
             Delete Selected
           </button>
-          <button className="btn-secondary btn-sm" onClick={() => gridRef.current?.api.deselectAll()}>
+          <button className="btn-secondary btn-sm" onClick={() => gridRef.current?.api?.deselectAll()}>
             Clear
           </button>
         </div>

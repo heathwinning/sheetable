@@ -213,6 +213,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     setDialog({ open: true, title: 'New Entry', initialValues });
   };
 
+  const handleCreateAgendaEntry = (date: Date) => {
+    if (readOnly || !onCreateRow) return;
+    const initialValues: Row = {};
+    for (const col of schema.columns) {
+      if (col.name === INTERNAL_ROW_ID) continue;
+      initialValues[col.name] = col.name === dateColumn
+        ? (col.type === 'date' ? format(date, 'yyyy-MM-dd') : format(date, "yyyy-MM-dd'T'00:00"))
+        : '';
+    }
+    setDialog({ open: true, title: 'New Entry', initialValues });
+  };
+
   const handleSelectEvent = (ev: CalEvent) => {
     const row = ev.resource;
     if (!row) return;
@@ -394,6 +406,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             selectedDate={agendaDateFilter}
             todayRef={{ current: null }}
             onSelectEvent={(scrollEv) => handleSelectEvent(scrollEv as CalEvent)}
+            onCreateEntry={!readOnly && onCreateRow ? handleCreateAgendaEntry : undefined}
+            imageColumns={schema.columns.filter(column => column.type === 'image')}
+            bookId={bookId}
           />
         </div>
       )}

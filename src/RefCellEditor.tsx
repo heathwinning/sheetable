@@ -33,20 +33,23 @@ export default function RefCellEditor(props: RefCellEditorProps) {
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const vv = window.visualViewport;
-    const viewH = vv ? vv.height : window.innerHeight;
+    const viewTop = vv?.offsetTop ?? 0;
+    const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
     const maxDropdownH = 240; // matches .ref-editor-list max-h-60
-    const belowRoom = viewH - rect.bottom;
-    const showAbove = belowRoom < maxDropdownH + 16;
+    const belowRoom = viewBottom - rect.bottom;
+    const aboveRoom = rect.top - viewTop;
+    const showAbove = belowRoom < maxDropdownH + 16 && aboveRoom > belowRoom;
+    const availableHeight = Math.max(0, (showAbove ? aboveRoom : belowRoom) - 8);
+    const maxHeight = Math.min(maxDropdownH, availableHeight);
+    const dropdownHeight = Math.min(maxHeight, listRef.current?.scrollHeight ?? maxHeight);
 
     setDropdownAbove(showAbove);
     setDropdownStyle({
       position: 'fixed',
       left: rect.left,
-      ...(showAbove
-        ? { bottom: window.innerHeight - rect.top }
-        : { top: rect.bottom }),
+      top: showAbove ? rect.top - dropdownHeight : rect.bottom,
       minWidth: Math.max(rect.width, 200),
-      maxHeight: showAbove ? Math.min(maxDropdownH, rect.top - 8) : Math.min(maxDropdownH, belowRoom - 8),
+      maxHeight,
       zIndex: 9999,
     });
   }, []);
@@ -59,7 +62,7 @@ export default function RefCellEditor(props: RefCellEditorProps) {
       row,
       displayText: dCols.map(c => resolveColumnPath(refTable, row, c)).filter(Boolean).join(' · '),
       searchText: sCols.map(c => resolveColumnPath(refTable, row, c).toLowerCase()).join(' '),
-    }));
+    })).sort((left, right) => left.displayText.localeCompare(right.displayText, undefined, { numeric: true, sensitivity: 'base' }));
   }, [refRows, refTable, resolveColumnPath, displayColumns, searchColumns]);
 
   const filtered = useMemo(() =>
@@ -75,13 +78,18 @@ export default function RefCellEditor(props: RefCellEditorProps) {
     // Reposition on any scroll (grid viewport, window) or resize
     const onScroll = () => updateDropdownPos();
     const vp = document.querySelector('.ag-body-viewport');
+    const vv = window.visualViewport;
     vp?.addEventListener('scroll', onScroll);
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onScroll);
+    vv?.addEventListener('resize', onScroll);
+    vv?.addEventListener('scroll', onScroll);
     return () => {
       vp?.removeEventListener('scroll', onScroll);
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onScroll);
+      vv?.removeEventListener('resize', onScroll);
+      vv?.removeEventListener('scroll', onScroll);
     };
   }, [updateDropdownPos]);
 

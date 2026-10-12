@@ -153,19 +153,22 @@ export default function DateCellEditor({ value, onValueChange, stopEditing }: Cu
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const vv = window.visualViewport;
-    const viewH = vv ? vv.height : window.innerHeight;
-    // The inline date picker is ~300px tall
+    const viewTop = vv?.offsetTop ?? 0;
+    const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
     const pickerH = 310;
-    const belowRoom = viewH - rect.bottom;
-    const showAbove = belowRoom < pickerH + 8;
+    const belowRoom = viewBottom - rect.bottom;
+    const aboveRoom = rect.top - viewTop;
+    const showAbove = belowRoom < pickerH + 8 && aboveRoom > belowRoom;
+    const availableHeight = Math.max(0, (showAbove ? aboveRoom : belowRoom) - 8);
+    const popoverHeight = Math.min(pickerH, availableHeight);
 
     setPopoverAbove(showAbove);
     setPopoverStyle({
       position: 'fixed',
       left: Math.min(rect.left, window.innerWidth - 320),
-      ...(showAbove
-        ? { bottom: window.innerHeight - rect.top }
-        : { top: rect.bottom }),
+      top: showAbove ? rect.top - popoverHeight : rect.bottom,
+      maxHeight: popoverHeight,
+      overflowY: 'auto',
       zIndex: 9999,
     });
   }, []);
@@ -175,13 +178,18 @@ export default function DateCellEditor({ value, onValueChange, stopEditing }: Cu
     updatePopoverPos();
     const onScroll = () => updatePopoverPos();
     const vp = document.querySelector('.ag-body-viewport');
+    const vv = window.visualViewport;
     vp?.addEventListener('scroll', onScroll);
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onScroll);
+    vv?.addEventListener('resize', onScroll);
+    vv?.addEventListener('scroll', onScroll);
     return () => {
       vp?.removeEventListener('scroll', onScroll);
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onScroll);
+      vv?.removeEventListener('resize', onScroll);
+      vv?.removeEventListener('scroll', onScroll);
     };
   }, [updatePopoverPos]);
 

@@ -486,7 +486,7 @@ const PivotTableGrid: React.FC<{
       if (!cell) {
         anchorCell = null;
         selectionRef.current = null;
-        pivotGridRef.current?.api.refreshCells({ force: true });
+        pivotGridRef.current?.api?.refreshCells({ force: true });
         setPivotCellStats(null);
         return;
       }
@@ -496,7 +496,7 @@ const PivotTableGrid: React.FC<{
       } else if (isCellInSelection(cell)) {
         anchorCell = null;
         selectionRef.current = null;
-        pivotGridRef.current?.api.refreshCells({ force: true });
+        pivotGridRef.current?.api?.refreshCells({ force: true });
         setPivotCellStats(null);
       } else {
         applyPivotSelection(anchorCell, cell);

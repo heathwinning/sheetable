@@ -11,6 +11,8 @@ import { isToday } from 'date-fns/isToday';
 import { isBefore } from 'date-fns/isBefore';
 import { format } from 'date-fns/format';
 import { parseISO } from 'date-fns/parseISO';
+import * as api from './api';
+import type { ColumnDef, Row } from './types';
 
 export interface ScrollEvent {
   id: unknown;
@@ -126,7 +128,11 @@ export const AgendaView: React.FC<{
   selectedDate?: Date | null;
   todayRef: React.RefObject<HTMLDivElement | null>;
   onSelectEvent?: (event: ScrollEvent) => void;
-}> = ({ events, year, selectedDate = null, todayRef, onSelectEvent }) => {
+  onCreateEntry?: (date: Date) => void;
+  imageColumns?: ColumnDef[];
+  bookId?: string | null;
+}> = ({ events, year, selectedDate = null, todayRef, onSelectEvent, onCreateEntry, imageColumns = [], bookId }) => {
+  const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const selectedDateKey = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : null;
   const sorted = useMemo(() =>
     [...events]
@@ -149,12 +155,10 @@ export const AgendaView: React.FC<{
 
   const todayKey = format(new Date(), 'yyyy-MM-dd');
 
-  if (groups.length === 0) {
-    return <div className="agenda-empty">No events</div>;
-  }
-
   return (
     <div>
+      {onCreateEntry && <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}><button className="calendar-toolbar-btn" onClick={() => onCreateEntry(selectedDate ?? new Date())}>+ Add entry</button></div>}
+      {groups.length === 0 && <div className="agenda-empty">No events</div>}
       {groups.map(({ key, date, evs }) => {
         const today = key === todayKey;
         const past = isBefore(date, new Date()) && !today;
@@ -179,15 +183,32 @@ export const AgendaView: React.FC<{
                 className={`agenda-event-item ${past ? 'past' : ''} ${onSelectEvent ? '' : 'not-clickable'}`}
               >
                 <div className="agenda-event-accent" />
-                <span className="agenda-event-title">{ev.title}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span className="agenda-event-title">{ev.title}</span>
+                  {bookId && imageColumns.map(column => {
+                    const raw = (ev.resource as Row | undefined)?.[column.name];
+                    const images = parseImageKeys(raw);
+                    return images.length ? <button key={column.name} type="button" aria-label={`View ${column.displayName ?? column.name} images`} onClick={event => { event.stopPropagation(); setGallery({ images, index: 0 }); }} style={{ display: 'flex', gap: 6, border: 0, padding: 0, marginTop: 6, background: 'none', cursor: 'pointer' }}>{images.map(key => <img key={key} src={api.imageUrl(bookId, key)} alt="" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 5 }} />)}</button> : null;
+                  })}
+                </div>
               </div>
             ))}
           </div>
         );
       })}
+      {gallery && bookId && <div className="image-dialog-overlay" onClick={() => setGallery(null)}><div className="image-dialog" onClick={event => event.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 12 }}><button className="calendar-toolbar-btn" aria-label="Previous image" onClick={() => setGallery(g => g && ({ ...g, index: (g.index + g.images.length - 1) % g.images.length }))}>‹</button><img className="image-dialog-preview" src={api.imageUrl(bookId, gallery.images[gallery.index])} alt={`Image ${gallery.index + 1} of ${gallery.images.length}`} /><button className="calendar-toolbar-btn" aria-label="Next image" onClick={() => setGallery(g => g && ({ ...g, index: (g.index + 1) % g.images.length }))}>›</button></div></div>}
     </div>
   );
 };
+
+function parseImageKeys(value: unknown): string[] {
+  if (!value || typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+  } catch { /* image fields normally store one key */ }
+  return [value];
+}
 
 // ---- Main CalendarScrollView ------------------------------------------------
 
@@ -370,7 +391,6 @@ const _scrollToMonth = useCallback((key: string) => {
 };
 
 // ---- Styles -----------------------------------------------------------------
-
 
 
 
