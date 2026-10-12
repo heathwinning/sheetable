@@ -23,6 +23,14 @@ export default function RefCellEditor(props: RefCellEditorProps) {
   const [isCreating, setIsCreating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const blurStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelBlurStop = useCallback(() => {
+    if (blurStopTimer.current !== null) {
+      clearTimeout(blurStopTimer.current);
+      blurStopTimer.current = null;
+    }
+  }, []);
+  useEffect(() => cancelBlurStop, [cancelBlurStop]);
 
   // Dropdown position (portal-rendered, anchored to the cell input).
   // Shows below the cell unless there isn't enough room, then shows above.
@@ -199,9 +207,14 @@ export default function RefCellEditor(props: RefCellEditorProps) {
         value={search}
         onChange={e => { setSearch(e.target.value); setSelectedIndex(-1); }}
         onKeyDown={handleKeyDown}
+        onFocus={cancelBlurStop}
         onBlur={() => {
           // Delay to allow dropdown click to register
-          setTimeout(() => stopEditing(), 150);
+          cancelBlurStop();
+          blurStopTimer.current = setTimeout(() => {
+            blurStopTimer.current = null;
+            stopEditing();
+          }, 150);
         }}
         placeholder="Search…"
         className="ref-editor-search-inline"

@@ -143,6 +143,14 @@ export default function DateCellEditor({ value, onValueChange, stopEditing }: Cu
   });
   const inputRef = useRef<HTMLInputElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const blurStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelBlurStop = useCallback(() => {
+    if (blurStopTimer.current !== null) {
+      clearTimeout(blurStopTimer.current);
+      blurStopTimer.current = null;
+    }
+  }, []);
+  useEffect(() => cancelBlurStop, [cancelBlurStop]);
 
   // Portal position (above / below the cell)
   const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties>({});
@@ -248,10 +256,15 @@ export default function DateCellEditor({ value, onValueChange, stopEditing }: Cu
         type="text"
         value={text}
         onChange={e => { setText(e.target.value); setSelectedDate(parseDate(e.target.value)); }}
+        onFocus={cancelBlurStop}
         onBlur={() => {
           commitText();
           // Delay stopEditing so clicks on the date picker can register first
-          setTimeout(() => stopEditing(), 150);
+          cancelBlurStop();
+          blurStopTimer.current = setTimeout(() => {
+            blurStopTimer.current = null;
+            stopEditing();
+          }, 150);
         }}
         onKeyDown={handleKeyDown}
         placeholder="yyyy/MM/dd"
