@@ -595,7 +595,12 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         const newType = params.newValue as ColumnType;
         const idx = params.data._idx;
         const oldType = columns[idx].type;
-        if (oldType === newType) return false;
+        if (oldType === newType) {
+          if (newType === 'list') requestAnimationFrame(() => setListDialogCol(idx));
+          else if (newType === 'reference') requestAnimationFrame(() => setRefDialogCol(idx));
+          else if (newType === 'calculated') requestAnimationFrame(() => setCalcDialogCol(idx));
+          return false;
+        }
 
         const refUpdates: Partial<ColumnDef> = {
           type: newType,
@@ -702,7 +707,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       headerName: 'Default Value',
       field: 'defaultValue',
       editable: (params: { data?: { type: string } }) => {
-        if (params.data?.type === 'calculated') return false;
+        if (params.data?.type === 'calculated' || params.data?.type === 'list') return false;
         return true;
       },
       cellEditor: DefaultValueCellEditor,
@@ -731,7 +736,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
             style: { color: 'var(--color-text-muted, #999)', fontSize: 11 },
           }, 'click to set');
         }
-        if (colType === 'calculated') return '';
+        if (colType === 'calculated' || colType === 'list') return '';
         return v || '';
       },
       cellStyle: (params: { data: { type: string } }) => {

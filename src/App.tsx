@@ -979,6 +979,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
             onCreateRow={canEdit ? (row) => state.insertRow(viewSheet.tableName, row) : undefined}
             onUpdateField={canEdit ? (rowIndex, col, val) => state.applyEdit(viewSheet.tableName, rowIndex, col, val) : undefined}
             getReferenceRows={(refTable) => state.getReferenceRows(refTable)}
+            resolveReferencePath={state.resolveColumnPath}
             readOnly={!canEdit}
             bookId={state.activeBookId}
             configKey={`${state.activeBookId}-${viewSheet.tableName}`}

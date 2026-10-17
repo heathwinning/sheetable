@@ -14,10 +14,21 @@ interface RefCellEditorProps {
   searchColumns: string[];
   displayColumns: string[];
   onCreateRecord?: (refTable: string, seedText: string) => Promise<string | null>;
+  /** Multi-select mode: options toggle in `selectedIds` and the dropdown stays open. */
+  multiple?: boolean;
+  selectedIds?: string[];
+  onSelectedIdsChange?: (ids: string[]) => void;
+  /** Style overrides for the search input, e.g. to render it as a bordered dialog field. */
+  inputClassName?: string;
+  inputStyle?: React.CSSProperties;
+  placeholder?: string;
+  /** Focus and open on mount (default true; disable when embedded in a form). */
+  autoFocus?: boolean;
 }
 
 export default function RefCellEditor(props: RefCellEditorProps) {
-  const { refRows, refTable, resolveColumnPath, searchColumns, displayColumns, onValueChange, stopEditing, onCreateRecord } = props;
+  const { refRows, refTable, resolveColumnPath, searchColumns, displayColumns, onValueChange, stopEditing, onCreateRecord, multiple, selectedIds, onSelectedIdsChange } = props;
+  const [open, setOpen] = useState(props.autoFocus !== false);
   const [search, setSearch] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [isCreating, setIsCreating] = useState(false);
@@ -81,7 +92,7 @@ export default function RefCellEditor(props: RefCellEditorProps) {
   );
 
   useEffect(() => {
-    inputRef.current?.focus();
+    if (props.autoFocus !== false) inputRef.current?.focus();
     updateDropdownPos();
     // Reposition on any scroll (grid viewport, window) or resize
     const onScroll = () => updateDropdownPos();
@@ -99,11 +110,11 @@ export default function RefCellEditor(props: RefCellEditorProps) {
       vv?.removeEventListener('resize', onScroll);
       vv?.removeEventListener('scroll', onScroll);
     };
-  }, [updateDropdownPos]);
+  }, [updateDropdownPos]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     updateDropdownPos();
-  }, [filtered, updateDropdownPos]);
+  }, [filtered, open, updateDropdownPos]);
 
   useEffect(() => {
     if (selectedIndex >= 0 && listRef.current) {
@@ -114,9 +125,17 @@ export default function RefCellEditor(props: RefCellEditorProps) {
 
   const selectValue = useCallback((rowId: string) => {
     log('RefCellEditor selectValue:', rowId);
+    if (multiple) {
+      const current = selectedIds ?? [];
+      if (!rowId) onSelectedIdsChange?.([]);
+      else onSelectedIdsChange?.(current.includes(rowId) ? current.filter(id => id !== rowId) : [...current, rowId]);
+      setSearch('');
+      setSelectedIndex(-1);
+      return;
+    }
     onValueChange(rowId || null);
     setTimeout(() => stopEditing(), 0);
-  }, [onValueChange, stopEditing]);
+  }, [onValueChange, stopEditing, multiple, selectedIds, onSelectedIdsChange]);
 
   const showCreateOption = !!onCreateRecord && search.trim().length > 0;
   const createOptionIndex = filtered.length + 1;
@@ -152,6 +171,7 @@ export default function RefCellEditor(props: RefCellEditorProps) {
         void handleCreateRecord();
       }
     } else if (e.key === 'Escape') {
+      setOpen(false);
       stopEditing();
     } else if (e.key === 'Tab') {
       // Allow Tab to move to next cell
@@ -171,12 +191,12 @@ export default function RefCellEditor(props: RefCellEditorProps) {
         data-select-index={0}
         onClick={() => selectValue('')}
       >
-        <em>Clear</em>
+        <em>{multiple ? 'Clear all' : 'Clear'}</em>
       </div>
       {filtered.map((r, i) => (
         <div
           key={r.row[INTERNAL_ROW_ID]}
-          className={`ref-editor-option ${selectedIndex === i + 1 ? 'selected' : ''} ${r.row[INTERNAL_ROW_ID] === props.value ? 'current' : ''}`}
+          className={`ref-editor-option ${selectedIndex === i + 1 ? 'selected' : ''} ${(multiple ? (selectedIds ?? []).includes(r.row[INTERNAL_ROW_ID]) : r.row[INTERNAL_ROW_ID] === props.value) ? 'current' : ''}`}
           data-select-index={i + 1}
           onClick={() => selectValue(r.row[INTERNAL_ROW_ID])}
         >
@@ -207,18 +227,19 @@ export default function RefCellEditor(props: RefCellEditorProps) {
         value={search}
         onChange={e => { setSearch(e.target.value); setSelectedIndex(-1); }}
         onKeyDown={handleKeyDown}
-        onFocus={cancelBlurStop}
+        onFocus={() => { cancelBlurStop(); setOpen(true); }}
         onBlur={() => {
           // Delay to allow dropdown click to register
           cancelBlurStop();
           blurStopTimer.current = setTimeout(() => {
             blurStopTimer.current = null;
+            setOpen(false);
             stopEditing();
           }, 150);
         }}
-        placeholder="Search…"
-        className="ref-editor-search-inline"
-        style={{
+        placeholder={props.placeholder ?? 'Search…'}
+        className={props.inputClassName ?? 'ref-editor-search-inline'}
+        style={props.inputStyle ?? {
           width: '100%',
           height: '100%',
           border: 'none',
@@ -230,7 +251,7 @@ export default function RefCellEditor(props: RefCellEditorProps) {
           boxSizing: 'border-box',
         }}
       />
-      {createPortal(dropdown, document.body)}
+      {open && createPortal(dropdown, document.body)}
     </div>
   );
 }

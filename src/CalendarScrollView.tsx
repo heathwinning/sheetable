@@ -12,6 +12,7 @@ import { isBefore } from 'date-fns/isBefore';
 import { format } from 'date-fns/format';
 import { parseISO } from 'date-fns/parseISO';
 import * as api from './api';
+import { parseListItems } from './listValue';
 import type { ColumnDef, Row } from './types';
 
 export interface ScrollEvent {
@@ -203,11 +204,7 @@ export const AgendaView: React.FC<{
 
 function parseImageKeys(value: unknown): string[] {
   if (!value || typeof value !== 'string') return [];
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
-  } catch { /* image fields normally store one key */ }
-  return [value];
+  return parseListItems(value).filter(Boolean);
 }
 
 // ---- Main CalendarScrollView ------------------------------------------------

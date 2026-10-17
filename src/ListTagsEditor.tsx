@@ -1,24 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { parseListItems, isValidListItem } from './listValue';
 
 interface ListTagsEditorProps {
   value: string;
   onValueChange: (value: string) => void;
   stopEditing: () => void;
+  listOf?: string;
 }
 
-function parseItems(value: string): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed.map(String);
-  } catch {
-    // fall through
-  }
-  return value ? [value] : [];
-}
-
-export default function ListTagsEditor({ value, onValueChange, stopEditing }: ListTagsEditorProps) {
-  const [items, setItems] = useState<string[]>(() => parseItems(value));
+export default function ListTagsEditor({ value, onValueChange, stopEditing, listOf }: ListTagsEditorProps) {
+  const [items, setItems] = useState<string[]>(() => parseListItems(value));
   const [inputVal, setInputVal] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -32,9 +23,16 @@ export default function ListTagsEditor({ value, onValueChange, stopEditing }: Li
     onValueChange(items.length > 0 ? JSON.stringify(items) : '');
   }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [invalid, setInvalid] = useState(false);
+
   const addItem = () => {
     const v = inputVal.trim();
     if (!v) return;
+    if (!isValidListItem(listOf, v)) {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
     setItems(prev => [...prev, v]);
     setInputVal('');
   };
@@ -71,7 +69,7 @@ export default function ListTagsEditor({ value, onValueChange, stopEditing }: Li
       ref={containerRef}
       style={{
         background: 'var(--ag-background-color, #fff)',
-        border: '2px solid var(--ag-input-focus-border-color, #2196f3)',
+        border: `2px solid ${invalid ? 'var(--color-danger, #d32f2f)' : 'var(--ag-input-focus-border-color, #2196f3)'}`,
         borderRadius: 4,
         padding: '3px 6px',
         display: 'flex',
@@ -122,7 +120,7 @@ export default function ListTagsEditor({ value, onValueChange, stopEditing }: Li
       <input
         ref={inputRef}
         value={inputVal}
-        onChange={e => setInputVal(e.target.value)}
+        onChange={e => { setInputVal(e.target.value); setInvalid(false); }}
         onKeyDown={handleKeyDown}
         style={{
           border: 'none',

@@ -12,6 +12,10 @@ import type { CustomCellRendererProps } from 'ag-grid-react';
 import RefCellEditor from './RefCellEditor';
 import DateCellEditor from './DateCellEditor';
 import ListTagsEditor from './ListTagsEditor';
+import { RefListCellEditor, resolveRefLabel } from './RefListEditor';
+import { useImageListDialog } from './ImageListEditor';
+import { parseListItems } from './listValue';
+import * as api from './api';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
 import { normalizeTemporalString, parseTemporalUnknown, formatDateCanonical, formatDateTimeCanonical } from './dateFormat';
 import { getCalc } from './chartFormat';
@@ -21,18 +25,7 @@ const DRAFT_ROW_ID = '_draft';
 const isDraftRowId = (rowId: unknown): rowId is string =>
   typeof rowId === 'string' && rowId.startsWith(DRAFT_ROW_ID);
 
-function parseListItems(value: string): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed.map(String);
-  } catch {
-    // fall through
-  }
-  return value ? [value] : [];
-}
-
-const ListTagsRenderer: React.FC<CustomCellRendererProps> = ({ value }) => {
+const ListTagsRenderer: React.FC<CustomCellRendererProps & { formatItem?: (item: string) => string }> = ({ value, formatItem }) => {
   const items = parseListItems(value ?? '');
   if (items.length === 0) return null;
   return (
@@ -50,7 +43,7 @@ const ListTagsRenderer: React.FC<CustomCellRendererProps> = ({ value }) => {
             display: 'inline-block',
           }}
         >
-          {item}
+          {formatItem ? formatItem(item) : item}
         </span>
       ))}
     </div>
@@ -142,6 +135,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   const draftSchemaRef = useRef(schema);
   const [draftIds, setDraftIds] = useState([DRAFT_ROW_ID]);
   const { openDialog, dialogElement } = useImageDialog();
+  const { openListDialog, listDialogElement } = useImageListDialog();
   const [filterActive, setFilterActive] = useState(false);
   const [displayedRowCount, setDisplayedRowCount] = useState<number | null>(null);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
@@ -753,9 +747,77 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       if (col.type === 'list') {
         def.cellRenderer = ListTagsRenderer;
         def.cellEditor = ListTagsEditor;
+        def.cellEditorParams = { listOf: col.listOf };
         def.cellEditorPopup = true;
         def.cellEditorPopupPosition = 'under';
         def.autoHeight = true;
+
+        if (col.listOf === 'reference' && col.refTable) {
+          const refTable = col.refTable;
+          const displayCols = col.refDisplayColumns ?? [];
+          const searchCols = col.refSearchColumns ?? [];
+          const formatItem = (rowId: string) =>
+            resolveRefLabel(rowId, getReferenceRows(refTable), refTable, resolveColumnPath, displayCols, searchCols);
+          def.cellRenderer = (params: CustomCellRendererProps) => <ListTagsRenderer {...params} formatItem={formatItem} />;
+          def.valueFormatter = (params) => parseListItems(params.value ?? '').map(formatItem).join(', ');
+          def.filterValueGetter = (params) => parseListItems(params.data?.[col.name] ?? '').map(formatItem).join(', ');
+          def.cellEditorSelector = () => ({
+            component: RefListCellEditor,
+            popup: true,
+            popupPosition: 'under',
+            params: {
+              refRows: getReferenceRows(refTable),
+              refTable,
+              resolveColumnPath,
+              searchColumns: searchCols,
+              displayColumns: displayCols,
+              onCreateRecord: createReferenceRow,
+              autoFocus: true,
+            },
+          });
+        }
+
+        if (col.listOf === 'image') {
+          def.cellRenderer = (params: CustomCellRendererProps) => {
+            const keys = parseListItems(params.value ?? '');
+            if (keys.length === 0 || !bookId) return null;
+            return (
+              <div style={{ display: 'flex', gap: 3, alignItems: 'center', height: '100%' }}>
+                {keys.slice(0, 3).map((key, index) => (
+                  <img key={`${key}-${index}`} src={api.imageUrl(bookId, key)} alt="" style={{ height: 20, width: 20, objectFit: 'cover', borderRadius: 3 }} />
+                ))}
+                {keys.length > 3 && <span style={{ fontSize: 11 }}>+{keys.length - 3}</span>}
+              </div>
+            );
+          };
+          def.autoHeight = false;
+          def.editable = false;
+          def.onCellClicked = (params) => {
+            if (!bookId) {
+              setError('Sign in and open a book to upload images');
+              return;
+            }
+            const rowId = params.data[INTERNAL_ROW_ID];
+            if (isDraftRowId(rowId) && readOnly) return;
+            openListDialog(params.value ?? "", bookId, !!readOnly, (newValue) => {
+              if (isDraftRowId(rowId)) {
+                const newRow: Row = {};
+                for (const c of schema.columns) newRow[c.name] = c.name === col.name ? newValue : (params.data?.[c.name] ?? '');
+                for (const keyColName of (schema.uniqueKeys ?? [])) {
+                  if (!newRow[keyColName]) newRow[keyColName] = `new-${draftCounter.current}`;
+                }
+                const errors = insertDraftRow(newRow);
+                if (errors.length > 0) setError(errors[0].message);
+                else removeDraftRow(rowId);
+                return;
+              }
+              const idx = getCurrentRowIndex(rowId);
+              if (idx === undefined) return;
+              const errors = commitRowEdit(idx, col.name, newValue);
+              if (errors.length > 0) setError(errors[0].message);
+            });
+          };
+        }
       }
 
       // Image columns: icon indicator in-cell, click to open upload/preview dialog
@@ -884,7 +946,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   // Editable column options for bulk edit dropdown
   const editableColumnOptions = useMemo(() =>
     schema.columns
-      .filter(c => c.type !== 'image')
+      .filter(c => c.type !== 'image' && c.type !== 'list')
       .map(c => ({ value: c.name, label: c.displayName || c.name })),
     [schema],
   );
@@ -1118,6 +1180,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         </div>
       )}
       {dialogElement}
+      {listDialogElement}
       <div className="grid-status-bar">
         <span className="grid-row-count">
           {rows.length} row{rows.length !== 1 ? 's' : ''}{displayedRowCount !== null ? ` (${displayedRowCount} shown)` : ''}

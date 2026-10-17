@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import type { TableSchema, Row, ValidationError, ChartSheet, ChartConfig, ChartLayoutItem, ViewSheet, UndoEntry, SessionUser, BookInfo } from './types';
+import type { TableSchema, ColumnDef, Row, ValidationError, ChartSheet, ChartConfig, ChartLayoutItem, ViewSheet, UndoEntry, SessionUser, BookInfo } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import * as api from './api';
 import { log } from './DebugLogger';
@@ -108,12 +108,41 @@ function validateType(type: string, value: string, rowIndex: number, columnName:
         return [{ message: `"${value}" is not a valid boolean (true/false)`, rowIndex, columnName }];
       break;
     case 'list':
-      try { JSON.parse(value); } catch {
+      try {
+        if (!Array.isArray(JSON.parse(value))) throw new Error('not an array');
+      } catch {
         return [{ message: `"${value}" is not a valid list (must be JSON array)`, rowIndex, columnName }];
       }
       break;
   }
   return [];
+}
+
+function parseListIds(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function columnReferencesRow(col: ColumnDef, cellValue: string | undefined, rowId: string): boolean {
+  if (!cellValue) return false;
+  if (col.type === 'reference') return cellValue === rowId;
+  if (col.type === 'list' && col.listOf === 'reference') return parseListIds(cellValue).includes(rowId);
+  return false;
+}
+
+function referencedTable(col: ColumnDef): string | undefined {
+  if (col.type === 'reference' || (col.type === 'list' && col.listOf === 'reference')) return col.refTable;
+  return undefined;
+}
+
+function missingReference(col: ColumnDef, value: string, refRows: Row[] | undefined): boolean {
+  if (!value) return false;
+  const ids = col.type === 'list' ? parseListIds(value) : [value];
+  return ids.some(id => !refRows?.some(r => r[INTERNAL_ROW_ID] === id));
 }
 
 function validateUniqueKey(rows: Row[], _schema: TableSchema, keyValues: Record<string, string>, excludeRow: number): ValidationError[] {
@@ -576,7 +605,7 @@ export function useAppState(): UseAppStateReturn {
     // Update reference paths in other schemas
     for (const [, s] of schemasRef.current) {
       for (const col of s.columns) {
-        if (col.type === 'reference' && col.refTable === tableId) {
+        if (referencedTable(col) === tableId) {
           if (col.refDisplayColumns) {
             col.refDisplayColumns = col.refDisplayColumns.map(p => rewritePath(p, oldName, newName));
           }
@@ -776,11 +805,9 @@ export function useAppState(): UseAppStateReturn {
     }
 
     // Reference validation
-    if (col.type === 'reference' && col.refTable && newValue !== '') {
-      const refRows = rowsRef.current.get(col.refTable);
-      if (!refRows?.some(r => r[INTERNAL_ROW_ID] === newValue)) {
-        return [{ message: `Referenced row not found in "${col.refTable}"`, rowIndex }];
-      }
+    const editRefTable = referencedTable(col);
+    if (editRefTable && newValue !== '' && missingReference(col, newValue, rowsRef.current.get(editRefTable))) {
+      return [{ message: `Referenced row not found in "${editRefTable}"`, rowIndex }];
     }
 
     // Apply optimistic update
@@ -826,11 +853,9 @@ export function useAppState(): UseAppStateReturn {
       const typeErrors = validateType(col.type, value, newRowIndex, col.name);
       if (typeErrors.length > 0) return typeErrors;
 
-      if (col.type === 'reference' && col.refTable && value !== '') {
-        const refRows = rowsRef.current.get(col.refTable);
-        if (!refRows?.some(r => r[INTERNAL_ROW_ID] === value)) {
-          return [{ message: `Referenced row not found in "${col.refTable}"`, rowIndex: newRowIndex }];
-        }
+      const insertRefTable = referencedTable(col);
+      if (insertRefTable && value !== '' && missingReference(col, value, rowsRef.current.get(insertRefTable))) {
+        return [{ message: `Referenced row not found in "${insertRefTable}"`, rowIndex: newRowIndex }];
       }
     }
 
@@ -885,9 +910,9 @@ export function useAppState(): UseAppStateReturn {
     // Check references from other tables
     for (const [otherName, otherSchema] of schemasRef.current) {
       for (const col of otherSchema.columns) {
-        if (col.type === 'reference' && col.refTable === tableId) {
+        if (referencedTable(col) === tableId) {
           const otherRows = rowsRef.current.get(otherName);
-          if (otherRows?.some(r => r[col.name] === rowId)) {
+          if (otherRows?.some(r => columnReferencesRow(col, r[col.name], rowId))) {
             return [{ message: `Cannot delete: row referenced by "${otherName}"`, rowIndex }];
           }
         }
@@ -943,9 +968,9 @@ export function useAppState(): UseAppStateReturn {
       let refError: string | null = null;
       for (const [otherName, otherSchema] of schemasRef.current) {
         for (const col of otherSchema.columns) {
-          if (col.type === 'reference' && col.refTable === tableId) {
+          if (referencedTable(col) === tableId) {
             const otherRows = rowsRef.current.get(otherName);
-            if (otherRows?.some(r => r[col.name] === rowId)) {
+            if (otherRows?.some(r => columnReferencesRow(col, r[col.name], rowId))) {
               refError = `Cannot delete: row referenced by "${otherName}"`;
             }
           }

@@ -1,10 +1,12 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import type { TableSchema, Row, ValidationError } from './types';
+import type { TableSchema, ColumnDef, Row, ValidationError } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { parseTemporalUnknown } from './dateFormat';
 import { format } from 'date-fns/format';
 import { CalendarScrollView, AgendaView } from './CalendarScrollView';
 import { RecordCard } from './RecordCard';
+import { resolveRefLabel } from './RefListEditor';
+import { parseListItems } from './listValue';
 
 const DEFAULT_RESOLVE = (_row: Row, _path: string): string => '';
 
@@ -26,6 +28,7 @@ interface CalendarViewProps {
   onCreateRow?: (row: Row) => ValidationError[];
   onUpdateField?: (rowIndex: number, column: string, value: string) => ValidationError[];
   getReferenceRows?: (refTable: string) => Row[];
+  resolveReferencePath?: (tableName: string, row: Row, path: string) => string;
   readOnly?: boolean;
   bookId?: string | null;
   /** Stable key for persisting column config (e.g. bookId + tableId) */
@@ -37,6 +40,8 @@ interface CalendarViewProps {
   showInlineConfig?: boolean;
 }
 
+const isImageColumn = (c: ColumnDef) => c.type === 'image' || (c.type === 'list' && c.listOf === 'image');
+
 interface DialogState {
   open: boolean;
   title: string;
@@ -47,7 +52,7 @@ interface DialogState {
 export const CalendarView: React.FC<CalendarViewProps> = ({
   schema, rows, dateColumn, onDateColumnChange,
   resolveColumnPath = DEFAULT_RESOLVE,
-  onCreateRow, onUpdateField, getReferenceRows,
+  onCreateRow, onUpdateField, getReferenceRows, resolveReferencePath,
   readOnly = false,
   bookId,
   configKey,
@@ -72,7 +77,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
   // Columns available for display on event chips (all non-date, non-internal)
   const displayableColumns = useMemo(
-    () => schema.columns.filter(c => c.name !== INTERNAL_ROW_ID && c.type !== 'date' && c.type !== 'datetime' && c.type !== 'image'),
+    () => schema.columns.filter(c => c.name !== INTERNAL_ROW_ID && c.type !== 'date' && c.type !== 'datetime' && !isImageColumn(c)),
     [schema.columns],
   );
 
@@ -170,9 +175,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     const parts = effectiveDisplayColumns.map(name => {
       const col = schema.columns.find(c => c.name === name);
       if (!col) return '';
-      return col.type === 'reference'
-        ? resolveColumnPath(row, name)
-        : (row[name] ?? '');
+      if (col.type === 'reference') return resolveColumnPath(row, name);
+      if (col.type === 'list') {
+        const items = parseListItems(row[name]);
+        if (col.listOf === 'reference' && col.refTable && resolveReferencePath && getReferenceRows) {
+          const refRows = getReferenceRows(col.refTable);
+          return items.map(id => resolveRefLabel(id, refRows, col.refTable!, resolveReferencePath, col.refDisplayColumns ?? [], col.refSearchColumns ?? [])).join(', ');
+        }
+        return items.join(', ');
+      }
+      return row[name] ?? '';
     }).filter(Boolean);
     const title = parts.join(' · ') || format(date, 'd MMM yyyy');
     return {
@@ -183,7 +195,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       allDay: isDateOnly,
       resource: row,
     };
-  }).filter(Boolean) as CalEvent[], [rows, dateColumn, effectiveDisplayColumns, schema.columns, isDateOnly, resolveColumnPath]);
+  }).filter(Boolean) as CalEvent[], [rows, dateColumn, effectiveDisplayColumns, schema.columns, isDateOnly, resolveColumnPath, resolveReferencePath, getReferenceRows]);
 
   const hasPicker = dateColumns.length > 1;
 
@@ -407,7 +419,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             todayRef={{ current: null }}
             onSelectEvent={(scrollEv) => handleSelectEvent(scrollEv as CalEvent)}
             onCreateEntry={!readOnly && onCreateRow ? handleCreateAgendaEntry : undefined}
-            imageColumns={schema.columns.filter(column => column.type === 'image')}
+            imageColumns={schema.columns.filter(isImageColumn)}
             bookId={bookId}
           />
         </div>
@@ -420,6 +432,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           onSave={handleDialogSave}
           onClose={() => setDialog(d => ({ ...d, open: false }))}
           getReferenceRows={getReferenceRows ?? (() => [])}
+          resolveColumnPath={resolveReferencePath}
           bookId={bookId}
           readOnly={dialog.rowIndex !== undefined ? (readOnly || !onUpdateField) : (readOnly || !onCreateRow)}
         />

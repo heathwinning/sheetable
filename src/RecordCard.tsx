@@ -10,6 +10,9 @@ import { dialogSelectStyles } from './selectStyles';
 import type { TableSchema, Row, ValidationError, ColumnDef } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import * as api from './api';
+import { ImageListEditor } from './ImageListEditor';
+import { RefListEditor, resolveRefLabel } from './RefListEditor';
+import { parseListItems, serializeListItems, isValidListItem } from './listValue';
 
 interface RecordCardProps {
   schema: TableSchema;
@@ -106,6 +109,64 @@ const ImageField: React.FC<{
         <button onClick={() => onChange('')} className="app-dialog-btn app-dialog-btn-secondary btn-sm" style={{ color: 'var(--color-danger)' }}>
           Remove
         </button>
+      )}
+    </div>
+  );
+};
+
+// ---- Plain list field (text / number / bool / date items) ---------------------
+
+const ListField: React.FC<{ value: string; listOf: string; onChange: (value: string) => void; readOnly: boolean }> = ({ value, listOf, onChange, readOnly }) => {
+  const items = parseListItems(value);
+  const [draft, setDraft] = useState('');
+  const [invalid, setInvalid] = useState(false);
+  const inputType = listOf === 'integer' || listOf === 'decimal' ? 'number' : listOf === 'date' ? 'date' : listOf === 'datetime' ? 'datetime-local' : 'text';
+
+  const add = () => {
+    const item = draft.trim();
+    if (!item) return;
+    if (!isValidListItem(listOf, item)) { setInvalid(true); return; }
+    onChange(serializeListItems([...items, item]));
+    setDraft('');
+    setInvalid(false);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {items.length > 0 ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {items.map((item, index) => (
+            <span key={`${item}-${index}`} style={{ background: 'var(--ag-row-hover-color, #e8f0fe)', borderRadius: 3, padding: '1px 4px 1px 7px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 2, lineHeight: '18px' }}>
+              {item}
+              {!readOnly && (
+                <button type="button" aria-label="Remove" onClick={() => onChange(serializeListItems(items.filter((_, i) => i !== index)))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '0 1px', fontSize: 14, lineHeight: 1 }}>×</button>
+              )}
+            </span>
+          ))}
+        </div>
+      ) : readOnly ? <span style={valueStyle}>—</span> : null}
+      {!readOnly && (
+        <div style={{ display: 'flex', gap: 6 }}>
+          {listOf === 'bool' ? (
+            <select className="app-dialog-input" style={{ ...fieldInputStyle, flex: 1 }} value={draft} onChange={e => { setDraft(e.target.value); setInvalid(false); }}>
+              <option value="">Select…</option>
+              <option value="true">Yes (true)</option>
+              <option value="false">No (false)</option>
+            </select>
+          ) : (
+            <input
+              type={inputType}
+              step={listOf === 'decimal' ? 'any' : undefined}
+              value={draft}
+              placeholder="Type and press Enter to add…"
+              onChange={e => { setDraft(e.target.value); setInvalid(false); }}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+              className="app-dialog-input"
+              style={{ ...fieldInputStyle, flex: 1, ...(invalid ? { borderColor: 'var(--color-danger)' } : {}) }}
+            />
+          )}
+          <button type="button" className="app-dialog-btn app-dialog-btn-secondary btn-sm" onClick={add} disabled={!draft.trim()}>Add</button>
+        </div>
       )}
     </div>
   );
@@ -252,6 +313,37 @@ export const RecordCard: React.FC<RecordCardProps> = ({
                   ) : (
                     <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>{value || '—'}</span>
                   )
+                ) : col.type === 'list' && col.listOf === 'image' ? (
+                  bookId ? (
+                    <ImageListEditor value={value} bookId={bookId} onChange={v => set(col.name, v)} readOnly={readOnly} />
+                  ) : (
+                    <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>{parseListItems(value).length ? `${parseListItems(value).length} image(s)` : '—'}</span>
+                  )
+                ) : col.type === 'list' && col.listOf === 'reference' && col.refTable ? (
+                  readOnly ? (
+                    <span style={valueStyle}>
+                      {parseListItems(value).map(id => resolveRefLabel(id, getReferenceRows(col.refTable!), col.refTable!, resolveColumnPath ?? ((_t, row, path) => row[path] ?? ''), col.refDisplayColumns ?? [], col.refSearchColumns ?? [])).join(', ') || '—'}
+                    </span>
+                  ) : (
+                    <RefListEditor
+                      value={value}
+                      onChange={v => set(col.name, v)}
+                      refRows={getReferenceRows(col.refTable)}
+                      refTable={col.refTable}
+                      resolveColumnPath={resolveColumnPath ?? ((_t, row, path) => row[path] ?? '')}
+                      searchColumns={col.refSearchColumns ?? []}
+                      displayColumns={col.refDisplayColumns ?? []}
+                      onCreateRecord={onCreateReferenceRow}
+                      autoFocus={false}
+                    />
+                  )
+                ) : col.type === 'list' ? (
+                  <ListField
+                    value={value}
+                    listOf={col.listOf ?? 'text'}
+                    onChange={v => set(col.name, v)}
+                    readOnly={readOnly}
+                  />
                 ) : col.type === 'reference' && col.refTable ? (
                   readOnly ? (
                     <span style={valueStyle}>
