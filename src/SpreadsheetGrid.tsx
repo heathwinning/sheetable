@@ -135,7 +135,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   const draftSchemaRef = useRef(schema);
   const [draftIds, setDraftIds] = useState([DRAFT_ROW_ID]);
   const { openDialog, dialogElement } = useImageDialog();
-  const { openListDialog, listDialogElement } = useImageListDialog();
+  const { openListDialog, openImageViewer, listDialogElement, viewerElement } = useImageListDialog();
   const [filterActive, setFilterActive] = useState(false);
   const [displayedRowCount, setDisplayedRowCount] = useState<number | null>(null);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
@@ -784,7 +784,14 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
             return (
               <div style={{ display: 'flex', gap: 3, alignItems: 'center', height: '100%' }}>
                 {keys.slice(0, 3).map((key, index) => (
-                  <img key={`${key}-${index}`} src={api.imageUrl(bookId, key)} alt="" style={{ height: 20, width: 20, objectFit: 'cover', borderRadius: 3 }} />
+                  <img
+                    key={`${key}-${index}`}
+                    src={api.imageUrl(bookId, key)}
+                    alt=""
+                    title="View full size"
+                    onClick={event => { event.stopPropagation(); openImageViewer(keys, index, bookId); }}
+                    style={{ height: 20, width: 20, objectFit: 'cover', borderRadius: 3, cursor: 'zoom-in' }}
+                  />
                 ))}
                 {keys.length > 3 && <span style={{ fontSize: 11 }}>+{keys.length - 3}</span>}
               </div>
@@ -1181,6 +1188,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       )}
       {dialogElement}
       {listDialogElement}
+      {viewerElement}
       <div className="grid-status-bar">
         <span className="grid-row-count">
           {rows.length} row{rows.length !== 1 ? 's' : ''}{displayedRowCount !== null ? ` (${displayedRowCount} shown)` : ''}

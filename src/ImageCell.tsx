@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import type { ICellRendererParams } from 'ag-grid-community';
 import * as api from './api';
 import { useAlert } from './DialogProvider';
+import { ImageViewer } from './ImageViewer';
 
 // --- Renderer: show icon in cell; full preview opens on click ---
 export const ImageCellRenderer: React.FC<ICellRendererParams> = (props) => {
@@ -71,6 +72,7 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
   showAlert,
 }) => {
   const [uploading, setUploading] = useState(false);
+  const [viewing, setViewing] = useState(false);
 
   const handleChange = useCallback(() => {
     setUploading(true);
@@ -97,10 +99,18 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
             className="image-dialog-preview"
             src={api.imageUrl(bookId, imageKey)}
             alt=""
+            onClick={() => setViewing(true)}
+            style={{ cursor: 'zoom-in' }}
+            title="View full size"
           />
         )}
         {uploading && <div className="image-dialog-uploading">Uploading...</div>}
         <div className="image-dialog-actions">
+          {imageKey && (
+            <button className="image-dialog-btn" onClick={() => setViewing(true)}>
+              View
+            </button>
+          )}
           <button className="image-dialog-btn" onClick={handleChange} disabled={uploading}>
             {imageKey ? 'Change' : 'Upload'}
           </button>
@@ -111,6 +121,9 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
           )}
         </div>
       </div>
+      {viewing && imageKey && (
+        <ImageViewer images={[imageKey]} index={0} bookId={bookId} onIndexChange={() => {}} onClose={() => setViewing(false)} />
+      )}
     </div>
   );
 };

@@ -13,6 +13,7 @@ import { format } from 'date-fns/format';
 import { parseISO } from 'date-fns/parseISO';
 import * as api from './api';
 import { parseListItems } from './listValue';
+import { ImageViewer } from './ImageViewer';
 import type { ColumnDef, Row } from './types';
 
 export interface ScrollEvent {
@@ -189,7 +190,7 @@ export const AgendaView: React.FC<{
                   {bookId && imageColumns.map(column => {
                     const raw = (ev.resource as Row | undefined)?.[column.name];
                     const images = parseImageKeys(raw);
-                    return images.length ? <button key={column.name} type="button" aria-label={`View ${column.displayName ?? column.name} images`} onClick={event => { event.stopPropagation(); setGallery({ images, index: 0 }); }} style={{ display: 'flex', gap: 6, border: 0, padding: 0, marginTop: 6, background: 'none', cursor: 'pointer' }}>{images.map(key => <img key={key} src={api.imageUrl(bookId, key)} alt="" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 5 }} />)}</button> : null;
+                    return images.length ? <div key={column.name} style={{ display: 'flex', gap: 6, marginTop: 6 }}>{images.map((key, imageIndex) => <button key={key} type="button" aria-label={`View ${column.displayName ?? column.name} image ${imageIndex + 1}`} onClick={event => { event.stopPropagation(); setGallery({ images, index: imageIndex }); }} style={{ padding: 0, border: 0, background: 'none', cursor: 'zoom-in' }}><img src={api.imageUrl(bookId, key)} alt="" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 5, display: 'block' }} /></button>)}</div> : null;
                   })}
                 </div>
               </div>
@@ -197,7 +198,7 @@ export const AgendaView: React.FC<{
           </div>
         );
       })}
-      {gallery && bookId && <div className="image-dialog-overlay" onClick={() => setGallery(null)}><div className="image-dialog" onClick={event => event.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 12 }}><button className="calendar-toolbar-btn" aria-label="Previous image" onClick={() => setGallery(g => g && ({ ...g, index: (g.index + g.images.length - 1) % g.images.length }))}>‹</button><img className="image-dialog-preview" src={api.imageUrl(bookId, gallery.images[gallery.index])} alt={`Image ${gallery.index + 1} of ${gallery.images.length}`} /><button className="calendar-toolbar-btn" aria-label="Next image" onClick={() => setGallery(g => g && ({ ...g, index: (g.index + 1) % g.images.length }))}>›</button></div></div>}
+      {gallery && bookId && <ImageViewer images={gallery.images} index={gallery.index} bookId={bookId} onIndexChange={index => setGallery(g => g && ({ ...g, index }))} onClose={() => setGallery(null)} />}
     </div>
   );
 };
