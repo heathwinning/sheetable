@@ -695,7 +695,7 @@ const ChartRenderer: React.FC<{
     totalRow['_total'] = pivot.grandTotal;
 
     // Recursively build nested column defs for multi-level column dimensions
-    // Adds a Subtotal column at the end of each group when colDims.length > 1
+    // Adds a Subtotal column at the start or end of each group when colDims.length > 1, per tableTotalPosition
     const buildColGroup = (keys: string[][], level: number, prefix: string[]): (ColDef | ColGroupDef)[] => {
       const filtered = keys.filter(ck => prefix.every((v, i) => ck[i] === v));
       if (level === colDims.length - 1) {
@@ -714,12 +714,11 @@ const ChartRenderer: React.FC<{
           seen.add(ck[level]);
           const groupPrefix = [...prefix, ck[level]];
           const stKey = `_subtotal_${groupPrefix.join('\x01')}`;
+          const subtotalColDef = { headerName: 'Subtotal', field: stKey, sortable: true, type: 'numericColumn', valueFormatter, cellStyle: subtotalCellStyle } as ColDef;
+          const nestedColDefs = buildColGroup(keys, level + 1, groupPrefix);
           groups.push({
             headerName: fmtDimVal(ck[level], colDims[level]),
-            children: [
-              ...buildColGroup(keys, level + 1, groupPrefix),
-              { headerName: 'Subtotal', field: stKey, sortable: true, type: 'numericColumn', valueFormatter, cellStyle: subtotalCellStyle } as ColDef,
-            ],
+            children: config.tableTotalPosition === 'start' ? [subtotalColDef, ...nestedColDefs] : [...nestedColDefs, subtotalColDef],
           } as ColGroupDef);
         }
       }
@@ -746,10 +745,11 @@ const ChartRenderer: React.FC<{
           valueFormatter,
         } as ColDef];
 
+    const totalColDef = { headerName: 'Total', field: '_total', sortable: true, type: 'numericColumn', valueFormatter, cellStyle: totalCellStyle } as ColDef;
+
     const colDefs: (ColDef | ColGroupDef)[] = [
       ...dimColDefs,
-      ...valueColDefs,
-      { headerName: 'Total', field: '_total', sortable: true, type: 'numericColumn', valueFormatter, cellStyle: totalCellStyle } as ColDef,
+      ...(config.tableTotalPosition === 'start' ? [totalColDef, ...valueColDefs] : [...valueColDefs, totalColDef]),
     ];
 
     return <PivotTableGrid config={config} colDefs={colDefs} rowData={rowData} totalRow={totalRow} />;
@@ -1120,6 +1120,11 @@ const DimConfigGrid: React.FC<{
   );
 };
 
+const TOTAL_POSITION_OPTIONS = [
+  { value: 'start', label: 'At start' },
+  { value: 'end', label: 'At end' },
+];
+
 const ChartConfigModal: React.FC<{
   config: ChartConfig;
   isNew: boolean;
@@ -1311,6 +1316,18 @@ const ChartConfigModal: React.FC<{
                     value={AGGREGATE_OPTIONS.find(o => o.value === draft.aggregate) ?? null}
                     options={AGGREGATE_OPTIONS}
                     onChange={opt => set('aggregate', (opt?.value ?? 'sum') as AggregateFunc)}
+                    menuPortalTarget={document.body}
+                    menuPlacement="auto"
+                  />
+                </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label className="app-dialog-label">Total &amp; subtotal position</label>
+                  <Select
+                    styles={dialogSelectStyles}
+                    isSearchable={false}
+                    value={TOTAL_POSITION_OPTIONS.find(o => o.value === (draft.tableTotalPosition ?? 'end')) ?? null}
+                    options={TOTAL_POSITION_OPTIONS}
+                    onChange={opt => set('tableTotalPosition', (opt?.value ?? 'end') as 'start' | 'end')}
                     menuPortalTarget={document.body}
                     menuPlacement="auto"
                   />

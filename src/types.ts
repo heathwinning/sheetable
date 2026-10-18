@@ -111,6 +111,8 @@ export interface ChartConfig {
   yLabel?: string;
   tableRows?: string[];
   tableColumns?: string[];
+  /** Where the Total column appears in table charts. Defaults to 'end'. */
+  tableTotalPosition?: 'start' | 'end';
   tableSort?: { key: string; dir: 'asc' | 'desc' };
   /** @deprecated use tableRowDimSort for per-dimension control */
   rowOrder?: 'natural' | 'label-asc' | 'label-desc' | 'value-asc' | 'value-desc';
