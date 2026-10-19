@@ -16,7 +16,7 @@ import type { MigrationPreview } from './typeMigration';
 import { sharedDefaultColDef } from './gridDefaults';
 import * as api from './api';
 
-function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorProps) {
+function TypeCellEditor({ value, onValueChange, stopEditing, data, onSameType }: CustomCellEditorProps & { onSameType?: (idx: number) => void }) {
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -48,7 +48,8 @@ function TypeCellEditor({ value, onValueChange, stopEditing }: CustomCellEditorP
           key={o.value}
           onMouseDown={(e) => {
             e.preventDefault();
-            onValueChange(o.value);
+            if (o.value === value) onSameType?.((data as { _idx: number })._idx);
+            else onValueChange(o.value);
             stopEditing();
           }}
           className={`type-cell-editor-item${o.value === value ? ' type-cell-editor-item--selected' : ''}`}
@@ -338,7 +339,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
   const { tableId, bookId } = useParams<{ tableId: string; bookId?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const locationState = location.state as { pendingView?: { name: string; type: string }; tableName?: string } | null;
+  const locationState = location.state as { pendingView?: { name: string; type: string }; tableName?: string; returnTo?: string } | null;
   const pendingView = locationState?.pendingView;
   const { showDialog } = useDialog();
   const isCreate = !tableId;
@@ -547,6 +548,16 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       flex: 1,
       minWidth: 120,
       cellEditor: TypeCellEditor,
+      cellEditorParams: {
+        onSameType: (idx: number) => {
+          const type = columns[idx]?.type;
+          requestAnimationFrame(() => {
+            if (type === 'list') setListDialogCol(idx);
+            else if (type === 'reference') setRefDialogCol(idx);
+            else if (type === 'calculated') setCalcDialogCol(idx);
+          });
+        },
+      },
       cellEditorPopup: true,
       cellRenderer: (params: { value: string; data: { type: string; name: string; _idx: number; listOf?: string } }) => {
         const isList = params.data.type === 'list';
@@ -559,9 +570,9 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         const isRef = params.data.type === 'reference';
         const isCalc = params.data.type === 'calculated';
         return React.createElement('div', {
-          style: { display: 'flex', alignItems: 'center', gap: 4, width: '100%' },
+          style: { display: 'flex', alignItems: 'center', gap: 4, width: '100%', minWidth: 0 },
         },
-          React.createElement('span', { style: { flex: 1 } }, label),
+          React.createElement('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
           isRef && React.createElement('span', {
             onMouseDown: (e: React.MouseEvent) => {
               e.stopPropagation();
@@ -569,7 +580,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               openRefConfigDialog(params.data._idx);
             },
             title: 'Configure reference',
-            style: { cursor: 'pointer', color: 'var(--ref-color, #2563eb)', fontSize: 14, lineHeight: 1, padding: '0 2px' },
+            style: { cursor: 'pointer', color: 'var(--ref-color, #2563eb)', fontSize: 14, lineHeight: 1, padding: '0 2px', flexShrink: 0 },
           }, '✎'),
           isCalc && React.createElement('span', {
             onMouseDown: (e: React.MouseEvent) => {
@@ -578,7 +589,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               setCalcDialogCol(params.data._idx);
             },
             title: 'Configure calculation',
-            style: { cursor: 'pointer', color: 'var(--ref-color, #2563eb)', fontSize: 14, lineHeight: 1, padding: '0 2px' },
+            style: { cursor: 'pointer', color: 'var(--ref-color, #2563eb)', fontSize: 14, lineHeight: 1, padding: '0 2px', flexShrink: 0 },
           }, '✎'),
           isList && React.createElement('span', {
             onMouseDown: (e: React.MouseEvent) => {
@@ -587,7 +598,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
               setListDialogCol(params.data._idx);
             },
             title: 'Configure list element type',
-            style: { cursor: 'pointer', color: 'var(--ref-color, #2563eb)', fontSize: 14, lineHeight: 1, padding: '0 2px' },
+            style: { cursor: 'pointer', color: 'var(--ref-color, #2563eb)', fontSize: 14, lineHeight: 1, padding: '0 2px', flexShrink: 0 },
           }, '✎'),
         );
       },
@@ -1308,11 +1319,16 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       state.updateSchema(tableId!, newSchema);
 
       // Rename table if name changed
+      const finalName = trimmedName !== tableId ? trimmedName : tableId!;
       if (trimmedName !== tableId) {
         state.renameTable(tableId!, trimmedName);
-        navigate(toBookPath(`/table/${encodeURIComponent(trimmedName)}`), { replace: true });
+      }
+      if (locationState?.returnTo) {
+        navigate(locationState.returnTo, { replace: true });
+      } else if (trimmedName !== tableId) {
+        navigate(toBookPath(`/table/${encodeURIComponent(finalName)}`), { replace: true });
       } else {
-        navigate(toBookPath(`/table/${encodeURIComponent(tableId!)}`));
+        navigate(toBookPath(`/table/${encodeURIComponent(finalName)}`));
       }
     }
   };
@@ -1339,7 +1355,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
       <div className="edit-table-card">
         <div className="edit-table-header">
           <h2>{isCreate ? 'New Table' : 'Edit Table'}</h2>
-          <button className="btn-secondary btn-sm" onClick={() => navigate(tableId ? toBookPath(`/table/${encodeURIComponent(tableId)}`) : (bookBase || '/'))}>
+          <button className="btn-secondary btn-sm" onClick={() => navigate(locationState?.returnTo ?? (tableId ? toBookPath(`/table/${encodeURIComponent(tableId)}`) : (bookBase || '/')))}>
             {isCreate ? '← Back' : '← Back to Table'}
           </button>
         </div>
@@ -1549,7 +1565,7 @@ export const EditTablePage: React.FC<EditTablePageProps> = ({ state }) => {
         )}
 
         <div className="edit-table-actions">
-          <button className="btn-secondary" onClick={() => navigate(tableId ? toBookPath(`/table/${encodeURIComponent(tableId)}`) : (bookBase || '/'))}>
+          <button className="btn-secondary" onClick={() => navigate(locationState?.returnTo ?? (tableId ? toBookPath(`/table/${encodeURIComponent(tableId)}`) : (bookBase || '/')))}>
             Cancel
           </button>
           {!isCreate && (
