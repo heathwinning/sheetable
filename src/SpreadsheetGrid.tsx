@@ -34,9 +34,9 @@ const ListTagsRenderer: React.FC<CustomCellRendererProps & { formatItem?: (item:
         <span
           key={i}
           style={{
-            background: 'var(--ag-row-hover-color, #e8f0fe)',
-            color: 'var(--ag-foreground-color, #333)',
-            borderRadius: 3,
+            background: 'color-mix(in srgb, var(--color-primary, #4f6bed) 22%, transparent)',
+            color: 'var(--color-text, #1e1e2e)',
+            border: '1px solid color-mix(in srgb, var(--color-primary, #4f6bed) 45%, transparent)', borderRadius: 3,
             padding: '0 6px',
             fontSize: 11,
             lineHeight: '17px',

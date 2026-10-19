@@ -135,7 +135,7 @@ const ListField: React.FC<{ value: string; listOf: string; onChange: (value: str
       {items.length > 0 ? (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
           {items.map((item, index) => (
-            <span key={`${item}-${index}`} style={{ background: 'var(--ag-row-hover-color, #e8f0fe)', borderRadius: 3, padding: '1px 4px 1px 7px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 2, lineHeight: '18px' }}>
+            <span key={`${item}-${index}`} style={{ background: 'color-mix(in srgb, var(--color-primary, #4f6bed) 22%, transparent)', color: 'var(--color-text, #1e1e2e)', border: '1px solid color-mix(in srgb, var(--color-primary, #4f6bed) 45%, transparent)', borderRadius: 3, padding: '1px 4px 1px 7px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 2, lineHeight: '18px' }}>
               {item}
               {!readOnly && (
                 <button type="button" aria-label="Remove" onClick={() => onChange(serializeListItems(items.filter((_, i) => i !== index)))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '0 1px', fontSize: 14, lineHeight: 1 }}>×</button>

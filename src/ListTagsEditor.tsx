@@ -86,9 +86,9 @@ export default function ListTagsEditor({ value, onValueChange, stopEditing, list
         <span
           key={i}
           style={{
-            background: 'var(--ag-row-hover-color, #e8f0fe)',
-            color: 'var(--ag-foreground-color, #333)',
-            borderRadius: 3,
+            background: 'color-mix(in srgb, var(--color-primary, #4f6bed) 22%, transparent)',
+            color: 'var(--color-text, #1e1e2e)',
+            border: '1px solid color-mix(in srgb, var(--color-primary, #4f6bed) 45%, transparent)', borderRadius: 3,
             padding: '1px 4px 1px 7px',
             fontSize: 12,
             display: 'inline-flex',
@@ -129,7 +129,7 @@ export default function ListTagsEditor({ value, onValueChange, stopEditing, list
           fontSize: 13,
           minWidth: 80,
           flex: 1,
-          color: 'var(--ag-foreground-color, #333)',
+          color: 'var(--color-text, #1e1e2e)',
           padding: '1px 0',
         }}
         placeholder={items.length === 0 ? 'type + Enter to add…' : 'add more…'}

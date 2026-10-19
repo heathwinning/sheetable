@@ -48,7 +48,7 @@ export const RefListEditor: React.FC<RefListEditorProps> = ({
             <span
               key={`${id}-${index}`}
               style={{
-                background: 'var(--ag-row-hover-color, #e8f0fe)', color: 'var(--color-text, #333)', borderRadius: 3,
+                background: 'color-mix(in srgb, var(--color-primary, #4f6bed) 22%, transparent)', color: 'var(--color-text, #333)', border: '1px solid color-mix(in srgb, var(--color-primary, #4f6bed) 45%, transparent)', borderRadius: 3,
                 padding: '1px 4px 1px 7px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 2, lineHeight: '18px',
               }}
             >
