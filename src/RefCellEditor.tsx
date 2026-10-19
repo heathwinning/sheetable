@@ -77,11 +77,16 @@ export default function RefCellEditor(props: RefCellEditorProps) {
   const resolvedRows = useMemo(() => {
     const dCols = displayColumns.length > 0 ? displayColumns : searchColumns;
     const sCols = searchColumns.length > 0 ? searchColumns : displayColumns;
-    return refRows.map(row => ({
-      row,
-      displayText: dCols.map(c => resolveColumnPath(refTable, row, c)).filter(Boolean).join(' · '),
-      searchText: sCols.map(c => resolveColumnPath(refTable, row, c).toLowerCase()).join(' '),
-    })).sort((left, right) => left.displayText.localeCompare(right.displayText, undefined, { numeric: true, sensitivity: 'base' }));
+    return refRows.map(row => {
+      const firstKey = Object.keys(row).find(key => key !== INTERNAL_ROW_ID);
+      const resolve = (cols: string[]) => (cols.length > 0 ? cols : firstKey ? [firstKey] : [])
+        .map(c => resolveColumnPath(refTable, row, c));
+      return {
+        row,
+        displayText: resolve(dCols).filter(Boolean).join(' · '),
+        searchText: resolve(sCols).join(' ').toLowerCase(),
+      };
+    }).sort((left, right) => left.displayText.localeCompare(right.displayText, undefined, { numeric: true, sensitivity: 'base' }));
   }, [refRows, refTable, resolveColumnPath, displayColumns, searchColumns]);
 
   const filtered = useMemo(() =>

@@ -28,6 +28,8 @@ export function resolveRefLabel(
   const refRow = refRows.find(row => row[INTERNAL_ROW_ID] === rowId);
   if (!refRow) return `[missing: ${rowId}]`;
   const cols = displayColumns.length > 0 ? displayColumns : searchColumns;
+  const firstKey = Object.keys(refRow).find(key => key !== INTERNAL_ROW_ID);
+  if (cols.length === 0 && firstKey) return resolveColumnPath(refTable, refRow, firstKey) || `Row ${rowId}`;
   if (cols.length === 0) return `Row ${rowId}`;
   return cols.map(path => resolveColumnPath(refTable, refRow, path)).filter(Boolean).join(' · ') || `Row ${rowId}`;
 }
