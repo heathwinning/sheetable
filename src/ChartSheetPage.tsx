@@ -113,6 +113,7 @@ function dimSortKey(val: string, dim: string): string {
 }
 
 const MONTH_NAME_FORMAT = new Intl.DateTimeFormat(undefined, { month: 'long' });
+const MONTH_YEAR_FORMAT = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' });
 const WEEKDAY_NAME_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long' });
 
 function applyDateFeature(raw: string, feature: DateFeature): string {
@@ -783,7 +784,7 @@ const ChartRendererInner: React.FC<{
   };
   const xIsYearMonth = config.xColumn?.endsWith(':yearmonth') ?? false;
   const xTickFormatter = xIsYearMonth
-    ? (v: string) => { const d = new Date(v); return isNaN(d.getTime()) ? v : d.toLocaleString('default', { month: 'short', year: 'numeric' }); }
+    ? (v: string) => { const d = new Date(v); return isNaN(d.getTime()) ? v : MONTH_YEAR_FORMAT.format(d); }
     : undefined;
   const xAxisLabel = xLabel ? { value: xLabel, position: 'insideBottom' as const, offset: -8, fontSize: 11, fill: 'var(--color-text-muted)' } : undefined;
   const yAxisLabel = yLabel ? { value: yLabel, angle: -90, position: 'insideLeft' as const, offset: 8, fontSize: 11, fill: 'var(--color-text-muted)' } : undefined;
@@ -896,6 +897,22 @@ const ChartRendererInner: React.FC<{
 };
 
 // ── Config modal ─────────────────────────────────────────────────────────────
+
+const LazyMount: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || visible) return;
+    if (typeof IntersectionObserver === 'undefined') { setVisible(true); return; }
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) { setVisible(true); observer.disconnect(); }
+    }, { rootMargin: '300px 0px' });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [visible]);
+  return <div ref={ref} style={{ height: '100%' }}>{visible ? children : null}</div>;
+};
 
 const ChartRenderer = React.memo(ChartRendererInner, (prev, next) =>
   prev.config === next.config
@@ -1855,6 +1872,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                     })()}
                   </div>
                   <div style={{ flex: 1, minHeight: 0, padding: '8px 4px 4px' }}>
+                    <LazyMount>
                     <ChartRenderer
                       config={chart}
                       data={data}
@@ -1871,6 +1889,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                         });
                       }}
                     />
+                    </LazyMount>
                   </div>
                 </div>
               );
