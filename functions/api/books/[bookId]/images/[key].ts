@@ -6,7 +6,9 @@ export const onRequestGet: PagesFunction<Env, 'bookId' | 'key', RequestData> = a
   requireUser(context.data);
 
   const bookId = context.params.bookId as string;
-  const key = `${bookId}/${decodeURIComponent(context.params.key as string)}`;
+  const imageKey = decodeURIComponent(context.params.key as string);
+  const wantsThumb = new URL(context.request.url).searchParams.has('thumb');
+  const key = wantsThumb ? `${bookId}/thumbs/${imageKey}` : `${bookId}/${imageKey}`;
 
   const object = await context.env.BUCKET.get(key);
   if (!object) return error('Image not found', 404);
@@ -20,6 +22,7 @@ export const onRequestGet: PagesFunction<Env, 'bookId' | 'key', RequestData> = a
 
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024; // 25 MB
+const MAX_THUMB_BYTES = 512 * 1024;
 
 // PUT /api/books/:bookId/images/:key → upload image to R2
 export const onRequestPut: PagesFunction<Env, 'bookId' | 'key', RequestData> = async (context) => {
@@ -27,7 +30,9 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'key', RequestData> = a
   requireEditor(context.data);
 
   const bookId = context.params.bookId as string;
-  const key = `${bookId}/${decodeURIComponent(context.params.key as string)}`;
+  const imageKey = decodeURIComponent(context.params.key as string);
+  const isThumb = new URL(context.request.url).searchParams.has('thumb');
+  const key = isThumb ? `${bookId}/thumbs/${imageKey}` : `${bookId}/${imageKey}`;
 
   const contentType = context.request.headers.get('Content-Type') ?? '';
   const mimeType = contentType.split(';')[0].trim().toLowerCase();
@@ -36,7 +41,7 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'key', RequestData> = a
   }
 
   const contentLength = context.request.headers.get('Content-Length');
-  if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_BYTES) {
+  if (contentLength && parseInt(contentLength, 10) > (isThumb ? MAX_THUMB_BYTES : MAX_IMAGE_BYTES)) {
     return error('Image too large (max 25 MB)', 413);
   }
 

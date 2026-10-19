@@ -540,7 +540,7 @@ const PivotTableGrid: React.FC<{
 
 // ── Chart Renderer ────────────────────────────────────────────────────────────
 
-const ChartRenderer: React.FC<{
+const ChartRendererInner: React.FC<{
   config: ChartConfig;
   data: Record<string, unknown>[];
   seriesKeys: string[];
@@ -548,6 +548,7 @@ const ChartRenderer: React.FC<{
   resolveColumnPath?: (tableName: string, row: Row, path: string) => string;
   getColumnPaths?: (tableId: string) => { path: string; label: string; type?: string }[];
   onSortChange?: (sort: { key: string; dir: 'asc' | 'desc' } | undefined) => void;
+  revision?: number;
 }> = ({ config, data, seriesKeys, rows, resolveColumnPath, getColumnPaths }) => {
   if (config.type === 'table') {
     const rowDims = config.tableRows?.length ? config.tableRows : (config.xColumn ? [config.xColumn] : []);
@@ -884,6 +885,14 @@ const ChartRenderer: React.FC<{
 };
 
 // ── Config modal ─────────────────────────────────────────────────────────────
+
+const ChartRenderer = React.memo(ChartRendererInner, (prev, next) =>
+  prev.config === next.config
+  && prev.data === next.data
+  && prev.seriesKeys === next.seriesKeys
+  && prev.rows === next.rows
+  && prev.revision === next.revision
+  && prev.resolveColumnPath === next.resolveColumnPath);
 
 const FORMAT_HINT_ROWS: { tpl: string; desc: string }[] = [
   { tpl: '{value}',        desc: 'Raw number' },
@@ -1670,6 +1679,39 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
     }),
   [state]);  
 
+  const chartData = useMemo(() => {
+    const result = new Map<string, {
+      filteredRows: Row[];
+      data: Record<string, unknown>[];
+      seriesKeys: string[];
+      distinct: Record<string, string[]>;
+    }>();
+    for (const chart of charts) {
+      const rows = state.getRows(chart.table);
+      const chartFilterVals = filterValues[chart.id] ?? {};
+      const effectiveFilters = chart.filters?.filter(f => f.column).length
+        ? chart.filters!
+        : (chart.filterColumn ? [{ column: chart.filterColumn }] : []);
+      const activeFilters = effectiveFilters
+        .filter(f => f.column)
+        .map(f => ({ column: f.column, values: chartFilterVals[f.column] ?? [] }));
+      const filteredRows = applyChartFilter(rows, activeFilters, state.resolveColumnPath, chart.table);
+      const { data, seriesKeys } = chart.type === 'table'
+        ? { data: [], seriesKeys: [] }
+        : aggregateData(filteredRows, chart.xColumn, chart.yColumn, chart.aggregate, chart.groupBy, state.resolveColumnPath, chart.table, rows);
+      const distinct: Record<string, string[]> = {};
+      for (const filter of effectiveFilters) {
+        if (!filter.column || distinct[filter.column]) continue;
+        distinct[filter.column] = [...new Set(
+          rows.map(row => state.resolveColumnPath(chart.table, row, filter.column).trim()).filter(v => !!v)
+        )].sort((a, b) => a.localeCompare(b));
+      }
+      result.set(chart.id, { filteredRows, data, seriesKeys, distinct });
+    }
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [charts, filterValues, state.revision, state.resolveColumnPath]);
+
   if (!chartId || !chartSheet) {
     return (
       <div className="app-body">
@@ -1715,18 +1757,10 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
             isResizable={canEdit && editLayout}
           >
             {charts.map(chart => {
-              const rows = state.getRows(chart.table);
-              const chartFilterVals = filterValues[chart.id] ?? {};
+              const { filteredRows, data, seriesKeys, distinct } = chartData.get(chart.id)!;
               const effectiveFilters = chart.filters?.filter(f => f.column).length
                 ? chart.filters!
                 : (chart.filterColumn ? [{ column: chart.filterColumn }] : []);
-              const activeFilters = effectiveFilters
-                .filter(f => f.column)
-                .map(f => ({ column: f.column, values: chartFilterVals[f.column] ?? [] }));
-              const filteredRows = applyChartFilter(rows, activeFilters, state.resolveColumnPath, chart.table);
-              const { data, seriesKeys } = chart.type === 'table'
-                ? { data: [], seriesKeys: [] }
-                : aggregateData(filteredRows, chart.xColumn, chart.yColumn, chart.aggregate, chart.groupBy, state.resolveColumnPath, chart.table, rows);
               return (
                 <div
                   key={chart.id}
@@ -1786,9 +1820,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                             const fullLabel = colPaths.find(p => p.path === f.column)?.label ?? f.column;
                             const colLabel = fullLabel.includes(' → ') ? fullLabel.split(' → ').pop()! : fullLabel;
                             const curVals = chartFilterVals2[f.column] ?? [];
-                            const distinctValues = [...new Set(
-                              rows.map(row => state.resolveColumnPath(chart.table, row, f.column).trim()).filter(v => !!v)
-                            )].sort((a, b) => a.localeCompare(b));
+                            const distinctValues = distinct[f.column] ?? [];
                             return (
                               <Select
                                 key={f.column}
@@ -1817,6 +1849,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                       data={data}
                       seriesKeys={seriesKeys}
                       rows={filteredRows}
+                      revision={state.revision}
                       resolveColumnPath={state.resolveColumnPath}
                       getColumnPaths={getColumnPathsForTable}
                       onSortChange={sort => {

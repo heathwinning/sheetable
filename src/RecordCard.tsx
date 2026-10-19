@@ -8,6 +8,7 @@ import React, { useState, useCallback } from 'react';
 import type { TableSchema, Row, ValidationError, ColumnDef } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import * as api from './api';
+import { Thumb } from './Thumb';
 import { ImageListEditor } from './ImageListEditor';
 import RefCellEditor from './RefCellEditor';
 import { RefListEditor, resolveRefLabel } from './RefListEditor';
@@ -89,9 +90,9 @@ const ImageField: React.FC<{
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       {value ? (
-        <img
-          src={api.imageUrl(bookId, value)}
-          alt=""
+        <Thumb
+          bookId={bookId}
+          imageKey={value}
           style={{ height: 64, maxWidth: 160, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--color-border)' }}
         />
       ) : (

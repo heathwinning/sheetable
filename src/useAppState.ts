@@ -359,9 +359,21 @@ export function useAppState(): UseAppStateReturn {
   }, [activeBookId]);
 
   // ---- Reference helpers (replaces DataModel) ----
+  const rowIndexCacheRef = useRef<Map<string, { rows: Row[]; length: number; byId: Map<string, Row> }>>(new Map());
   const getReferencedRow = useCallback((refTable: string, rowId: string): Row | undefined => {
     const rows = rowsRef.current.get(refTable);
-    return rows?.find(r => r[INTERNAL_ROW_ID] === rowId);
+    if (!rows) return undefined;
+    let entry = rowIndexCacheRef.current.get(refTable);
+    if (entry && entry.rows === rows && entry.length === rows.length) {
+      const hit = entry.byId.get(rowId);
+      if (hit && hit[INTERNAL_ROW_ID] === rowId) return hit;
+      if (!hit) return rows.find(r => r[INTERNAL_ROW_ID] === rowId);
+    }
+    const byId = new Map<string, Row>();
+    for (const row of rows) byId.set(row[INTERNAL_ROW_ID], row);
+    entry = { rows, length: rows.length, byId };
+    rowIndexCacheRef.current.set(refTable, entry);
+    return byId.get(rowId);
   }, []);
 
   const getReferenceRows = useCallback((refTable: string): Row[] => {

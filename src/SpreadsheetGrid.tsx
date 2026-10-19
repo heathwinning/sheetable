@@ -15,7 +15,7 @@ import ListTagsEditor from './ListTagsEditor';
 import { RefListCellEditor, resolveRefLabel } from './RefListEditor';
 import { useImageListDialog } from './ImageListEditor';
 import { parseListItems } from './listValue';
-import * as api from './api';
+import { Thumb } from './Thumb';
 import { ImageCellRenderer, useImageDialog } from './ImageCell';
 import { normalizeTemporalString, parseTemporalUnknown, formatDateCanonical, formatDateTimeCanonical } from './dateFormat';
 import { getCalc } from './chartFormat';
@@ -784,10 +784,10 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
             return (
               <div style={{ display: 'flex', gap: 3, alignItems: 'center', height: '100%' }}>
                 {keys.slice(0, 3).map((key, index) => (
-                  <img
+                  <Thumb
                     key={`${key}-${index}`}
-                    src={api.imageUrl(bookId, key)}
-                    alt=""
+                    bookId={bookId}
+                    imageKey={key}
                     title="View full size"
                     onClick={event => { event.stopPropagation(); openImageViewer(keys, index, bookId); }}
                     style={{ height: 20, width: 20, objectFit: 'cover', borderRadius: 3, cursor: 'zoom-in' }}

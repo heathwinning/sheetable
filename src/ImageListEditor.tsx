@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import * as api from './api';
+import { Thumb } from './Thumb';
 import { parseListItems, serializeListItems } from './listValue';
 import { ImageViewer } from './ImageViewer';
 
@@ -51,7 +52,7 @@ export const ImageOrderEditor: React.FC<ImageOrderEditorProps> = ({ items, bookI
             border: '1px solid var(--color-border)', opacity: dragIndex === index ? 0.4 : 1, cursor: 'grab',
           }}
         >
-          <img src={api.imageUrl(bookId, key)} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <Thumb bookId={bookId} imageKey={key} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           <div style={{ position: 'absolute', bottom: 3, left: 3, right: 3, display: 'flex', justifyContent: 'space-between' }}>
             <button type="button" aria-label="Move earlier" title="Move earlier" disabled={index === 0} onClick={() => onChange(moveItem(items, index, index - 1))} style={{ ...iconButton, opacity: index === 0 ? 0.4 : 1 }}>‹</button>
             <span style={{ fontSize: 11, color: '#fff', background: 'rgba(0,0,0,0.6)', borderRadius: 3, padding: '0 4px', lineHeight: '18px' }}>{index + 1}</span>
@@ -115,7 +116,7 @@ export const ImageListEditor: React.FC<ImageListEditorProps> = ({ value, bookId,
               onClick={() => setViewIndex(index)}
               style={{ display: 'block', width: '100%', height: '100%', padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}
             >
-              <img src={api.imageUrl(bookId, key)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <Thumb bookId={bookId} imageKey={key} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </button>
             {!readOnly && (
               <button type="button" aria-label="Remove image" title="Remove" onClick={() => commit(keys.filter((_, i) => i !== index))} style={iconLabel}>×</button>

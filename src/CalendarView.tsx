@@ -167,7 +167,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     [schema.columns, dateColumn],
   );
 
-  const events = useMemo(() => rows.map(row => {
+  const events = useMemo(() => rows.map((row, rowIndex) => {
     const raw = row[dateColumn];
     const date = parseTemporalUnknown(raw);
     if (!date) return null;
@@ -188,7 +188,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     }).filter(Boolean);
     const title = parts.join(' · ') || format(date, 'd MMM yyyy');
     return {
-      id: row[INTERNAL_ROW_ID] ?? Math.random(),
+      id: row[INTERNAL_ROW_ID] ?? `row-${rowIndex}`,
       title,
       start: date,
       end: date,

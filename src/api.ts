@@ -343,10 +343,43 @@ export async function uploadImage(uploadUrl: string, file: File): Promise<void> 
     body: file,
   });
   if (!res.ok) throw new Error('Image upload failed');
+  try {
+    const thumb = await createThumbnail(file);
+    if (thumb) await uploadThumbnail(uploadUrl, thumb);
+  } catch { /* thumbnails are backfilled lazily */ }
+}
+
+const THUMB_MAX_SIZE = 192;
+
+export async function createThumbnail(source: Blob): Promise<Blob | null> {
+  const bitmap = await createImageBitmap(source);
+  try {
+    const scale = Math.min(1, THUMB_MAX_SIZE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', 0.8));
+  } finally {
+    bitmap.close();
+  }
+}
+
+export async function uploadThumbnail(imageUploadUrl: string, thumb: Blob): Promise<boolean> {
+  const res = await fetch(`${imageUploadUrl}?thumb=1`, {
+    method: 'PUT',
+    headers: { 'Content-Type': thumb.type || 'image/webp' },
+    body: thumb,
+  });
+  return res.ok;
 }
 
 export function imageUrl(bookId: string, key: string): string {
   return `${BASE}/books/${bookId}/images/${encodeURIComponent(key)}`;
+}
+
+export function thumbnailUrl(bookId: string, key: string): string {
+  return `${imageUrl(bookId, key)}?thumb=1`;
 }
 
 // ---- Export / Backup ----

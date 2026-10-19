@@ -11,7 +11,7 @@ import { isToday } from 'date-fns/isToday';
 import { isBefore } from 'date-fns/isBefore';
 import { format } from 'date-fns/format';
 import { parseISO } from 'date-fns/parseISO';
-import * as api from './api';
+import { Thumb } from './Thumb';
 import { parseListItems } from './listValue';
 import { ImageViewer } from './ImageViewer';
 import type { ColumnDef, Row } from './types';
@@ -197,7 +197,7 @@ export const AgendaView: React.FC<{
                   {bookId && imageColumns.map(column => {
                     const raw = (ev.resource as Row | undefined)?.[column.name];
                     const images = parseImageKeys(raw);
-                    return images.length ? <div key={column.name} style={{ display: 'flex', gap: 6, marginTop: 6 }}>{images.map((key, imageIndex) => <button key={key} type="button" aria-label={`View ${column.displayName ?? column.name} image ${imageIndex + 1}`} onClick={event => { event.stopPropagation(); setGallery({ images, index: imageIndex }); }} style={{ padding: 0, border: 0, background: 'none', cursor: 'zoom-in' }}><img src={api.imageUrl(bookId, key)} alt="" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 5, display: 'block' }} /></button>)}</div> : null;
+                    return images.length ? <div key={column.name} style={{ display: 'flex', gap: 6, marginTop: 6 }}>{images.map((key, imageIndex) => <button key={key} type="button" aria-label={`View ${column.displayName ?? column.name} image ${imageIndex + 1}`} onClick={event => { event.stopPropagation(); setGallery({ images, index: imageIndex }); }} style={{ padding: 0, border: 0, background: 'none', cursor: 'zoom-in' }}><Thumb bookId={bookId} imageKey={key} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 5, display: 'block' }} /></button>)}</div> : null;
                   })}
                 </div>
               </div>
