@@ -112,6 +112,57 @@ function dimSortKey(val: string, dim: string): string {
   return val.toLowerCase();
 }
 
+const MONTH_NAME_FORMAT = new Intl.DateTimeFormat(undefined, { month: 'long' });
+const WEEKDAY_NAME_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long' });
+
+function applyDateFeature(raw: string, feature: DateFeature): string {
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw;
+  switch (feature) {
+    case 'year': return String(d.getFullYear());
+    case 'quarter': return `Q${Math.ceil((d.getMonth() + 1) / 3)}`;
+    case 'yearmonth': return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+    case 'month': return MONTH_NAME_FORMAT.format(d);
+    case 'monthnum': return String(d.getMonth() + 1).padStart(2, '0');
+    case 'week': {
+      const jan1 = new Date(d.getFullYear(), 0, 1);
+      return String(Math.ceil(((d.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7)).padStart(2, '0');
+    }
+    case 'dayofweek': return WEEKDAY_NAME_FORMAT.format(d);
+    case 'day': return String(d.getDate()).padStart(2, '0');
+    case 'hour': return String(d.getHours()).padStart(2, '0') + ':00';
+    default: return raw;
+  }
+}
+
+function makeExtractor(
+  tableName: string,
+  resolveColumnPath: (tableName: string, row: Row, path: string) => string,
+  stripRefSuffix: boolean,
+) {
+  const featureCache = new Map<string, string>();
+  const rowCache = new WeakMap<Row, Map<string, string>>();
+  return (row: Row, expr: { col: string; feature: DateFeature | null }): string => {
+    let perRow = rowCache.get(row);
+    if (!perRow) { perRow = new Map(); rowCache.set(row, perRow); }
+    const cacheKey = expr.feature ? `${expr.col}:${expr.feature}` : expr.col;
+    const cached = perRow.get(cacheKey);
+    if (cached !== undefined) return cached;
+    const raw = resolveColumnPath(tableName, row, expr.col);
+    let result: string;
+    if (!raw) result = '';
+    else if (!expr.feature) result = stripRefSuffix && raw.includes(' · ') ? raw.split(' · ')[0] : raw;
+    else {
+      const featureKey = `${expr.feature}\0${raw}`;
+      let hit = featureCache.get(featureKey);
+      if (hit === undefined) { hit = applyDateFeature(raw, expr.feature); featureCache.set(featureKey, hit); }
+      result = hit;
+    }
+    perRow.set(cacheKey, result);
+    return result;
+  };
+}
+
 function aggregateData(
   rows: Row[],
   xCol: string,
@@ -138,29 +189,7 @@ function aggregateData(
   const xExpr = parseExpr(xCol);
   const gExpr = groupBy ? parseExpr(groupBy) : null;
 
-  const extractValue = (row: Row, expr: { col: string; feature: DateFeature | null }): string => {
-    const raw = resolveColumnPath(tableName, row, expr.col);
-    if (!raw) return '';
-    if (!expr.feature) return raw;
-    // Extract date feature
-    const d = new Date(raw);
-    if (isNaN(d.getTime())) return raw;
-    switch (expr.feature) {
-      case 'year': return String(d.getFullYear());
-      case 'quarter': return `Q${Math.ceil((d.getMonth() + 1) / 3)}`;
-      case 'yearmonth': return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-      case 'month': return d.toLocaleString('default', { month: 'long' });
-      case 'monthnum': return String(d.getMonth() + 1).padStart(2, '0');
-      case 'week': {
-        const jan1 = new Date(d.getFullYear(), 0, 1);
-        return String(Math.ceil(((d.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7)).padStart(2, '0');
-      }
-      case 'dayofweek': return d.toLocaleString('default', { weekday: 'long' });
-      case 'day': return String(d.getDate()).padStart(2, '0');
-      case 'hour': return String(d.getHours()).padStart(2, '0') + ':00';
-      default: return raw;
-    }
-  };
+  const extractValue = makeExtractor(tableName, resolveColumnPath, false);
 
   // Build full X domain from allRows when provided (so filtered charts still show all X values)
   const domainRows = allRows ?? rows;
@@ -249,26 +278,7 @@ function buildPivotTable(
     return { col: expr.slice(0, colon), feature: maybeFeature };
   };
 
-  const extractVal = (row: Row, expr: { col: string; feature: DateFeature | null }): string => {
-    const raw = resolveColumnPath(tableName, row, expr.col);
-    if (!raw) return '';
-    // For reference columns with no date feature, use only the first display column value
-    if (!expr.feature) return raw.includes(' · ') ? raw.split(' · ')[0] : raw;
-    const d = new Date(raw);
-    if (isNaN(d.getTime())) return raw;
-    switch (expr.feature) {
-      case 'year': return String(d.getFullYear());
-      case 'quarter': return `Q${Math.ceil((d.getMonth() + 1) / 3)}`;
-      case 'yearmonth': return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-      case 'month': return d.toLocaleString('default', { month: 'long' });
-      case 'monthnum': return String(d.getMonth() + 1).padStart(2, '0');
-      case 'week': { const j = new Date(d.getFullYear(), 0, 1); return String(Math.ceil(((d.getTime() - j.getTime()) / 86400000 + j.getDay() + 1) / 7)).padStart(2, '0'); }
-      case 'dayofweek': return d.toLocaleString('default', { weekday: 'long' });
-      case 'day': return String(d.getDate()).padStart(2, '0');
-      case 'hour': return String(d.getHours()).padStart(2, '0') + ':00';
-      default: return raw;
-    }
-  };
+  const extractVal = makeExtractor(tableName, resolveColumnPath, true);
 
   const rowExprs = rowDims.map(parseExpr);
   const colExprs = colDims.map(parseExpr);
@@ -800,7 +810,7 @@ const ChartRendererInner: React.FC<{
     return (
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius="70%">
+          <Pie isAnimationActive={false} data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius="70%">
             {pieData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
           </Pie>
           <Tooltip contentStyle={tooltipStyle} />
@@ -818,7 +828,7 @@ const ChartRendererInner: React.FC<{
           <XAxis dataKey="x" name={config.xColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
           <YAxis dataKey={seriesKeys[0]} name={config.yColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
           <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} />
-          <Scatter data={data} fill={CHART_COLORS[0]} />
+          <Scatter isAnimationActive={false} data={data} fill={CHART_COLORS[0]} />
         </ScatterChart>
       </ResponsiveContainer>
     );
@@ -834,7 +844,7 @@ const ChartRendererInner: React.FC<{
           <Tooltip formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} cursor={false} />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
-            <Bar key={k} dataKey={k} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={config.stacked ? undefined : [3, 3, 0, 0]} stackId={config.stacked ? 'stack' : undefined} />
+            <Bar key={k} isAnimationActive={false} dataKey={k} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={config.stacked ? undefined : [3, 3, 0, 0]} stackId={config.stacked ? 'stack' : undefined} />
           ))}
         </BarChart>
       </ResponsiveContainer>
@@ -851,7 +861,7 @@ const ChartRendererInner: React.FC<{
           <Tooltip formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
-            <Line key={k} type="monotone" dataKey={k} stroke={CHART_COLORS[i % CHART_COLORS.length]} dot={false} strokeWidth={2} />
+            <Line key={k} isAnimationActive={false} type="monotone" dataKey={k} stroke={CHART_COLORS[i % CHART_COLORS.length]} dot={false} strokeWidth={2} />
           ))}
         </LineChart>
       </ResponsiveContainer>
@@ -871,6 +881,7 @@ const ChartRendererInner: React.FC<{
         {seriesKeys.map((k, i) => (
           <Area
             key={k}
+            isAnimationActive={false}
             type="monotone"
             dataKey={k}
             stroke={CHART_COLORS[i % CHART_COLORS.length]}

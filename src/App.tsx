@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route, useNavigate, useParams, Link, useLocation, Navigate, useSearchParams } from 'react-router-dom';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
@@ -6,7 +6,7 @@ import type { ColDef, RowDragEndEvent } from 'ag-grid-community';
 import { useAppState } from './useAppState';
 import { SpreadsheetGrid } from './SpreadsheetGrid';
 import { EditTablePage } from './EditTablePage';
-import { ChartSheetPage } from './ChartSheetPage';
+const ChartSheetPage = lazy(() => import('./ChartSheetPage').then(m => ({ default: m.ChartSheetPage })));
 import { useAlert, usePromptInput, useConfirm, useDialog } from './DialogProvider';
 import { ImportPage } from './ImportPage';
 import { rowsToCSV } from './csv';
@@ -2325,6 +2325,7 @@ const App: React.FC = () => {
           </>
         )}
         <div className="app-main">
+          <Suspense fallback={null}>
           <Routes>
             <Route path="/" element={<HomePage state={state} />} />
             <Route path="/invite/:bookId" element={<InviteAcceptPage state={state} />} />
@@ -2346,6 +2347,7 @@ const App: React.FC = () => {
             <Route path="/chart/:chartId" element={<ChartSheetPage state={state} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
         </div>
       </div>
     </div>
