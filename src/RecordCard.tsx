@@ -5,12 +5,11 @@
  * calendar date click, event click, future list-view row click, etc.
  */
 import React, { useState, useCallback } from 'react';
-import Select from 'react-select';
-import { dialogSelectStyles } from './selectStyles';
 import type { TableSchema, Row, ValidationError, ColumnDef } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import * as api from './api';
 import { ImageListEditor } from './ImageListEditor';
+import RefCellEditor from './RefCellEditor';
 import { RefListEditor, resolveRefLabel } from './RefListEditor';
 import { parseListItems, serializeListItems, isValidListItem } from './listValue';
 
@@ -231,8 +230,6 @@ export const RecordCard: React.FC<RecordCardProps> = ({
 }) => {
   const [values, setValues] = useState<Row>({ ...initialValues });
   const [errors, setErrors] = useState<ValidationError[]>([]);
-  const [creatingReferenceCol, setCreatingReferenceCol] = useState<string | null>(null);
-  const [refInputValues, setRefInputValues] = useState<Record<string, string>>({});
 
   const set = (name: string, value: string) =>
     setValues(prev => ({ ...prev, [name]: value }));
@@ -356,55 +353,28 @@ export const RecordCard: React.FC<RecordCardProps> = ({
                     </span>
                   ) : (
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <Select
-                        styles={dialogSelectStyles}
-                        value={value
-                          ? (() => {
-                              const r = getReferenceRows(col.refTable).find(refRow => refRow[INTERNAL_ROW_ID] === value);
-                              return r
-                                ? { value: String(value), label: refDisplayLabel(r, col, col.refTable!, resolveColumnPath) }
-                                : null;
-                            })()
-                          : null}
-                        options={[
-                          ...getReferenceRows(col.refTable).map(refRow => ({
-                            value: String(refRow[INTERNAL_ROW_ID] ?? ''),
-                            label: refDisplayLabel(refRow, col, col.refTable!, resolveColumnPath),
-                          })),
-                          ...(onCreateReferenceRow && (refInputValues[col.name] ?? '').trim()
-                            ? [{ value: '__create__', label: `+ Add new record in ${col.refTable}` }]
-                            : []),
-                        ]}
-                        onChange={opt => {
-                          if (!opt || opt.value !== '__create__') {
-                            set(col.name, opt?.value ?? '');
-                            return;
-                          }
-                          if (!col.refTable || !onCreateReferenceRow) return;
-                          const seed = (refInputValues[col.name] ?? '').trim();
-                          setCreatingReferenceCol(col.name);
-                          void (async () => {
-                            try {
-                              const createdRowId = await onCreateReferenceRow(col.refTable!, seed);
-                              if (createdRowId) set(col.name, createdRowId);
-                            } finally {
-                              setCreatingReferenceCol(prev => prev === col.name ? null : prev);
-                            }
-                          })();
-                        }}
-                        onInputChange={(v, { action }) => {
-                          setRefInputValues(prev => ({ ...prev, [col.name]: action === 'input-change' ? v : '' }));
-                        }}
-                        inputValue={refInputValues[col.name] ?? ''}
-                        isClearable
-                        isLoading={creatingReferenceCol === col.name}
-                        placeholder="None"
-                        menuPlacement="auto"
-                        formatOptionLabel={(opt) =>
-                          opt.value === '__create__'
-                            ? <span style={{ color: 'var(--color-primary)', fontWeight: 600 }}>{opt.label}</span>
-                            : <>{opt.label}</>
-                        }
+                      <RefCellEditor
+                        key={`${col.name}:${value}`}
+                        value={value}
+                        onValueChange={next => set(col.name, next ?? '')}
+                        stopEditing={() => {}}
+                        refRows={getReferenceRows(col.refTable)}
+                        refTable={col.refTable}
+                        resolveColumnPath={resolveColumnPath ?? ((_t, row, path) => row[path] ?? '')}
+                        searchColumns={col.refSearchColumns ?? []}
+                        displayColumns={col.refDisplayColumns ?? []}
+                        onCreateRecord={onCreateReferenceRow}
+                        autoFocus={false}
+                        placeholder={value
+                          ? refDisplayLabel(
+                              getReferenceRows(col.refTable).find(refRow => refRow[INTERNAL_ROW_ID] === value) ?? {},
+                              col,
+                              col.refTable,
+                              resolveColumnPath,
+                            ) || 'Search…'
+                          : 'None — search…'}
+                        inputClassName="app-dialog-input"
+                        inputStyle={{ marginBottom: 0, width: '100%', boxSizing: 'border-box' }}
                       />
                     </div>
                   )

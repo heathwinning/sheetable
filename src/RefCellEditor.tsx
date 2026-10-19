@@ -134,6 +134,7 @@ export default function RefCellEditor(props: RefCellEditorProps) {
       return;
     }
     onValueChange(rowId || null);
+    setSearch('');
     setTimeout(() => stopEditing(), 0);
   }, [onValueChange, stopEditing, multiple, selectedIds, onSelectedIdsChange]);
 

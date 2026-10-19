@@ -138,10 +138,9 @@ export const AgendaView: React.FC<{
   const selectedDateKey = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : null;
   const sorted = useMemo(() =>
     [...events]
-      .filter((ev) => ev.start.getFullYear() === year)
       .filter((ev) => !selectedDateKey || format(ev.start, 'yyyy-MM-dd') === selectedDateKey)
       .sort((a, b) => a.start.getTime() - b.start.getTime()),
-    [events, year, selectedDateKey]
+    [events, selectedDateKey]
   );
 
   // Group by day
@@ -156,16 +155,24 @@ export const AgendaView: React.FC<{
   }, [sorted]);
 
   const todayKey = format(new Date(), 'yyyy-MM-dd');
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (selectedDateKey) return;
+    const target = groups.find(group => group.date.getFullYear() >= year);
+    const el = target && containerRef.current?.querySelector<HTMLElement>(`[data-day-key="${target.key}"]`);
+    if (el) el.scrollIntoView({ block: 'start' });
+  }, [year, groups, selectedDateKey]);
 
   return (
-    <div>
+    <div ref={containerRef}>
       {onCreateEntry && <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}><button className="calendar-toolbar-btn" onClick={() => onCreateEntry(selectedDate ?? new Date())}>+ Add entry</button></div>}
       {groups.length === 0 && <div className="agenda-empty">No events</div>}
       {groups.map(({ key, date, evs }) => {
         const today = key === todayKey;
         const past = isBefore(date, new Date()) && !today;
         return (
-          <div key={key} ref={today ? (todayRef as React.RefObject<HTMLDivElement>) : undefined} className={`agenda-day-group`}>
+          <div key={key} data-day-key={key} ref={today ? (todayRef as React.RefObject<HTMLDivElement>) : undefined} className={`agenda-day-group`}>
             <div className={`agenda-day-header ${past ? 'past' : ''}`}>
               <span className={`agenda-day-number ${today ? 'today' : ''}`}>
                 {format(date, 'd')}
