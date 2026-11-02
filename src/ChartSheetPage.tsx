@@ -19,6 +19,8 @@ import type { SelectionStats } from './SelectionSumBar';
 import type { UseAppStateReturn } from './useAppState';
 import type { ChartConfig, ChartLayoutItem, ChartType, AggregateFunc, Row, DateFeature } from './types';
 import { applyChartValueFormat } from './chartFormat';
+import { ColumnExpressionSelect } from './ColumnExpressionSelect';
+import { DATE_FEATURES, applyDateFeature, applyColumnExpression, formatColumnExpression, getFeature, stripFeature, parseColumnExpression } from './columnExpressions';
 
 const RGL = WidthProvider(GridLayout);
 const CHART_COLORS = ['#6366f1', '#22d3ee', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#f97316', '#06b6d4'];
@@ -35,7 +37,7 @@ function applyChartFilter(
   for (const { column, values } of filters) {
     if (!column || values.length === 0) continue;
     const lower = values.map(v => v.toLowerCase());
-    result = result.filter(row => lower.includes((resolve(table, row, column)?.trim() ?? '').toLowerCase()));
+    result = result.filter(row => lower.includes(applyColumnExpression(resolve(table, row, stripFeature(column)), column).trim().toLowerCase()));
   }
   return result;
 }
@@ -57,20 +59,6 @@ function applyAgg(vals: number[], agg: AggregateFunc): number {
     case 'max': return Math.max(...vals);
     default: return vals[0];
   }
-}
-
-// Strip :feature suffix from a column expression
-const VALID_DATE_FEATURES: DateFeature[] = ['year', 'quarter', 'yearmonth', 'month', 'monthnum', 'week', 'dayofweek', 'day', 'hour'];
-function stripFeature(col: string): string {
-  const i = col.lastIndexOf(':');
-  if (i < 0) return col;
-  return VALID_DATE_FEATURES.includes(col.slice(i + 1) as DateFeature) ? col.slice(0, i) : col;
-}
-function getFeature(col: string): DateFeature | undefined {
-  const i = col.lastIndexOf(':');
-  if (i < 0) return undefined;
-  const f = col.slice(i + 1) as DateFeature;
-  return VALID_DATE_FEATURES.includes(f) ? f : undefined;
 }
 
 // Format a numeric value using chartFormat (calc + template), falling back to legacy ColumnModifier
@@ -112,29 +100,7 @@ function dimSortKey(val: string, dim: string): string {
   return val.toLowerCase();
 }
 
-const MONTH_NAME_FORMAT = new Intl.DateTimeFormat(undefined, { month: 'long' });
 const MONTH_YEAR_FORMAT = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' });
-const WEEKDAY_NAME_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long' });
-
-function applyDateFeature(raw: string, feature: DateFeature): string {
-  const d = new Date(raw);
-  if (isNaN(d.getTime())) return raw;
-  switch (feature) {
-    case 'year': return String(d.getFullYear());
-    case 'quarter': return `Q${Math.ceil((d.getMonth() + 1) / 3)}`;
-    case 'yearmonth': return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-    case 'month': return MONTH_NAME_FORMAT.format(d);
-    case 'monthnum': return String(d.getMonth() + 1).padStart(2, '0');
-    case 'week': {
-      const jan1 = new Date(d.getFullYear(), 0, 1);
-      return String(Math.ceil(((d.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7)).padStart(2, '0');
-    }
-    case 'dayofweek': return WEEKDAY_NAME_FORMAT.format(d);
-    case 'day': return String(d.getDate()).padStart(2, '0');
-    case 'hour': return String(d.getHours()).padStart(2, '0') + ':00';
-    default: return raw;
-  }
-}
 
 function makeExtractor(
   tableName: string,
@@ -176,19 +142,8 @@ function aggregateData(
 ): { data: Record<string, unknown>[]; seriesKeys: string[] } {
   if (!xCol) return { data: [], seriesKeys: [] };
 
-  // Parse "colpath:feature" expressions — colpath may be a dot-path like "species.name"
-  const parseExpr = (expr: string): { col: string; feature: DateFeature | null } => {
-    // Find last colon that looks like a date feature (not a dot-path segment)
-    const colon = expr.lastIndexOf(':');
-    if (colon < 0) return { col: expr, feature: null };
-    const maybeFeature = expr.slice(colon + 1) as DateFeature;
-    const validFeatures: DateFeature[] = ['year', 'quarter', 'yearmonth', 'month', 'monthnum', 'week', 'dayofweek', 'day', 'hour'];
-    if (!validFeatures.includes(maybeFeature)) return { col: expr, feature: null };
-    return { col: expr.slice(0, colon), feature: maybeFeature };
-  };
-
-  const xExpr = parseExpr(xCol);
-  const gExpr = groupBy ? parseExpr(groupBy) : null;
+  const xExpr = parseColumnExpression(xCol);
+  const gExpr = groupBy ? parseColumnExpression(groupBy) : null;
 
   const extractValue = makeExtractor(tableName, resolveColumnPath, false);
 
@@ -270,19 +225,10 @@ function buildPivotTable(
   resolveColumnPath: (tableName: string, row: Row, path: string) => string,
   tableName: string,
 ): PivotResult {
-  const parseExpr = (expr: string): { col: string; feature: DateFeature | null } => {
-    const colon = expr.lastIndexOf(':');
-    if (colon < 0) return { col: expr, feature: null };
-    const maybeFeature = expr.slice(colon + 1) as DateFeature;
-    const validFeatures: DateFeature[] = ['year', 'quarter', 'yearmonth', 'month', 'monthnum', 'week', 'dayofweek', 'day', 'hour'];
-    if (!validFeatures.includes(maybeFeature)) return { col: expr, feature: null };
-    return { col: expr.slice(0, colon), feature: maybeFeature };
-  };
-
   const extractVal = makeExtractor(tableName, resolveColumnPath, true);
 
-  const rowExprs = rowDims.map(parseExpr);
-  const colExprs = colDims.map(parseExpr);
+  const rowExprs = rowDims.map(parseColumnExpression);
+  const colExprs = colDims.map(parseColumnExpression);
 
   const rowKeyOrder: string[] = [];
   const rowKeyMap = new Map<string, string[]>();
@@ -826,8 +772,8 @@ const ChartRendererInner: React.FC<{
       <ResponsiveContainer width="100%" height="100%">
         <ScatterChart margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-          <XAxis dataKey="x" name={config.xColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
-          <YAxis dataKey={seriesKeys[0]} name={config.yColumn} tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
+          <XAxis dataKey="x" name={config.xColumn} tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
+          <YAxis dataKey={seriesKeys[0]} name={config.yColumn} tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
           <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} />
           <Scatter isAnimationActive={false} data={data} fill={CHART_COLORS[0]} />
         </ScatterChart>
@@ -840,8 +786,8 @@ const ChartRendererInner: React.FC<{
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-          <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
-          <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
+          <XAxis dataKey="x" tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
+          <YAxis tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
           <Tooltip formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} cursor={false} />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
@@ -857,8 +803,8 @@ const ChartRendererInner: React.FC<{
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-          <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
-          <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
+          <XAxis dataKey="x" tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
+          <YAxis tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
           <Tooltip formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
@@ -875,8 +821,8 @@ const ChartRendererInner: React.FC<{
     <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data} margin={margin}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-        <XAxis dataKey="x" tick={{ fontSize: 11 }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
-        <YAxis tick={{ fontSize: 11 }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
+        <XAxis dataKey="x" tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
+        <YAxis tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
         <Tooltip formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} />
         {seriesKeys.length > 1 && <Legend />}
         {seriesKeys.map((k, i) => (
@@ -978,184 +924,59 @@ const AGGREGATE_OPTIONS = [
   { value: 'none', label: 'None (raw)' },
 ];
 
-const DATE_FEATURES: { value: DateFeature; label: string }[] = [
-  { value: 'year', label: 'Year' },
-  { value: 'quarter', label: 'Quarter' },
-  { value: 'yearmonth', label: 'Year-Month' },
-  { value: 'month', label: 'Month name' },
-  { value: 'week', label: 'Week of year' },
-  { value: 'dayofweek', label: 'Day of week' },
-  { value: 'day', label: 'Day of month' },
-  { value: 'hour', label: 'Hour' },
-];
-
-// ── Per-dimension sort configuration grid ────────────────────────────────────
-
 const DIM_SORT_OPTIONS = [
   { value: 'none', label: 'None' },
   { value: 'asc', label: '↓ Ascending' },
   { value: 'desc', label: '↑ Descending' },
 ];
 
-interface DimConfigRow { _idx: number; path: string; feature: string; sort: string; }
-
 const DimConfigGrid: React.FC<{
   dims: string[];
   sorts: ('asc' | 'desc' | 'none')[];
   colPaths: { path: string; label: string; type?: string }[];
   onChange: (dims: string[], sorts: ('asc' | 'desc' | 'none')[]) => void;
-}> = ({ dims, sorts, colPaths, onChange }) => {
-  // Decode dims (which may be "path" or "path:feature") into row objects
-  const rowData: DimConfigRow[] = dims.map((dim, i) => {
-    const feature = getFeature(dim) ?? '';
-    const path = feature ? stripFeature(dim) : dim;
-    return { _idx: i, path, feature, sort: sorts[i] ?? 'none' };
-  });
-
-  const pathValues = colPaths.map(p => p.path);
-  const pathLabelMap = new Map(colPaths.map(p => [p.path, p.label]));
-  const pathTypeMap = new Map(colPaths.map(p => [p.path, p.type ?? '']));
-
-  const commit = (rows: DimConfigRow[]) => {
-    const newDims = rows.map(r => r.feature ? `${r.path}:${r.feature}` : r.path);
-    const newSorts = rows.map(r => (r.sort ?? 'none') as 'asc' | 'desc' | 'none');
-    onChange(newDims, newSorts);
-  };
-
-  const dimConfigGridTheme = themeQuartz.withParams({
-    cellHorizontalPaddingScale: 0.6,
-    headerFontSize: 11,
-    fontSize: 12,
-    rowHeight: 28,
-    headerHeight: 26,
-    columnBorder: true,
-  });
-
-  const colDefs: ColDef<DimConfigRow>[] = [
-    {
-      headerName: 'Column',
-      field: 'path',
-      flex: 3,
-      editable: true,
-      cellEditor: 'agSelectCellEditor',
-      cellEditorParams: { values: pathValues, formatValue: (val: string) => pathLabelMap.get(val) ?? val },
-      valueFormatter: p => pathLabelMap.get(p.value) ?? p.value,
-      singleClickEdit: true,
-      valueSetter: params => {
-        const newPath = params.newValue;
-        const newType = pathTypeMap.get(newPath) ?? '';
-        const isDate = newType === 'date' || newType === 'datetime';
-        const updated = rowData.map(r =>
-          r._idx === params.data._idx ? { ...r, path: newPath, feature: isDate ? r.feature : '' } : r
-        );
-        commit(updated);
-        return true;
-      },
-    },
-    {
-      headerName: 'Modifier',
-      field: 'feature',
-      flex: 2,
-      editable: params => {
-        const t = pathTypeMap.get(params.data?.path ?? '') ?? '';
-        return t === 'date' || t === 'datetime';
-      },
-      cellEditor: 'agSelectCellEditor',
-      cellEditorParams: (params: { data?: DimConfigRow }) => {
-        const t = pathTypeMap.get(params.data?.path ?? '') ?? '';
-        const feats = t === 'date'
-          ? DATE_FEATURES.filter(f => f.value !== 'hour')
-          : DATE_FEATURES;
-        return { values: ['', ...feats.map(f => f.value)] };
-      },
-      valueFormatter: p => {
-        if (!p.value) {
-          const t = pathTypeMap.get(p.data?.path ?? '') ?? '';
-          return (t === 'date' || t === 'datetime') ? 'Raw value' : '';
-        }
-        return DATE_FEATURES.find(f => f.value === p.value)?.label ?? p.value;
-      },
-      cellStyle: (params): CellStyle => {
-        const t = pathTypeMap.get(params.data?.path ?? '') ?? '';
-        return (t === 'date' || t === 'datetime') ? {} : { color: 'var(--color-text-muted)', fontStyle: 'italic' };
-      },
-      singleClickEdit: true,
-      valueSetter: params => {
-        const updated = rowData.map(r =>
-          r._idx === params.data._idx ? { ...r, feature: params.newValue ?? '' } : r
-        );
-        commit(updated);
-        return true;
-      },
-    },
-    {
-      headerName: 'Sort',
-      field: 'sort',
-      flex: 2,
-      editable: true,
-      cellEditor: 'agSelectCellEditor',
-      cellEditorParams: { values: DIM_SORT_OPTIONS.map(o => o.value) },
-      valueFormatter: p => DIM_SORT_OPTIONS.find(o => o.value === p.value)?.label ?? p.value,
-      singleClickEdit: true,
-      valueSetter: params => {
-        const updated = rowData.map(r =>
-          r._idx === params.data._idx ? { ...r, sort: params.newValue ?? 'none' } : r
-        );
-        commit(updated);
-        return true;
-      },
-    },
-    {
-      headerName: '',
-      field: '_idx',
-      width: 32,
-      maxWidth: 32,
-      editable: false,
-      sortable: false,
-      cellRenderer: () => (
-        <span style={{ cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>×</span>
-      ),
-      onCellClicked: params => {
-        if (!params.data) return;
-        const updated = rowData.filter(r => r._idx !== params.data!._idx);
-        commit(updated);
-      },
-    },
-  ];
-
-  const addRow = () => {
-    const usedPaths = new Set(rowData.map(r => r.path));
-    const first = colPaths.find(p => !usedPaths.has(p.path));
-    const newPath = first?.path ?? colPaths[0]?.path ?? '';
-    commit([...rowData, { _idx: rowData.length, path: newPath, feature: '', sort: 'none' }]);
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      {rowData.length > 0 && (
-        <AgGridReact<DimConfigRow>
-          theme={dimConfigGridTheme}
-          modules={[AllCommunityModule]}
-          rowData={rowData}
-          columnDefs={colDefs}
-          defaultColDef={{ sortable: false, suppressMovable: true, resizable: false }}
-          domLayout="autoHeight"
-          stopEditingWhenCellsLoseFocus={true}
-          getRowId={p => String(p.data._idx)}
-        />
-      )}
-      <button
-        type="button"
-        className="btn-secondary btn-sm"
-        style={{ alignSelf: 'flex-start' }}
-        onClick={addRow}
-        disabled={colPaths.length === 0}
-      >
-        + Add
-      </button>
-    </div>
-  );
-};
+}> = ({ dims, sorts, colPaths, onChange }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    {dims.map((dim, index) => (
+      <div key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <ColumnExpressionSelect
+            columns={colPaths}
+            value={dim}
+            label={'Dimension ' + (index + 1)}
+            onChange={expression => onChange(dims.map((value, position) => position === index ? expression : value), sorts)}
+          />
+        </div>
+        <div style={{ width: 115, flexShrink: 0 }}>
+          <Select
+            styles={dialogSelectStyles}
+            aria-label={'Sort dimension ' + (index + 1)}
+            isSearchable={false}
+            value={DIM_SORT_OPTIONS.find(option => option.value === (sorts[index] ?? 'none'))}
+            options={DIM_SORT_OPTIONS}
+            onChange={option => onChange(dims, dims.map((_, position) => position === index ? (option?.value ?? 'none') as 'asc' | 'desc' | 'none' : sorts[position] ?? 'none'))}
+            menuPortalTarget={document.body}
+            menuPlacement="auto"
+          />
+        </div>
+        <button
+          type="button"
+          className="btn-secondary btn-sm"
+          style={{ minHeight: 34 }}
+          aria-label={'Remove dimension ' + (index + 1)}
+          onClick={() => onChange(dims.filter((_, position) => position !== index), dims.flatMap((_, position) => position === index ? [] : [sorts[position] ?? 'none']))}
+        >×</button>
+      </div>
+    ))}
+    <button
+      type="button"
+      className="btn-secondary btn-sm"
+      style={{ alignSelf: 'flex-start' }}
+      onClick={() => onChange([...dims, ''], [...dims.map((_, index) => sorts[index] ?? 'none'), 'none'])}
+      disabled={colPaths.length === 0}
+    >+ Add</button>
+  </div>
+);
 
 const TOTAL_POSITION_OPTIONS = [
   { value: 'start', label: 'At start' },
@@ -1170,7 +991,13 @@ const ChartConfigModal: React.FC<{
   onSave: (config: ChartConfig) => void;
   onClose: () => void;
 }> = ({ config, isNew, tableIds, getColumnPaths, onSave, onClose }) => {
-  const [draft, setDraft] = useState<ChartConfig>(config);
+  const [draft, setDraft] = useState<ChartConfig>(() => ({
+    ...config,
+    filters: config.filters?.some(filter => filter.column)
+      ? config.filters
+      : config.filterColumn ? [{ column: config.filterColumn }] : config.filters,
+    filterColumn: undefined,
+  }));
   const allPaths = getColumnPaths(draft.table);
   // Only leaf paths (no further ref children) or non-ref columns are valid Y columns
   const numericPathSet = new Set(
@@ -1182,73 +1009,10 @@ const ChartConfigModal: React.FC<{
   const hasGroupBy = !isTableType && (draft.type === 'bar' || draft.type === 'line' || draft.type === 'area' || (draft.type as string) === 'area-stacked');
   const needsYCol = draft.aggregate !== 'count' && draft.aggregate !== 'none';
   const canSave = isTableType
-    ? (draft.tableRows?.length ?? 0) > 0 && (!needsYCol || !!draft.yColumn)
+    ? !!draft.tableRows?.length && draft.tableRows.every(Boolean) && (draft.tableColumns ?? []).every(Boolean) && (!needsYCol || !!draft.yColumn)
     : !!draft.xColumn && (!needsYCol || !!draft.yColumn);
 
-  type ColOption = { value: string; label: string };
-  type ColGroup = { label: string; options: ColOption[] };
-  const leafLabel = (label: string) => label.includes(' → ') ? (label.split(' → ').pop() ?? label) : label;
-
-  // ── colOptions for tableRows/tableColumns: date cols have date-feature sub-options ──
-  const colGroupsMap = new Map<string, ColGroup>();
-  const directGroup: ColGroup = { label: 'Columns', options: [] };
-  for (const p of allPaths) {
-    const isDotPath = p.path.includes('.');
-    const groupKey = isDotPath ? p.path.split('.')[0] : null;
-    if (isDotPath && groupKey) {
-      if (!colGroupsMap.has(groupKey)) colGroupsMap.set(groupKey, { label: groupKey, options: [] });
-      const shortLabel = leafLabel(p.label);
-      colGroupsMap.get(groupKey)!.options.push({ value: p.path, label: shortLabel });
-    } else if (p.type === 'date' || p.type === 'datetime') {
-      const feats = p.type === 'date' ? DATE_FEATURES.filter(f => f.value !== 'hour') : DATE_FEATURES;
-      const dateGroup: ColGroup = { label: leafLabel(p.label), options: [{ value: p.path, label: 'Raw value' }, ...feats.map(f => ({ value: `${p.path}:${f.value}`, label: f.label }))] };
-      colGroupsMap.set(p.path, dateGroup);
-    } else {
-      directGroup.options.push({ value: p.path, label: leafLabel(p.label) });
-    }
-  }
-  const colOptions: ColGroup[] = [];
-  if (directGroup.options.length > 0) colOptions.push(directGroup);
-  for (const g of colGroupsMap.values()) colOptions.push(g);
-  const colOptionsFlat: ColOption[] = colOptions.flatMap(g => g.options);
-
-  // ── colOptionsFlat for X/Y/groupBy: date cols appear as a single selectable option ──
-  const directGroupXYG: ColGroup = { label: 'Columns', options: [] };
-  const refGroupsXYG = new Map<string, ColGroup>();
-  for (const p of allPaths) {
-    const isDot = p.path.includes('.');
-    const rootKey = isDot ? p.path.split('.')[0] : null;
-    if (isDot && rootKey) {
-      if (!refGroupsXYG.has(rootKey)) refGroupsXYG.set(rootKey, { label: rootKey, options: [] });
-      const short = leafLabel(p.label);
-      refGroupsXYG.get(rootKey)!.options.push({ value: p.path, label: short });
-    } else {
-      directGroupXYG.options.push({ value: p.path, label: leafLabel(p.label) });
-    }
-  }
-  const colOptionsXYG: ColGroup[] = [];
-  if (directGroupXYG.options.length > 0) colOptionsXYG.push(directGroupXYG);
-  for (const g of refGroupsXYG.values()) colOptionsXYG.push(g);
-  const colOptionsFlatXYG: ColOption[] = colOptionsXYG.flatMap(g => g.options);
-  const yColOptionsXYG: ColGroup[] = draft.aggregate === 'none'
-    ? colOptionsXYG
-    : colOptionsXYG.map(g => ({ ...g, options: g.options.filter(o => numericPathSet.has(o.value)) })).filter(g => g.options.length > 0);
-
-  // ── Filtered grouped options for Y column in table mode ──
-  const yColOptions: ColGroup[] = draft.aggregate === 'none'
-    ? colOptions
-    : colOptions.map(g => ({ ...g, options: g.options.filter(o => numericPathSet.has(o.value)) })).filter(g => g.options.length > 0);
-
-  // Parse date feature out of xColumn / groupBy
-  const xColPath = stripFeature(draft.xColumn);
-  const xDateFeature = getFeature(draft.xColumn);
-  const xColType = allPaths.find(p => p.path === xColPath)?.type;
-  const xIsDateCol = xColType === 'date' || xColType === 'datetime';
-
-  const gbColPath = draft.groupBy ? stripFeature(draft.groupBy) : '';
-  const gbDateFeature = draft.groupBy ? getFeature(draft.groupBy) : undefined;
-  const gbColType = allPaths.find(p => p.path === gbColPath)?.type;
-  const gbIsDateCol = gbColType === 'date' || gbColType === 'datetime';
+  const valuePaths = allPaths.filter(path => numericPathSet.has(path.path));
 
   const set = <K extends keyof ChartConfig>(key: K, val: ChartConfig[K]) =>
     setDraft(d => ({ ...d, [key]: val }));
@@ -1297,7 +1061,7 @@ const ChartConfigModal: React.FC<{
                 isSearchable={false}
                 value={draft.table ? { value: draft.table, label: draft.table } : null}
                 options={tableIds.map(id => ({ value: id, label: id }))}
-                onChange={opt => { set('table', opt?.value ?? ''); set('xColumn', ''); set('yColumn', ''); }}
+                onChange={opt => setDraft(d => ({ ...d, table: opt?.value ?? '', xColumn: '', yColumn: '', groupBy: undefined, tableRows: [], tableColumns: [], tableRowDimSort: [], tableColDimSort: [], filters: [], filterColumn: undefined }))}
                 menuPortalTarget={document.body}
                 menuPlacement="auto"
               />
@@ -1374,15 +1138,12 @@ const ChartConfigModal: React.FC<{
                 {needsYCol && (
                   <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <label className="app-dialog-label">Value column</label>
-                    <Select
-                      styles={dialogSelectStyles}
-                      value={colOptionsFlat.find(o => o.value === draft.yColumn) ?? null}
-                      options={yColOptions}
-                      onChange={opt => set('yColumn', opt?.value ?? '')}
-                      placeholder="Select column..."
-                      isClearable
-                      menuPortalTarget={document.body}
-                      menuPlacement="auto"
+                    <ColumnExpressionSelect
+                      columns={valuePaths}
+                      value={draft.yColumn}
+                      label="Value column"
+                      allowTransformations={false}
+                      onChange={expression => set('yColumn', expression)}
                     />
                   </div>
                 )}
@@ -1402,37 +1163,12 @@ const ChartConfigModal: React.FC<{
               <div style={{ display: 'flex', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label className="app-dialog-label">X column</label>
-                  <Select
-                    styles={dialogSelectStyles}
-                    value={colOptionsFlatXYG.find(o => o.value === xColPath) ?? null}
-                    options={colOptionsXYG}
-                    onChange={opt => {
-                      const newPath = opt?.value ?? '';
-                      const newType = allPaths.find(p => p.path === newPath)?.type;
-                      if (newType === 'date' || newType === 'datetime') {
-                        set('xColumn', xDateFeature ? `${newPath}:${xDateFeature}` : newPath);
-                      } else {
-                        set('xColumn', newPath);
-                      }
-                    }}
-                    placeholder="Select column..."
-                    isClearable
-                    menuPortalTarget={document.body}
-                    menuPlacement="auto"
+                  <ColumnExpressionSelect
+                    columns={allPaths}
+                    value={draft.xColumn}
+                    label="X column"
+                    onChange={expression => set('xColumn', expression)}
                   />
-                  {xIsDateCol && (
-                    <Select
-                      styles={dialogSelectStyles}
-                      isSearchable={false}
-                      placeholder="Date feature (raw)"
-                      isClearable
-                      value={DATE_FEATURES.find(f => f.value === xDateFeature) ?? null}
-                      options={xColType === 'date' ? DATE_FEATURES.filter(f => f.value !== 'hour') : DATE_FEATURES}
-                      onChange={opt => set('xColumn', opt?.value ? `${xColPath}:${opt.value}` : xColPath)}
-                      menuPortalTarget={document.body}
-                      menuPlacement="auto"
-                    />
-                  )}
                 </div>
                 {draft.type !== 'pie' && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -1457,15 +1193,12 @@ const ChartConfigModal: React.FC<{
                 {needsYCol && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <label className="app-dialog-label">Y column</label>
-                    <Select
-                      styles={dialogSelectStyles}
-                      value={colOptionsFlatXYG.find(o => o.value === draft.yColumn) ?? null}
-                      options={yColOptionsXYG}
-                      onChange={opt => set('yColumn', opt?.value ?? '')}
-                      placeholder="Select column..."
-                      isClearable
-                      menuPortalTarget={document.body}
-                      menuPlacement="auto"
+                    <ColumnExpressionSelect
+                      columns={valuePaths}
+                      value={draft.yColumn}
+                      label="Y column"
+                      allowTransformations={false}
+                      onChange={expression => set('yColumn', expression)}
                     />
                   </div>
                 )}
@@ -1481,38 +1214,13 @@ const ChartConfigModal: React.FC<{
                   <label className="app-dialog-label">
                     Group by <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
                   </label>
-                  <Select
-                    styles={dialogSelectStyles}
-                    value={gbColPath ? colOptionsFlatXYG.find(o => o.value === gbColPath) ?? null : null}
-                    options={colOptionsXYG}
-                    onChange={opt => {
-                      const newPath = opt?.value;
-                      if (!newPath) { set('groupBy', undefined); return; }
-                      const newType = allPaths.find(p => p.path === newPath)?.type;
-                      if (newType === 'date' || newType === 'datetime') {
-                        set('groupBy', gbDateFeature ? `${newPath}:${gbDateFeature}` : newPath);
-                      } else {
-                        set('groupBy', newPath);
-                      }
-                    }}
+                  <ColumnExpressionSelect
+                    columns={allPaths}
+                    value={draft.groupBy ?? ''}
+                    label="Group by"
                     placeholder="None"
-                    isClearable
-                    menuPortalTarget={document.body}
-                    menuPlacement="auto"
+                    onChange={expression => set('groupBy', expression || undefined)}
                   />
-                  {gbIsDateCol && gbColPath && (
-                    <Select
-                      styles={dialogSelectStyles}
-                      isSearchable={false}
-                      placeholder="Date feature (raw)"
-                      isClearable
-                      value={DATE_FEATURES.find(f => f.value === gbDateFeature) ?? null}
-                      options={gbColType === 'date' ? DATE_FEATURES.filter(f => f.value !== 'hour') : DATE_FEATURES}
-                      onChange={opt => set('groupBy', opt?.value ? `${gbColPath}:${opt.value}` : gbColPath)}
-                      menuPortalTarget={document.body}
-                      menuPlacement="auto"
-                    />
-                  )}
                 </div>
               )}
               {needsYCol && draft.yColumn && (
@@ -1540,19 +1248,15 @@ const ChartConfigModal: React.FC<{
             {(draft.filters ?? []).map((f, i) => (
               <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <div style={{ flex: 1 }}>
-                  <Select
-                    styles={dialogSelectStyles}
-                    isClearable
-                    placeholder="Select column..."
-                    value={colOptionsFlatXYG.find(o => o.value === f.column) ?? null}
-                    options={colOptionsXYG}
-                    onChange={opt => setDraft(d => {
+                  <ColumnExpressionSelect
+                    columns={allPaths}
+                    value={f.column}
+                    label={'Filter column ' + (i + 1)}
+                    onChange={expression => setDraft(d => {
                       const filters = [...(d.filters ?? [])];
-                      filters[i] = { column: opt?.value ?? '' };
+                      filters[i] = { column: expression };
                       return { ...d, filters };
                     })}
-                    menuPortalTarget={document.body}
-                    menuPlacement="auto"
                   />
                 </div>
                 <button
@@ -1731,8 +1435,8 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
       for (const filter of effectiveFilters) {
         if (!filter.column || distinct[filter.column]) continue;
         distinct[filter.column] = [...new Set(
-          rows.map(row => state.resolveColumnPath(chart.table, row, filter.column).trim()).filter(v => !!v)
-        )].sort((a, b) => a.localeCompare(b));
+          rows.map(row => applyColumnExpression(state.resolveColumnPath(chart.table, row, stripFeature(filter.column)), filter.column).trim()).filter(v => !!v)
+        )].sort((a, b) => dimSortKey(a, filter.column).localeCompare(dimSortKey(b, filter.column)));
       }
       result.set(chart.id, { filteredRows, data, seriesKeys, distinct });
     }
@@ -1781,6 +1485,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
             margin={[12, 12]}
             onLayoutChange={handleLayoutChange}
             draggableHandle=".chart-drag-handle"
+            draggableCancel=".chart-controls, button, input, select, textarea, a, [role='combobox']"
             isDraggable={canEdit && editLayout}
             isResizable={canEdit && editLayout}
           >
@@ -1803,34 +1508,32 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                   }}
                 >
                   <div
-                    className="chart-drag-handle"
                     style={{
                       padding: '6px 12px',
                       borderBottom: '1px solid var(--color-border)',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: 4,
-                      cursor: editLayout ? 'grab' : 'default',
                       flexShrink: 0,
                       userSelect: 'none',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span className="chart-drag-handle" style={{ flex: 1, minWidth: 0, minHeight: 36, lineHeight: '36px', touchAction: editLayout ? 'none' : 'auto', cursor: editLayout ? 'grab' : 'default', fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {chart.title}
                       </span>
                       {canEdit && (
-                        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+                        <div className="chart-controls" style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                           {editLayout && (
                             <button
                               onClick={() => handleDeleteChart(chart.id)}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-danger)', padding: '2px 6px', fontSize: 12, borderRadius: 4 }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-danger)', padding: '6px 10px', minHeight: 44, minWidth: 44, touchAction: 'manipulation', fontSize: 12, borderRadius: 4 }}
                               title="Delete chart"
                             >Delete</button>
                           )}
                           <button
                             onClick={() => { setEditingChart(chart); setIsNewChart(false); }}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '2px 6px', fontSize: 12, borderRadius: 4 }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '6px 10px', minHeight: 44, minWidth: 44, touchAction: 'manipulation', fontSize: 12, borderRadius: 4 }}
                           >Edit</button>
                         </div>
                       )}
@@ -1840,12 +1543,11 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
                       const chartFilterVals2 = filterValues[chart.id] ?? {};
                       return (
                         <div
+                          className="chart-controls"
                           style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}
-                          onMouseDown={e => e.stopPropagation()}
-                          onTouchStart={e => e.stopPropagation()}
                         >
                           {effectiveFilters.filter(f => f.column).map(f => {
-                            const fullLabel = colPaths.find(p => p.path === f.column)?.label ?? f.column;
+                            const fullLabel = formatColumnExpression(f.column, colPaths);
                             const colLabel = fullLabel.includes(' → ') ? fullLabel.split(' → ').pop()! : fullLabel;
                             const curVals = chartFilterVals2[f.column] ?? [];
                             const distinctValues = distinct[f.column] ?? [];
