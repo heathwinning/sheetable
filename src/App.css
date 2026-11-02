@@ -1206,6 +1206,7 @@ body {
   @apply min-w-[160px] h-[26px] border border-border rounded-md bg-surface text-text px-2;
 }
 .chart-sheet-container { @apply flex-1 overflow-auto p-0; }
+.chart-sheet-canvas { padding: 16px; }
 
 /* ============================================================
    Add Sheet Menu
@@ -1386,6 +1387,10 @@ body {
   .edit-table-page { @apply p-3; padding-left: 8px; padding-right: 8px; }
   .import-page { @apply p-3; padding-left: 8px; padding-right: 8px; }
   .book-settings-page { padding: 12px 8px; }
+}
+
+@media (max-width: 600px) {
+  .chart-sheet-canvas { padding: 4px; }
 }
 
 /* ============================================================

@@ -1283,6 +1283,7 @@ const ChartConfigModal: React.FC<{
 export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { chartId } = useParams<{ bookId?: string; chartId: string }>();
   const chartSheet = chartId ? state.getChartSheet(chartId) : undefined;
+  const [isNarrowScreen, setIsNarrowScreen] = useState(() => window.matchMedia('(max-width: 600px)').matches);
 
   const [charts, setCharts] = useState<ChartConfig[]>(() => chartSheet?.charts ?? []);
   const [layout, setLayout] = useState<ChartLayoutItem[]>(() => chartSheet?.layout ?? []);
@@ -1295,6 +1296,13 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
     }
     return init;
   });
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 600px)');
+    const updateScreenWidth = (event: MediaQueryListEvent) => setIsNarrowScreen(event.matches);
+    mediaQuery.addEventListener('change', updateScreenWidth);
+    return () => mediaQuery.removeEventListener('change', updateScreenWidth);
+  }, []);
 
   const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1466,7 +1474,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
           onClose={() => setEditingChart(null)}
         />
       )}
-      <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+      <div className="chart-sheet-canvas" style={{ flex: 1, overflowY: 'auto' }}>
         {charts.length === 0 ? (
           <div className="empty-state-main" style={{ minHeight: 320 }}>
             <h2>No charts yet</h2>
@@ -1482,7 +1490,7 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
             layout={layout}
             cols={12}
             rowHeight={40}
-            margin={[12, 12]}
+            margin={[isNarrowScreen ? 4 : 12, 12]}
             onLayoutChange={handleLayoutChange}
             draggableHandle=".chart-drag-handle"
             draggableCancel=".chart-controls, button, input, select, textarea, a, [role='combobox']"
