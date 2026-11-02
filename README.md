@@ -74,7 +74,7 @@ export default defineConfig([
 
 ## Chart column transformations
 
-Use `ColumnExpressionSelect` for chart dimension and filter column pickers, including pivot rows and columns. Date and datetime options display “Configure…” and open a configuration modal before committing a selection. The selected transformation appears as an editable badge; selecting the same column again reopens its configuration. Cancel leaves the existing selection unchanged, and selecting a different column starts with its raw value.
+Use `ColumnExpressionSelect` for chart dimension and filter column pickers, including pivot rows and columns. Date and datetime options display “Configure…” and open a configuration modal before committing a selection. The selected transformation appears inside the dropdown control; selecting the same column again reopens its configuration. Cancel leaves the existing selection unchanged, and selecting a different column starts with its raw value.
 
 `columnExpressions.ts` owns transformation metadata, type eligibility, expression parsing, evaluation, and display labels. Persist expressions as a plain column path or `path:feature`, including reference paths such as `customer.created_at:weekofmonth`. Chart aggregation, pivot dimensions, filter options, and filter matching must use the same expression evaluator. Numeric value-column selectors use the same picker with transformations disabled.
 

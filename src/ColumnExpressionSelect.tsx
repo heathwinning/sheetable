@@ -104,7 +104,6 @@ export function ColumnExpressionSelect({ columns, value, onChange, label, placeh
   }
   const options = [...groups.values()];
   const selected = options.flatMap(group => group.options).find(option => option.value === col);
-  const selectedColumn = columns.find(column => column.path === col);
 
   return (
     <div style={{ minWidth: 0 }}>
@@ -115,7 +114,7 @@ export function ColumnExpressionSelect({ columns, value, onChange, label, placeh
         options={options}
         formatOptionLabel={(option, context) => context.context === 'menu'
           ? <span>{option.label}{option.configurable && <span title="Opens a configuration dialog" style={{ color: 'var(--color-text-muted)', fontSize: 11 }}> · Configure…</span>}</span>
-          : option.label}
+          : option.value === col ? formatColumnExpression(value, columns) : option.label}
         onChange={option => {
           const column = columns.find(candidate => candidate.path === option?.value);
           if (column && option?.configurable) {
@@ -130,18 +129,6 @@ export function ColumnExpressionSelect({ columns, value, onChange, label, placeh
         menuPortalTarget={document.body}
         menuPlacement="auto"
       />
-      {allowTransformations && selectedColumn && getColumnTransformations(selectedColumn.type).length > 0 && (
-        <button
-          type="button"
-          className="btn-secondary btn-sm"
-          style={{ marginTop: 4, maxWidth: '100%', whiteSpace: 'normal', textAlign: 'left' }}
-          aria-label={`Configure ${formatColumnExpression(value, columns)}`}
-          aria-haspopup="dialog"
-          onClick={() => setPending({ column: selectedColumn, feature })}
-        >
-          {feature ? formatColumnExpression(value, columns) : 'Raw value'} · Edit…
-        </button>
-      )}
       {pending && (
         <TransformationModal
           column={pending.column}
