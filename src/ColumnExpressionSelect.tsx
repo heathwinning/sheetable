@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import Select from 'react-select';
+import Select, { type SelectInstance } from 'react-select';
 import { dialogSelectStyles } from './selectStyles';
 import { formatColumnExpression, getColumnTransformations, parseColumnExpression } from './columnExpressions';
 import type { ColumnPath } from './columnExpressions';
 import type { DateFeature } from './types';
 
 interface ColumnOption { value: string; label: string; configurable: boolean }
+interface TransformationOption { value: DateFeature | ''; label: string }
 
 function TransformationModal({ column, initialFeature, onApply, onClose }: {
   column: ColumnPath;
@@ -15,12 +16,16 @@ function TransformationModal({ column, initialFeature, onApply, onClose }: {
   onClose: () => void;
 }) {
   const options = getColumnTransformations(column.type);
-  const [feature, setFeature] = useState(() => options.some(option => option.value === initialFeature) ? initialFeature! : '');
+  const [feature, setFeature] = useState<DateFeature | ''>(() => options.some(option => option.value === initialFeature) ? initialFeature! : '');
+  const transformationOptions: TransformationOption[] = [
+    { value: '', label: 'Raw value (no transformation)' },
+    ...options.map(option => ({ value: option.value, label: option.label })),
+  ];
   const titleId = useId();
   const selectId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
-  const selectRef = useRef<HTMLSelectElement>(null);
+  const selectRef = useRef<SelectInstance<TransformationOption, false>>(null);
   const description = options.find(option => option.value === feature)?.description;
 
   useEffect(() => {
@@ -33,7 +38,7 @@ function TransformationModal({ column, initialFeature, onApply, onClose }: {
         onClose();
       }
       if (event.key === 'Tab') {
-        const controls = dialogRef.current?.querySelectorAll<HTMLElement>('select, button');
+        const controls = dialogRef.current?.querySelectorAll<HTMLElement>('[role="combobox"], button');
         if (!controls?.length) return;
         const first = controls[0];
         const last = controls[controls.length - 1];
@@ -65,10 +70,22 @@ function TransformationModal({ column, initialFeature, onApply, onClose }: {
         <p className="app-dialog-message">{column.label}</p>
         <div className="app-dialog-field">
           <label className="app-dialog-label" htmlFor={selectId}>Transformation</label>
-          <select ref={selectRef} id={selectId} className="app-dialog-select" value={feature} onChange={event => setFeature(event.target.value)} aria-describedby={description ? descriptionId : undefined}>
-            <option value="">Raw value (no transformation)</option>
-            {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
+          <Select<TransformationOption, false>
+            ref={selectRef}
+            inputId={selectId}
+            aria-label={`Transformation for ${column.label}`}
+            aria-describedby={description ? descriptionId : undefined}
+            styles={{
+              ...dialogSelectStyles,
+              menuPortal: base => ({ ...base, zIndex: 10001 }),
+            }}
+            value={transformationOptions.find(option => option.value === feature) ?? transformationOptions[0]}
+            options={transformationOptions}
+            onChange={option => setFeature(option?.value ?? '')}
+            isSearchable={false}
+            menuPortalTarget={document.body}
+            menuPlacement="auto"
+          />
           {description && <p id={descriptionId} style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{description}</p>}
         </div>
         <div className="app-dialog-actions">

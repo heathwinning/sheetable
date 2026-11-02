@@ -44,7 +44,7 @@ export function getFeature(expression: string): DateFeature | undefined {
 export function formatColumnExpression(expression: string, columns: ColumnPath[]): string {
   const { col, feature } = parseColumnExpression(expression);
   const label = columns.find(column => column.path === col)?.label ?? col;
-  return feature ? `${label} · ${DATE_FEATURES.find(option => option.value === feature)!.label}` : label;
+  return feature ? `${label} → ${DATE_FEATURES.find(option => option.value === feature)!.label}` : label;
 }
 
 const MONTH_NAME_FORMAT = new Intl.DateTimeFormat(undefined, { month: 'long' });
