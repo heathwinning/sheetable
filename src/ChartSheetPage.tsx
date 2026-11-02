@@ -784,7 +784,7 @@ const ChartRendererInner: React.FC<{
   if (config.type === 'bar') {
     return (
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={margin}>
+        <BarChart data={data} margin={margin} barGap={config.groupBy && !config.stacked ? 0 : undefined}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
           <XAxis dataKey="x" tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
           <YAxis tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
