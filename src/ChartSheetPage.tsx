@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useSheetRows } from './useSheetRows';
 import { useParams, useSearchParams } from 'react-router-dom';
 import Select from 'react-select';
 import { dialogSelectStyles } from './selectStyles';
@@ -49,16 +50,43 @@ function toNum(v: unknown): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
-function applyAgg(vals: number[], agg: AggregateFunc): number {
-  if (vals.length === 0) return 0;
-  switch (agg) {
-    case 'count': return vals.length;
-    case 'sum': return vals.reduce((a, b) => a + b, 0);
-    case 'avg': return vals.reduce((a, b) => a + b, 0) / vals.length;
-    case 'min': return Math.min(...vals);
-    case 'max': return Math.max(...vals);
-    default: return vals[0];
+interface Aggregate {
+  value: number;
+  count: number;
+}
+
+function addToAggregate(group: Aggregate, value: number, kind: AggregateFunc) {
+  if (group.count++ === 0) {
+    group.value = value;
+    return;
   }
+  switch (kind) {
+    case 'sum':
+    case 'avg': group.value += value; break;
+    case 'min': group.value = Math.min(group.value, value); break;
+    case 'max': group.value = Math.max(group.value, value); break;
+  }
+}
+
+function addValue<K>(groups: Map<K, Aggregate>, key: K, value: number, kind: AggregateFunc) {
+  let group = groups.get(key);
+  if (!group) {
+    group = { value: 0, count: 0 };
+    groups.set(key, group);
+  }
+  addToAggregate(group, value, kind);
+}
+
+function aggregateValue(group: Aggregate | undefined, kind: AggregateFunc): number {
+  if (!group?.count) return 0;
+  if (kind === 'count') return group.count;
+  if (kind === 'avg') return group.value / group.count;
+  return group.value;
+}
+
+interface ChartDatum {
+  x: string;
+  values: number[];
 }
 
 // Format a numeric value using chartFormat (calc + template), falling back to legacy ColumnModifier
@@ -139,68 +167,39 @@ function aggregateData(
   resolveColumnPath: (tableName: string, row: Row, path: string) => string,
   tableName: string,
   allRows?: Row[], // full unfiltered rows — used to determine complete X domain
-): { data: Record<string, unknown>[]; seriesKeys: string[] } {
+): { data: ChartDatum[]; seriesKeys: string[] } {
   if (!xCol) return { data: [], seriesKeys: [] };
 
   const xExpr = parseColumnExpression(xCol);
-  const gExpr = groupBy ? parseColumnExpression(groupBy) : null;
-
+  const groupExpr = groupBy ? parseColumnExpression(groupBy) : null;
   const extractValue = makeExtractor(tableName, resolveColumnPath, false);
+  const domain = new Set<string>();
+  for (const row of allRows ?? rows) domain.add(extractValue(row, xExpr));
 
-  // Build full X domain from allRows when provided (so filtered charts still show all X values)
-  const domainRows = allRows ?? rows;
-
-  if (groupBy) {
-    const xOrder: string[] = [];
-    const seenX = new Set<string>();
-    const seenG = new Set<string>();
-    // Collect X domain from full dataset
-    for (const row of domainRows) {
-      const x = extractValue(row, xExpr);
-      if (!seenX.has(x)) { xOrder.push(x); seenX.add(x); }
-    }
-    const groups = new Map<string, Map<string, number[]>>();
-    // Aggregate values only from filtered rows
-    for (const row of rows) {
-      const x = extractValue(row, xExpr);
-      const g = extractValue(row, gExpr!);
-      seenG.add(g);
-      if (!groups.has(x)) groups.set(x, new Map());
-      const xg = groups.get(x)!;
-      if (!xg.has(g)) xg.set(g, []);
-      xg.get(g)!.push(agg === 'count' ? 1 : toNum(resolveColumnPath(tableName, row, yCol)));
-    }
-    // Auto-sort x values chronologically when xCol is a date feature
-    if (xExpr.feature) xOrder.sort((a, b) => dimSortKey(a, xCol).localeCompare(dimSortKey(b, xCol)));
-    const seriesKeys = Array.from(seenG);
-    const data = xOrder.map(x => {
-      const xg = groups.get(x) ?? new Map();
-      const entry: Record<string, unknown> = { x };
-      for (const g of seriesKeys) entry[g] = applyAgg(xg.get(g) ?? [], agg);
-      return entry;
-    });
-    return { data, seriesKeys };
-  }
-
-  // Collect X domain from full dataset
-  const xOrder: string[] = [];
-  const seenX = new Set<string>();
-  for (const row of domainRows) {
-    const x = extractValue(row, xExpr);
-    if (!seenX.has(x)) { xOrder.push(x); seenX.add(x); }
-  }
-  // Aggregate values only from filtered rows
-  const groups = new Map<string, number[]>();
+  const ungroupedKey = yCol || 'value';
+  const keys = new Set(groupExpr ? [] : [ungroupedKey]);
+  const groups = new Map<string, Map<string, Aggregate>>();
   for (const row of rows) {
     const x = extractValue(row, xExpr);
-    if (!groups.has(x)) groups.set(x, []);
-    groups.get(x)!.push(agg === 'count' ? 1 : toNum(resolveColumnPath(tableName, row, yCol)));
+    const series = groupExpr ? extractValue(row, groupExpr) : ungroupedKey;
+    keys.add(series);
+    let bucket = groups.get(x);
+    if (!bucket) {
+      bucket = new Map();
+      groups.set(x, bucket);
+    }
+    const value = agg === 'count' ? 1 : toNum(resolveColumnPath(tableName, row, yCol));
+    addValue(bucket, series, value, agg);
   }
-  // Auto-sort x values chronologically when xCol is a date feature
+
+  const xOrder = [...domain];
   if (xExpr.feature) xOrder.sort((a, b) => dimSortKey(a, xCol).localeCompare(dimSortKey(b, xCol)));
-  const seriesKey = yCol || 'value';
-  const data = xOrder.map(x => ({ x, [seriesKey]: applyAgg(groups.get(x) ?? [], agg) }));
-  return { data, seriesKeys: [seriesKey] };
+  const seriesKeys = [...keys];
+  const data = xOrder.map(x => ({
+    x,
+    values: seriesKeys.map(series => aggregateValue(groups.get(x)?.get(series), agg)),
+  }));
+  return { data, seriesKeys };
 }
 
 // ── Pivot table data builder ─────────────────────────────────────────────────
@@ -234,11 +233,10 @@ function buildPivotTable(
   const rowKeyMap = new Map<string, string[]>();
   const colKeyOrder: string[] = [];
   const colKeyMap = new Map<string, string[]>();
-  // raw numeric values per cell / row / col / all — for correct aggregation of totals
-  const cellRaw = new Map<string, number[]>();
-  const rowRaw = new Map<string, number[]>();
-  const colRaw = new Map<string, number[]>();
-  const allRaw: number[] = [];
+  const cellAggregates = new Map<string, Aggregate>();
+  const rowAggregates = new Map<string, Aggregate>();
+  const colAggregates = new Map<string, Aggregate>();
+  const overall: Aggregate = { value: 0, count: 0 };
 
   for (const row of rows) {
     const rowVals = rowExprs.map(e => extractVal(row, e));
@@ -249,30 +247,20 @@ function buildPivotTable(
     if (!rowKeyMap.has(rowJoined)) { rowKeyOrder.push(rowJoined); rowKeyMap.set(rowJoined, rowVals); }
     if (colExprs.length > 0 && !colKeyMap.has(colJoined)) { colKeyOrder.push(colJoined); colKeyMap.set(colJoined, colVals); }
 
-    const yRaw = yCol ? resolveColumnPath(tableName, row, yCol) : '';
-    const yNum = agg === 'count' ? 1 : toNum(yRaw);
-
+    const value = agg === 'count' ? 1 : toNum(yCol ? resolveColumnPath(tableName, row, yCol) : '');
     const cellKey = `${rowJoined}\x01${colJoined}`;
-    if (!cellRaw.has(cellKey)) cellRaw.set(cellKey, []);
-    cellRaw.get(cellKey)!.push(yNum);
-
-    if (!rowRaw.has(rowJoined)) rowRaw.set(rowJoined, []);
-    rowRaw.get(rowJoined)!.push(yNum);
-
-    if (colExprs.length > 0) {
-      if (!colRaw.has(colJoined)) colRaw.set(colJoined, []);
-      colRaw.get(colJoined)!.push(yNum);
-    }
-    allRaw.push(yNum);
+    addValue(cellAggregates, cellKey, value, agg);
+    addValue(rowAggregates, rowJoined, value, agg);
+    if (colExprs.length > 0) addValue(colAggregates, colJoined, value, agg);
+    addToAggregate(overall, value, agg);
   }
 
-  const cells = new Map<string, number>();
-  for (const [k, vals] of cellRaw) cells.set(k, applyAgg(vals, agg));
-  const rowTotals = new Map<string, number>();
-  for (const [k, vals] of rowRaw) rowTotals.set(k, applyAgg(vals, agg));
-  const colTotals = new Map<string, number>();
-  for (const [k, vals] of colRaw) colTotals.set(k, applyAgg(vals, agg));
-  const grandTotal = applyAgg(allRaw, agg);
+  const totals = (groups: Map<string, Aggregate>) =>
+    new Map([...groups].map(([key, group]) => [key, aggregateValue(group, agg)]));
+  const cells = totals(cellAggregates);
+  const rowTotals = totals(rowAggregates);
+  const colTotals = totals(colAggregates);
+  const grandTotal = aggregateValue(overall, agg);
 
   // Derive display labels for dimension headers (strip :feature suffix for header)
   const dimLabel = (d: string) => d.includes(':') ? d.split(':')[0] : d;
@@ -499,7 +487,7 @@ const PivotTableGrid: React.FC<{
 
 const ChartRendererInner: React.FC<{
   config: ChartConfig;
-  data: Record<string, unknown>[];
+  data: ChartDatum[];
   seriesKeys: string[];
   rows?: Row[];
   resolveColumnPath?: (tableName: string, row: Row, path: string) => string;
@@ -751,7 +739,7 @@ const ChartRendererInner: React.FC<{
   if (config.type === 'pie') {
     const pieData = data.map((d, i) => ({
       name: String(d.x ?? ''),
-      value: Number(d[seriesKeys[0]] ?? 0),
+      value: d.values[0] ?? 0,
       fill: CHART_COLORS[i % CHART_COLORS.length],
     }));
     return (
@@ -773,7 +761,7 @@ const ChartRendererInner: React.FC<{
         <ScatterChart margin={margin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
           <XAxis dataKey="x" name={config.xColumn} tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" label={xAxisLabel} tickFormatter={xTickFormatter} />
-          <YAxis dataKey={seriesKeys[0]} name={config.yColumn} tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
+          <YAxis dataKey="values[0]" name={config.yColumn} tick={{ fontSize: 11, fill: 'var(--color-text)' }} stroke="var(--color-border)" allowDecimals={false} label={yAxisLabel} tickFormatter={yTickFormatter} />
           <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} />
           <Scatter isAnimationActive={false} data={data} fill={CHART_COLORS[0]} />
         </ScatterChart>
@@ -791,7 +779,7 @@ const ChartRendererInner: React.FC<{
           <Tooltip formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} cursor={false} />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
-            <Bar key={k} isAnimationActive={false} dataKey={k} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={config.stacked ? undefined : [3, 3, 0, 0]} stackId={config.stacked ? 'stack' : undefined} />
+            <Bar key={k} isAnimationActive={false} dataKey={`values[${i}]`} name={k} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={config.stacked ? undefined : [3, 3, 0, 0]} stackId={config.stacked ? 'stack' : undefined} />
           ))}
         </BarChart>
       </ResponsiveContainer>
@@ -808,7 +796,7 @@ const ChartRendererInner: React.FC<{
           <Tooltip formatter={tooltipFormatter} labelFormatter={tooltipLabelFormatter} contentStyle={tooltipStyle} />
           {seriesKeys.length > 1 && <Legend />}
           {seriesKeys.map((k, i) => (
-            <Line key={k} isAnimationActive={false} type="monotone" dataKey={k} stroke={CHART_COLORS[i % CHART_COLORS.length]} dot={false} strokeWidth={2} />
+            <Line key={k} isAnimationActive={false} type="monotone" dataKey={`values[${i}]`} name={k} stroke={CHART_COLORS[i % CHART_COLORS.length]} dot={false} strokeWidth={2} />
           ))}
         </LineChart>
       </ResponsiveContainer>
@@ -830,7 +818,7 @@ const ChartRendererInner: React.FC<{
             key={k}
             isAnimationActive={false}
             type="monotone"
-            dataKey={k}
+            dataKey={`values[${i}]`} name={k}
             stroke={CHART_COLORS[i % CHART_COLORS.length]}
             fill={CHART_COLORS[i % CHART_COLORS.length] + '33'}
             strokeWidth={2}
@@ -1345,9 +1333,15 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
 
   const handleLayoutChange = useCallback((newLayout: readonly ChartLayoutItem[]) => {
     const nextLayout: ChartLayoutItem[] = newLayout.map(({ i, x, y, w, h }) => ({ i, x, y, w, h }));
+    const unchanged = nextLayout.length === layout.length && nextLayout.every((item, index) => {
+      const previous = layout[index];
+      return item.i === previous.i && item.x === previous.x && item.y === previous.y
+        && item.w === previous.w && item.h === previous.h;
+    });
+    if (unchanged) return;
     setLayout(nextLayout);
-    setCharts(prev => { scheduleSave(prev, nextLayout); return prev; });
-  }, [scheduleSave]);
+    if (canEdit && editLayout) scheduleSave(charts, nextLayout);
+  }, [canEdit, charts, editLayout, layout, scheduleSave]);
 
   const handleAddChart = () => {
     const firstTable = state.tableIds[0] ?? '';
@@ -1419,10 +1413,11 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
     }),
   [state]);  
 
+  const rowData = useSheetRows(state, charts.map(chart => chart.table));
   const chartData = useMemo(() => {
     const result = new Map<string, {
       filteredRows: Row[];
-      data: Record<string, unknown>[];
+      data: ChartDatum[];
       seriesKeys: string[];
       distinct: Record<string, string[]>;
     }>();
@@ -1451,6 +1446,19 @@ export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [charts, filterValues, state.revision, state.resolveColumnPath]);
+
+  if (rowData.loading) {
+    return (
+      <div className="empty-state-main" role="status">
+        {rowData.error ? (
+          <>
+            <p>{rowData.error}</p>
+            <button className="btn-secondary" onClick={rowData.retry}>Retry</button>
+          </>
+        ) : 'Loading chart data…'}
+      </div>
+    );
+  }
 
   if (!chartId || !chartSheet) {
     return (

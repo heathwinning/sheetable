@@ -31,14 +31,14 @@ export const onRequestGet: PagesFunction<Env, 'bookId', RequestData> = async (co
   const bookId = context.params.bookId as string;
 
   const { results: tables } = await context.env.DB.prepare(
-    'SELECT id, name, display_order, unique_keys, default_sort, draft_position, calculated_columns FROM _tables WHERE book_id = ? ORDER BY display_order'
+    'SELECT id, name, display_order, unique_keys, default_sort, draft_position, calculated_columns FROM _tables WHERE book_id = ? AND restore_pending = 0 ORDER BY display_order'
   ).bind(bookId).all<{ id: number; name: string; display_order: number; unique_keys: string; default_sort: string | null; draft_position: string; calculated_columns: string | null }>();
 
   const { results: allCols } = await context.env.DB.prepare(
     `SELECT c.table_id, c.name, c.display_name, c.type, c.display_order, c.width, c.ref_table, c.ref_display, c.ref_search, c.expression, c.show_in_grid, c.list_of, c.default_value
      FROM _columns c
      JOIN _tables t ON t.id = c.table_id
-     WHERE t.book_id = ?
+     WHERE t.book_id = ? AND t.restore_pending = 0
      ORDER BY c.display_order`
   ).bind(bookId).all();
 

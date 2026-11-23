@@ -4,7 +4,7 @@ import { json, error, requireUser, requireEditor } from '../../../../../../lib';
 // Helper to get physical table ID
 async function getTableId(db: D1Database, bookId: string, name: string): Promise<number | null> {
   const row = await db.prepare(
-    'SELECT id FROM _tables WHERE book_id = ? AND name = ?'
+    'SELECT id FROM _tables WHERE book_id = ? AND name = ? AND restore_pending = 0'
   ).bind(bookId, name).first<{ id: number }>();
   return row?.id ?? null;
 }
@@ -43,7 +43,7 @@ export const onRequestPost: PagesFunction<Env, 'bookId' | 'name', RequestData> =
 
   // Get column names from schema
   const { results: cols } = await context.env.DB.prepare(
-    'SELECT name FROM _columns WHERE table_id = ? ORDER BY display_order'
+    "SELECT name FROM _columns WHERE table_id = ? AND type != 'calculated' ORDER BY display_order"
   ).bind(tableId).all<{ name: string }>();
 
   const colNames = cols.map(c => c.name);
@@ -57,13 +57,13 @@ export const onRequestPost: PagesFunction<Env, 'bookId' | 'name', RequestData> =
       `INSERT INTO t_${tableId} (${allCols.map(c => `"${c}"`).join(', ')}) VALUES (${placeholders})`
     ).bind(...values).run();
     return json({ ok: true, rowId: Number(body._rowId) }, 201);
-  } else {
-    // Auto-generate _rowId
-    const placeholders = colNames.map(() => '?').join(', ');
-    const values = colNames.map(c => body[c] ?? '');
-    const result = await context.env.DB.prepare(
-      `INSERT INTO t_${tableId} (${colNames.map(c => `"${c}"`).join(', ')}) VALUES (${placeholders})`
-    ).bind(...values).run();
-    return json({ ok: true, rowId: result.meta.last_row_id }, 201);
   }
+
+  // Generate and return the ID in the same statement, including for restored TEXT primary keys.
+  const columns = ['_rowId', ...colNames].map(c => `"${c}"`).join(', ');
+  const values = ['COALESCE(MAX(CAST(_rowId AS INTEGER)), 0) + 1', ...colNames.map(() => '?')];
+  const result = await context.env.DB.prepare(
+    `INSERT INTO t_${tableId} (${columns}) SELECT ${values.join(', ')} FROM t_${tableId} RETURNING _rowId`
+  ).bind(...colNames.map(c => body[c] ?? '')).first<{ _rowId: string | number }>();
+  return json({ ok: true, rowId: Number(result?._rowId) }, 201);
 };

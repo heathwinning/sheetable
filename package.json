@@ -7,6 +7,7 @@
     "dev": "wrangler pages dev -- npx vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "typecheck:worker": "tsc -p tsconfig.worker.json",
     "preview": "wrangler pages dev dist"
   },
   "dependencies": {

@@ -1,4 +1,5 @@
 import type { Env } from '../../../../lib';
+import type { BackupPayload } from '../../../../../shared/backupTypes';
 
 const SNAPSHOT_R2_PREFIX = 'snapshots';
 
@@ -6,26 +7,17 @@ function snapshotKey(bookId: string, snapshotId: string): string {
   return `${SNAPSHOT_R2_PREFIX}/${bookId}/${snapshotId}.json`;
 }
 
-export interface ExportPayload {
-  version: number;
-  exportedAt: string;
-  bookName: string;
-  tables: unknown[];
-  views: unknown[];
-  charts: unknown[];
-}
-
 /** Write a snapshot to R2 and insert D1 metadata. Runs retention cleanup after. */
 export async function createSnapshot(
   env: Env,
   bookId: string,
-  payload: ExportPayload,
+  payload: BackupPayload,
   label: string | null,
 ): Promise<{ snapshotId: string }> {
   const snapshotId = crypto.randomUUID();
   const now = new Date().toISOString();
   const nowDate = new Date();
-  const totalRows = (payload.tables as { rows: unknown[] }[]).reduce((sum, t) => sum + t.rows.length, 0);
+  const totalRows = payload.tables.reduce((sum, t) => sum + t.rows.length, 0);
 
   // Classify: annual (Jan 1), monthly (1st of month), or daily
   const isFirstOfYear = nowDate.getMonth() === 0 && nowDate.getDate() === 1;
@@ -50,8 +42,8 @@ export async function createSnapshot(
     now,
     payload.tables.length,
     totalRows,
-    payload.views.length,
-    payload.charts.length,
+    payload.views?.length ?? 0,
+    payload.charts?.length ?? 0,
     key,
     type,
   ).run();
@@ -63,12 +55,12 @@ export async function createSnapshot(
 }
 
 /** Read a snapshot payload from R2. Returns null if not found. */
-export async function readSnapshotData(env: Env, snapshotKey: string): Promise<ExportPayload | null> {
+export async function readSnapshotData(env: Env, snapshotKey: string): Promise<BackupPayload | null> {
   const obj = await env.BUCKET.get(snapshotKey);
   if (!obj) return null;
   const buf = await obj.arrayBuffer();
   const text = new TextDecoder().decode(await gunzip(buf));
-  return JSON.parse(text) as ExportPayload;
+  return JSON.parse(text) as BackupPayload;
 }
 
 async function gzip(data: string): Promise<Uint8Array> {

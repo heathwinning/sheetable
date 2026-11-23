@@ -5,10 +5,8 @@ import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
 import type { ColDef, RowDragEndEvent } from 'ag-grid-community';
 import { useAppState } from './useAppState';
 import { SpreadsheetGrid } from './SpreadsheetGrid';
-import { EditTablePage } from './EditTablePage';
-const ChartSheetPage = lazy(() => import('./ChartSheetPage').then(m => ({ default: m.ChartSheetPage })));
 import { useAlert, usePromptInput, useConfirm, useDialog } from './DialogProvider';
-import { ImportPage } from './ImportPage';
+import { useSheetRows } from './useSheetRows';
 import { rowsToCSV } from './csv';
 import * as api from './api';
 import type { UseAppStateReturn } from './useAppState';
@@ -19,8 +17,43 @@ import { CalendarView } from './CalendarView';
 import { RecordCard } from './RecordCard';
 import './App.css';
 
+const EditTablePage = lazy(() => import('./EditTablePage').then(m => ({ default: m.EditTablePage })));
+const ChartSheetPage = lazy(() => import('./ChartSheetPage').then(m => ({ default: m.ChartSheetPage })));
+const ImportPage = lazy(() => import('./ImportPage').then(m => ({ default: m.ImportPage })));
+
 const bookPrefix = (bookName?: string) => (bookName ? `/book/${encodeURIComponent(bookName)}` : '');
 const withBook = (bookName: string | undefined, suffix: string) => `${bookPrefix(bookName)}${suffix}`;
+
+const RESTORED_TABLE_NAME = /^(.+) \(restored from [^)]+\)(?: \(\d+\))?$/;
+
+const SheetRoute: React.FC<{
+  state: UseAppStateReturn;
+  rows?: 'table' | 'view' | 'all';
+  children: React.ReactNode;
+}> = ({ state, rows, children }) => {
+  const { bookId, tableId, viewId } = useParams();
+  const routeReady = !bookId || !state.user || state.activeBookName === bookId;
+  const view = viewId ? state.getViewSheet(viewId) : undefined;
+  const table = rows === 'view' ? view?.tableName : tableId;
+  const roots = !routeReady ? [] : rows === 'all' ? state.tableIds : rows && table ? [table] : [];
+  const rowData = useSheetRows(state, roots);
+  const error = state.bookLoadError ?? rowData.error;
+  if (!routeReady && state.activeBookId && !state.books.some(book => book.name === bookId)) {
+    return <div className="empty-state-main">Workbook not found</div>;
+  }
+  if (error && routeReady) {
+    return (
+      <div className="empty-state-main">
+        <p>{error}</p>
+        <button className="btn-secondary" onClick={state.bookLoadError ? state.reloadBookData : rowData.retry}>Retry</button>
+      </div>
+    );
+  }
+  if (!routeReady || !state.bookReady || rowData.loading) {
+    return <div className="empty-state-main" role="status">Loading sheet…</div>;
+  }
+  return <React.Fragment key={state.activeBookId}>{children}</React.Fragment>;
+};
 
 // --- Add Sheet Menu (dropdown for "+ Spreadsheet" / "+ Chart") ---
 const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string; onOpenReorderTabs?: () => void }> = ({ state, bookId, onOpenReorderTabs }) => {
@@ -1184,7 +1217,7 @@ const BackupModal: React.FC<{
 
   const refreshRestoredTables = useCallback(() => {
     api.listTables(bookId).then(tables => {
-      setRestoredTables(tables.filter(t => /\(restored from .+\)$/.test(t.name)).map(t => t.name));
+      setRestoredTables(tables.filter(t => RESTORED_TABLE_NAME.test(t.name)).map(t => t.name));
     }).catch(() => {});
   }, [bookId]);
 
@@ -1240,9 +1273,9 @@ const BackupModal: React.FC<{
 
   const doRestoreTable = async (snapshotId: string, tableName: string, replace = false) => {
     setRestoringTable(`${snapshotId}:${tableName}`);
-    try { await api.restoreSnapshotTable(bookId, snapshotId, tableName, replace); onTableRestored(); refreshRestoredTables(); }
+    try { await api.restoreSnapshotTable(bookId, snapshotId, tableName, replace); }
     catch (err) { void alertDialog(`Restore table failed: ${err instanceof Error ? err.message : String(err)}`); }
-    finally { setRestoringTable(null); }
+    finally { setRestoringTable(null); onTableRestored(); refreshRestoredTables(); }
   };
 
   return (
@@ -1304,7 +1337,7 @@ const BackupModal: React.FC<{
             <label className="app-dialog-label" style={{ marginBottom: 0 }}>Restored Tables</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
               {restoredTables.map(name => {
-                const originalName = name.replace(/\s*\(restored from .+\)$/, '');
+                const originalName = name.match(RESTORED_TABLE_NAME)?.[1] ?? name;
                 return (
                   <div key={name} style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -1432,7 +1465,7 @@ const BackupModal: React.FC<{
                           <button className="btn-secondary btn-sm"
                             onClick={() => { void doRestoreTable(previewId!, t.name, true); }}
                             disabled={restoringTable === `${previewId}:${t.name}`}
-                            title="Swap this restored table in place of the original. All referencing columns update automatically.">
+                            title="Use this restored version and keep the current table as an archive.">
                             {restoringTable === `${previewId}:${t.name}` ? 'Restoring…' : 'Replace'}
                           </button>
                         </div>
@@ -1476,12 +1509,12 @@ const BackupModal: React.FC<{
                       })()}
                     </div>
                   ))}
-                  {previewData.data.views.length > 0 && (
+                  {!!previewData.data.views?.length && (
                     <div style={{ marginTop: 12, fontSize: 13 }}>
                       <strong>Views:</strong> {previewData.data.views.map(v => `${v.name} (${v.viewType})`).join(', ')}
                     </div>
                   )}
-                  {previewData.data.charts.length > 0 && (
+                  {!!previewData.data.charts?.length && (
                     <div style={{ marginTop: 4, fontSize: 13 }}>
                       <strong>Charts:</strong> {previewData.data.charts.map(c => c.name).join(', ')}
                     </div>
@@ -1827,7 +1860,7 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
                     navigate(`/book/${encodeURIComponent(newBookName)}`);
                   });
                 }}
-                onTableRestored={() => { void state.refreshBooks(); }}
+                onTableRestored={state.reloadBookData}
                 onClose={() => setBackupOpen(false)}
               />
             )}
@@ -2078,7 +2111,8 @@ const App: React.FC = () => {
     }
   }, [headerTableId, headerChartId, headerViewId, headerBookId]);
 
-  const canEdit = state.activeBookRole === 'owner' || state.activeBookRole === 'editor';
+  const canEdit = state.bookReady && (!headerBookId || state.activeBookName === headerBookId)
+    && (state.activeBookRole === 'owner' || state.activeBookRole === 'editor');
 
   const showAlert = useAlert();
   const runUndo = () => {
@@ -2088,8 +2122,14 @@ const App: React.FC = () => {
     }
   };
 
-  const exportCSV = (tableId = headerTableId) => {
-    if (!tableId) return;
+  const exportCSV = async (tableId = headerTableId) => {
+    if (!tableId || !state.bookReady || (headerBookId && headerBookId !== state.activeBookName)) return;
+    try {
+      await state.loadRows([tableId]);
+    } catch (error) {
+      void showAlert(error instanceof Error ? error.message : 'Failed to load rows for export');
+      return;
+    }
     const schema = state.getSchema(tableId);
     const rows = state.getRows(tableId);
     if (!schema) return;
@@ -2282,20 +2322,21 @@ const App: React.FC = () => {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 <span className="header-action-label">Export</span>
               </button>
-              {canEdit && /\(restored from .+\)$/.test(headerTableId) && (
+              {canEdit && RESTORED_TABLE_NAME.test(headerTableId) && (
                 <button
                   className="header-action-btn"
                   onClick={() => {
                     void (async () => {
                       try {
-                        await api.swapRestoredTable(headerBookId!, headerTableId);
-                        await state.refreshBooks();
+                        const result = await api.swapRestoredTable(state.activeBookId!, headerTableId);
+                        state.reloadBookData();
+                        navigate(withBook(headerBookId, `/table/${encodeURIComponent(result.newName)}`), { replace: true });
                       } catch (err) {
                         void alertDialog(`Use This Version failed: ${err instanceof Error ? err.message : String(err)}`);
                       }
                     })();
                   }}
-                  title="Swap this restored table in place of the original"
+                  title="Use this restored version and keep the current table as an archive"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
                   <span className="header-action-label">Replace Original</span>
@@ -2325,26 +2366,26 @@ const App: React.FC = () => {
           </>
         )}
         <div className="app-main">
-          <Suspense fallback={null}>
+          <Suspense fallback={<div className="empty-state-main" role="status">Loading sheet…</div>}>
           <Routes>
             <Route path="/" element={<HomePage state={state} />} />
             <Route path="/invite/:bookId" element={<InviteAcceptPage state={state} />} />
             <Route path="/book/new/settings" element={<BookSettingsPage state={state} createMode={true} />} />
-            <Route path="/book/:bookId" element={<HomePage state={state} />} />
-            <Route path="/book/:bookId/table/new" element={<EditTablePage state={state} />} />
-            <Route path="/book/:bookId/table/:tableId" element={<TableViewPage state={state} />} />
-            <Route path="/book/:bookId/chart/:chartId" element={<ChartSheetPage state={state} />} />
+            <Route path="/book/:bookId" element={<SheetRoute state={state}><HomePage state={state} /></SheetRoute>} />
+            <Route path="/book/:bookId/table/new" element={<SheetRoute state={state} rows="all"><EditTablePage state={state} /></SheetRoute>} />
+            <Route path="/book/:bookId/table/:tableId" element={<SheetRoute state={state} rows="table"><TableViewPage state={state} /></SheetRoute>} />
+            <Route path="/book/:bookId/chart/:chartId" element={<SheetRoute state={state}><ChartSheetPage state={state} /></SheetRoute>} />
             <Route path="/book/:bookId/settings" element={<BookSettingsPage state={state} />} />
-            <Route path="/book/:bookId/view/:viewId" element={<ViewSheetPage state={state} />} />
-            <Route path="/book/:bookId/table/:tableId/edit" element={<EditTablePage state={state} />} />
-            <Route path="/book/:bookId/table/:tableId/import" element={<ImportPage state={state} />} />
-            <Route path="/book/:bookId/import" element={<ImportPage state={state} />} />
-            <Route path="/table/new" element={<EditTablePage state={state} />} />
-            <Route path="/table/:tableId" element={<TableViewPage state={state} />} />
-            <Route path="/table/:tableId/edit" element={<EditTablePage state={state} />} />
-            <Route path="/table/:tableId/import" element={<ImportPage state={state} />} />
-            <Route path="/import" element={<ImportPage state={state} />} />
-            <Route path="/chart/:chartId" element={<ChartSheetPage state={state} />} />
+            <Route path="/book/:bookId/view/:viewId" element={<SheetRoute state={state} rows="view"><ViewSheetPage state={state} /></SheetRoute>} />
+            <Route path="/book/:bookId/table/:tableId/edit" element={<SheetRoute state={state} rows="all"><EditTablePage state={state} /></SheetRoute>} />
+            <Route path="/book/:bookId/table/:tableId/import" element={<SheetRoute state={state} rows="all"><ImportPage state={state} /></SheetRoute>} />
+            <Route path="/book/:bookId/import" element={<SheetRoute state={state} rows="all"><ImportPage state={state} /></SheetRoute>} />
+            <Route path="/table/new" element={<SheetRoute state={state} rows="all"><EditTablePage state={state} /></SheetRoute>} />
+            <Route path="/table/:tableId" element={<SheetRoute state={state} rows="table"><TableViewPage state={state} /></SheetRoute>} />
+            <Route path="/table/:tableId/edit" element={<SheetRoute state={state} rows="all"><EditTablePage state={state} /></SheetRoute>} />
+            <Route path="/table/:tableId/import" element={<SheetRoute state={state} rows="all"><ImportPage state={state} /></SheetRoute>} />
+            <Route path="/import" element={<SheetRoute state={state} rows="all"><ImportPage state={state} /></SheetRoute>} />
+            <Route path="/chart/:chartId" element={<SheetRoute state={state}><ChartSheetPage state={state} /></SheetRoute>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           </Suspense>

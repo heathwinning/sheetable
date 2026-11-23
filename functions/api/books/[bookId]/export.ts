@@ -1,64 +1,12 @@
 import type { Env, RequestData } from '../../../lib';
 import { error, requireUser } from '../../../lib';
+import type { BackupPayload, BackupRow, BackupTable } from '../../../../shared/backupTypes';
 
 // ---- Types ----
-
-interface ExportColumn {
-  name: string;
-  displayName?: string;
-  type: string;
-  width?: number;
-  refTable?: string;
-  refDisplayColumns?: string[];
-  refSearchColumns?: string[];
-  expression?: string;
-  showInGrid?: boolean;
-  listOf?: string;
-}
-
-interface ExportTableSchema {
-  columns: ExportColumn[];
-  uniqueKeys: string[];
-  defaultSort?: { column: string; direction: string }[];
-  draftRowPosition?: string;
-}
 
 interface ExportRow {
   _rowId: string;
   [column: string]: string;
-}
-
-interface ResolvedRow extends ExportRow {
-  _resolved: Record<string, string>;
-}
-
-interface ExportTable {
-  name: string;
-  schema: ExportTableSchema | null; // set after resolveAllReferences
-  rows: ResolvedRow[];
-}
-
-interface ExportView {
-  name: string;
-  tableName: string;
-  viewType: string;
-  dateColumn?: string;
-}
-
-interface ExportChart {
-  name: string;
-  tableName?: string;
-  mode?: string;
-  charts?: unknown;
-}
-
-interface ExportPayload {
-  version: 1;
-  exportedAt: string;
-  bookName: string;
-  tables: ExportTable[];
-  views: ExportView[];
-  charts: ExportChart[];
 }
 
 // ---- Reference resolution ----
@@ -180,7 +128,7 @@ function resolveColumnValue(
 /** Resolve all reference columns in all rows across all tables. */
 function resolveAllReferences(
   tables: { name: string; tableId: number; cols: ColMeta[]; rows: Map<string, ExportRow> }[],
-): ExportTable[] {
+): BackupTable[] {
   // Build lookup maps
   const allRows = new Map<string, Map<string, ExportRow>>();
   const allCols = new Map<string, ColMeta[]>();
@@ -190,7 +138,7 @@ function resolveAllReferences(
   }
 
   return tables.map(t => {
-    const resolvedRows: ResolvedRow[] = [];
+    const resolvedRows: BackupRow[] = [];
     for (const [_rowId, row] of t.rows) {
       const resolved: Record<string, string> = {};
       for (const col of t.cols) {
@@ -221,16 +169,16 @@ function resolveAllReferences(
 
 // ---- Shared: gather all book data as an ExportPayload ----
 
-export async function gatherExportPayload(env: Env, bookId: string): Promise<ExportPayload> {
+export async function gatherExportPayload(env: Env, bookId: string): Promise<BackupPayload> {
   const db = env.DB;
 
-  const book = await db.prepare('SELECT name FROM books WHERE id = ?')
-    .bind(bookId).first<{ name: string }>();
+  const book = await db.prepare('SELECT name, sheet_order FROM books WHERE id = ?')
+    .bind(bookId).first<{ name: string; sheet_order: string }>();
   if (!book) throw new Error('Book not found');
 
   // Get all tables with their metadata
   const { results: tableRows } = await db.prepare(
-    'SELECT id, name, unique_keys, default_sort, draft_position FROM _tables WHERE book_id = ? ORDER BY display_order'
+    'SELECT id, name, unique_keys, default_sort, draft_position FROM _tables WHERE book_id = ? AND restore_pending = 0 ORDER BY display_order'
   ).bind(bookId).all<{
     id: number; name: string; unique_keys: string;
     default_sort: string | null; draft_position: string;
@@ -238,14 +186,14 @@ export async function gatherExportPayload(env: Env, bookId: string): Promise<Exp
 
   // Get all columns for all tables in this book
   const { results: allCols } = await db.prepare(
-    `SELECT c.table_id, c.name, c.display_name, c.type, c.width, c.ref_table, c.ref_display, c.ref_search, c.expression, c.show_in_grid, c.list_of
+    `SELECT c.table_id, c.name, c.display_name, c.type, c.width, c.ref_table, c.ref_display, c.ref_search, c.expression, c.show_in_grid, c.list_of, c.default_value
      FROM _columns c JOIN _tables t ON t.id = c.table_id
-     WHERE t.book_id = ? ORDER BY c.display_order`
+     WHERE t.book_id = ? AND t.restore_pending = 0 ORDER BY c.display_order`
   ).bind(bookId).all<{
     table_id: number; name: string; display_name: string | null;
     type: string; width: number | null; ref_table: string | null;
     ref_display: string | null; ref_search: string | null;
-    expression: string | null; show_in_grid: number | null; list_of: string | null;
+    expression: string | null; show_in_grid: number | null; list_of: string | null; default_value: string | null;
   }>();
 
   // Group columns by table
@@ -291,6 +239,7 @@ export async function gatherExportPayload(env: Env, bookId: string): Promise<Exp
         expression: c.expression || undefined,
         showInGrid: c.show_in_grid ? true : undefined,
         listOf: c.list_of || undefined,
+        defaultValue: c.default_value ?? undefined,
       })),
       uniqueKeys: dbTable ? JSON.parse(dbTable.unique_keys) as string[] : [],
       defaultSort: dbTable?.default_sort ? JSON.parse(dbTable.default_sort) : undefined,
@@ -312,6 +261,7 @@ export async function gatherExportPayload(env: Env, bookId: string): Promise<Exp
     version: 1,
     exportedAt: new Date().toISOString(),
     bookName: book.name,
+    sheetOrder: book.sheet_order,
     tables,
     views: views.map(v => ({
       name: v.name,
@@ -336,7 +286,7 @@ export const onRequestGet: PagesFunction<Env, 'bookId', RequestData> = async (co
 
   const bookId = context.params.bookId as string;
 
-  let payload: ExportPayload;
+  let payload: BackupPayload;
   try {
     payload = await gatherExportPayload(context.env, bookId);
   } catch (err) {

@@ -4,7 +4,7 @@ import { json, error, requireUser, requireEditor } from '../../../../../lib';
 // Helper to resolve table name → _tables.id
 async function resolveTable(db: D1Database, bookId: string, name: string) {
   return db.prepare(
-    'SELECT id FROM _tables WHERE book_id = ? AND name = ?'
+    'SELECT id FROM _tables WHERE book_id = ? AND name = ? AND restore_pending = 0'
   ).bind(bookId, name).first<{ id: number }>();
 }
 

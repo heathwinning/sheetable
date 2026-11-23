@@ -18,7 +18,7 @@ export interface SessionUser {
 export type BookRole = 'owner' | 'editor' | 'viewer';
 
 // Attached by auth middleware via context.data
-export interface RequestData {
+export interface RequestData extends Record<string, unknown> {
   user?: SessionUser;
   bookRole?: BookRole;
 }

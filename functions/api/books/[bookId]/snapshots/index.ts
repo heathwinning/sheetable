@@ -69,7 +69,7 @@ export const onRequestPost: PagesFunction<Env, 'bookId', RequestData> = async (c
     createdAt: new Date().toISOString(),
     tableCount: payload.tables.length,
     rowCount: totalRows,
-    viewCount: payload.views.length,
-    chartCount: payload.charts.length,
+    viewCount: payload.views?.length ?? 0,
+    chartCount: payload.charts?.length ?? 0,
   }, 201);
 };

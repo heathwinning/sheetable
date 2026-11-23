@@ -9,7 +9,7 @@ interface BulkOp {
 
 async function getTableId(db: D1Database, bookId: string, name: string): Promise<number | null> {
   const row = await db.prepare(
-    'SELECT id FROM _tables WHERE book_id = ? AND name = ?'
+    'SELECT id FROM _tables WHERE book_id = ? AND name = ? AND restore_pending = 0'
   ).bind(bookId, name).first<{ id: number }>();
   return row?.id ?? null;
 }

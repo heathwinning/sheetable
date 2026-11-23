@@ -1,3 +1,4 @@
+import type { BackupPayload } from '../shared/backupTypes';
 import type { SessionUser, BookInfo, BookMember, BookInvite, TableSchema, Row, ChartSheet, ViewSheet } from './types';
 
 const BASE = '/api';
@@ -384,40 +385,13 @@ export function thumbnailUrl(bookId: string, key: string): string {
 
 // ---- Export / Backup ----
 
-export interface ExportPayload {
-  version: number;
-  exportedAt: string;
-  bookName: string;
-  tables: {
-    name: string;
-    schema: {
-      columns: {
-        name: string;
-        displayName?: string;
-        type: string;
-        width?: number;
-        refTable?: string;
-        refDisplayColumns?: string[];
-        refSearchColumns?: string[];
-        expression?: string;
-        showInGrid?: boolean;
-        listOf?: string;
-      }[];
-      uniqueKeys: string[];
-      defaultSort?: { column: string; direction: string }[];
-      draftRowPosition?: string;
-    } | null;
-    rows: (Record<string, string> & { _resolved: Record<string, string> })[];
-  }[];
-  views: { name: string; tableName: string; viewType: string; dateColumn?: string }[];
-  charts: { name: string; tableName?: string; mode?: string; charts?: unknown }[];
-}
+export type { BackupPayload as ExportPayload };
 
-export async function exportBook(bookId: string): Promise<ExportPayload> {
+export async function exportBook(bookId: string): Promise<BackupPayload> {
   return request(`/books/${bookId}/export`);
 }
 
-export async function importBook(data: ExportPayload): Promise<{ bookId: string; bookName: string; tableCount: number; rowCount: number; viewCount: number; chartCount: number }> {
+export async function importBook(data: BackupPayload): Promise<{ bookId: string; bookName: string; tableCount: number; rowCount: number; viewCount: number; chartCount: number }> {
   return request('/backup/restore', { method: 'POST', body: JSON.stringify(data) });
 }
 
@@ -435,7 +409,7 @@ export interface SnapshotMeta {
 }
 
 export interface SnapshotDetail extends SnapshotMeta {
-  data: ExportPayload;
+  data: BackupPayload;
 }
 
 export async function listSnapshots(bookId: string): Promise<SnapshotMeta[]> {

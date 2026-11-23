@@ -47,7 +47,7 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
   const body = await context.request.json() as SchemaBody;
 
   const table = await context.env.DB.prepare(
-    'SELECT id FROM _tables WHERE book_id = ? AND name = ?'
+    'SELECT id FROM _tables WHERE book_id = ? AND name = ? AND restore_pending = 0'
   ).bind(bookId, name).first<{ id: number }>();
 
   if (!table) return error('Table not found', 404);
@@ -77,9 +77,9 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name', RequestData> = 
 
     // Get existing columns
     const { results: existing } = await context.env.DB.prepare(
-      'SELECT name FROM _columns WHERE table_id = ?'
-    ).bind(table.id).all<{ name: string }>();
-    const existingNames = new Set(existing.map(c => c.name));
+      `PRAGMA table_info(t_${table.id})`
+    ).all<{ name: string }>();
+    const existingNames = new Set(existing.map(c => c.name).filter(name => name.toLowerCase() !== '_rowid'));
     const newNames = new Set(body.columns.map(c => c.name.trim()));
 
     // Delete removed columns

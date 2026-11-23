@@ -3,7 +3,7 @@ import { json, error, requireUser, requireEditor } from '../../../../../../lib';
 
 async function getTableId(db: D1Database, bookId: string, name: string): Promise<number | null> {
   const row = await db.prepare(
-    'SELECT id FROM _tables WHERE book_id = ? AND name = ?'
+    'SELECT id FROM _tables WHERE book_id = ? AND name = ? AND restore_pending = 0'
   ).bind(bookId, name).first<{ id: number }>();
   return row?.id ?? null;
 }
@@ -24,7 +24,7 @@ export const onRequestPut: PagesFunction<Env, 'bookId' | 'name' | 'rowId', Reque
 
   // Get valid column names to prevent SQL injection
   const { results: cols } = await context.env.DB.prepare(
-    'SELECT name FROM _columns WHERE table_id = ?'
+    "SELECT name FROM _columns WHERE table_id = ? AND type != 'calculated'"
   ).bind(tableId).all<{ name: string }>();
   const validCols = new Set(cols.map(c => c.name));
 

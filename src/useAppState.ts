@@ -24,6 +24,12 @@ export interface UseAppStateReturn {
   deleteBook: (bookId: string) => Promise<void>;
 
   // Tables
+  bookReady: boolean;
+  bookLoadError: string | null;
+  reloadBookData: () => void;
+  getRequiredTables: (roots: string[]) => string[];
+  hasRows: (tableId: string) => boolean;
+  loadRows: (tables: string[]) => Promise<void>;
   tableIds: string[];
   activeTableId: string | null;
   setActiveTableId: (id: string | null) => void;
@@ -47,8 +53,8 @@ export interface UseAppStateReturn {
   // Row operations
   applyEdit: (tableId: string, rowIndex: number, columnName: string, newValue: string) => ValidationError[];
   insertRow: (tableId: string, row: Row) => ValidationError[];
-  deleteRow: (tableId: string, rowIndex: number) => ValidationError[];
-  deleteRows: (tableId: string, rowIndices: number[]) => ValidationError[];
+  deleteRow: (tableId: string, rowIndex: number) => Promise<ValidationError[]>;
+  deleteRows: (tableId: string, rowIndices: number[]) => Promise<ValidationError[]>;
 
   // Undo
   undo: () => ValidationError[];
@@ -167,6 +173,12 @@ function validateUniqueKey(rows: Row[], _schema: TableSchema, keyValues: Record<
 // ---- Per-row write queue ----
 
 const rowQueues = new Map<string, Promise<void>>();
+const EMPTY_ROWS: Row[] = [];
+
+interface PendingCell {
+  confirmed: string;
+  latest: symbol;
+}
 
 function enqueueWrite(rowId: string, fn: () => Promise<void>): void {
   const prev = rowQueues.get(rowId) ?? Promise.resolve();
@@ -184,6 +196,14 @@ export function useAppState(): UseAppStateReturn {
   const [books, setBooks] = useState<BookInfo[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [reloadCount, setReloadCount] = useState(0);
+  const [loadedBook, setLoadedBook] = useState<{ id: string; reload: number } | null>(null);
+  const [bookFailure, setBookFailure] = useState<{ id: string; reload: number; message: string } | null>(null);
+  const bookLoadError = bookFailure?.id === activeBookId && bookFailure.reload === reloadCount ? bookFailure.message : null;
+  const bookReady = activeBookId === null || (loadedBook?.id === activeBookId && loadedBook.reload === reloadCount);
+  const reloadBookData = useCallback(() => {
+    setReloadCount(count => count + 1);
+  }, []);
   const [activeTableId, setActiveTableId] = useState<string | null>(null);
   const [tableOrder, setTableOrder] = useState<string[]>([]);
   const [chartSheetOrder, setChartSheetOrder] = useState<string[]>([]);
@@ -193,8 +213,11 @@ export function useAppState(): UseAppStateReturn {
   const schemasRef = useRef<Map<string, TableSchema>>(new Map());
   const rowsRef = useRef<Map<string, Row[]>>(new Map());
   const chartSheetsRef = useRef<Map<string, ChartSheet>>(new Map());
-    const viewSheetsRef = useRef<Map<string, ViewSheet>>(new Map());
+  const viewSheetsRef = useRef<Map<string, ViewSheet>>(new Map());
   const undoStackRef = useRef<UndoEntry[]>([]);
+  const rowIndexCacheRef = useRef<Map<string, { rows: Row[]; length: number; byId: Map<string, Row> }>>(new Map());
+  const rowLoadsRef = useRef(new Map<string, Promise<void>>());
+  const pendingCellsRef = useRef(new WeakMap<Row, Map<string, PendingCell>>());
 
   const bump = useCallback(() => setRevision(r => r + 1), []);
 
@@ -216,19 +239,21 @@ export function useAppState(): UseAppStateReturn {
 
   // ---- Load tables + charts when active book changes ----
   useEffect(() => {
-    if (!activeBookId) {
-      schemasRef.current.clear();
-      rowsRef.current.clear();
-      chartSheetsRef.current.clear();
-      viewSheetsRef.current.clear();
-      setTableOrder([]);
-      setChartSheetOrder([]);
-      setViewSheetOrder([]);
-      setActiveTableId(null);
-      bump();
-      return;
-    }
+    schemasRef.current.clear();
+    rowIndexCacheRef.current.clear();
+    rowsRef.current = new Map();
+    rowLoadsRef.current = new Map();
+    chartSheetsRef.current.clear();
+    viewSheetsRef.current.clear();
+    undoStackRef.current = [];
+    setLoadedBook(null);
+    setTableOrder([]);
+    setChartSheetOrder([]);
+    setViewSheetOrder([]);
+    setActiveTableId(null);
+    bump();
 
+    if (!activeBookId) return;
     let cancelled = false;
 
     (async () => {
@@ -240,9 +265,6 @@ export function useAppState(): UseAppStateReturn {
         ]);
 
         if (cancelled) return;
-
-        schemasRef.current.clear();
-        rowsRef.current.clear();
 
         const order: string[] = [];
         for (const schema of schemas) {
@@ -275,25 +297,61 @@ export function useAppState(): UseAppStateReturn {
         }
         setViewSheetOrder(viewOrder);
 
-        // Load all row data in parallel
-        const rowPromises = schemas.map(async (schema) => {
-          const rows = await api.listRows(activeBookId, schema.name);
-          if (!cancelled) rowsRef.current.set(schema.name, rows);
-        });
-        await Promise.all(rowPromises);
-
-        if (!cancelled) {
-          undoStackRef.current = [];
-          if (order.length > 0) setActiveTableId(order[0]);
-          bump();
-        }
+        setLoadedBook({ id: activeBookId, reload: reloadCount });
+        bump();
       } catch (err) {
-        console.error('Failed to load book data:', err);
+        if (!cancelled) {
+          setBookFailure({
+            id: activeBookId,
+            reload: reloadCount,
+            message: err instanceof Error ? err.message : 'Failed to load workbook',
+          });
+        }
       }
     })();
 
-    return () => { cancelled = true; };
-  }, [activeBookId, bump]);
+    return () => {
+      cancelled = true;
+      rowsRef.current = new Map();
+    };
+  }, [activeBookId, reloadCount, bump]);
+
+  const getRequiredTables = useCallback((roots: string[]): string[] => {
+    const required = new Set<string>();
+    const visit = (table: string) => {
+      const schema = schemasRef.current.get(table);
+      if (!schema || required.has(table)) return;
+      required.add(table);
+      for (const column of schema.columns) {
+        const reference = referencedTable(column);
+        if (reference) visit(reference);
+      }
+    };
+    roots.forEach(visit);
+    return [...required];
+  }, []);
+
+  const hasRows = useCallback((table: string) => rowsRef.current.has(table), []);
+
+  const loadRows = useCallback(async (tables: string[]) => {
+    if (!bookReady || !activeBookId) throw new Error('Workbook is still loading');
+    const rowsByTable = rowsRef.current;
+    const pending = rowLoadsRef.current;
+    await Promise.all(tables.map(table => {
+      if (rowsByTable.has(table) || !schemasRef.current.has(table)) return;
+      const existing = pending.get(table);
+      if (existing) return existing;
+      const request = api.listRows(activeBookId, table).then(rows => {
+        if (rowsRef.current === rowsByTable && !rowsByTable.has(table) && schemasRef.current.has(table)) {
+          rowsByTable.set(table, rows);
+          bump();
+        }
+      }).finally(() => pending.delete(table));
+      pending.set(table, request);
+      return request;
+    }));
+    if (rowsRef.current !== rowsByTable) throw new Error('Workbook changed while rows were loading');
+  }, [activeBookId, bookReady, bump]);
 
   const activeBookName = useMemo(() => {
     return books.find(b => b.id === activeBookId)?.name ?? null;
@@ -359,7 +417,6 @@ export function useAppState(): UseAppStateReturn {
   }, [activeBookId]);
 
   // ---- Reference helpers (replaces DataModel) ----
-  const rowIndexCacheRef = useRef<Map<string, { rows: Row[]; length: number; byId: Map<string, Row> }>>(new Map());
   const getReferencedRow = useCallback((refTable: string, rowId: string): Row | undefined => {
     const rows = rowsRef.current.get(refTable);
     if (!rows) return undefined;
@@ -377,7 +434,7 @@ export function useAppState(): UseAppStateReturn {
   }, []);
 
   const getReferenceRows = useCallback((refTable: string): Row[] => {
-    return rowsRef.current.get(refTable) ?? [];
+    return rowsRef.current.get(refTable) ?? EMPTY_ROWS;
   }, []);
 
   const resolveColumnPath = useCallback((tableName: string, row: Row, path: string): string => {
@@ -515,7 +572,7 @@ export function useAppState(): UseAppStateReturn {
 
   // ---- Table CRUD ----
   const getSchema = useCallback((tableId: string) => schemasRef.current.get(tableId), []);
-  const getRows = useCallback((tableId: string) => rowsRef.current.get(tableId) ?? [], []);
+  const getRows = useCallback((tableId: string) => rowsRef.current.get(tableId) ?? EMPTY_ROWS, []);
 
   const doCreateTable = useCallback(async (schema: TableSchema, rows?: Row[]) => {
     if (!activeBookId) return;
@@ -680,6 +737,7 @@ export function useAppState(): UseAppStateReturn {
 
   // ---- Global cross-type sheet ordering ----
   const sortedSheets = useMemo(() => {
+    if (!bookReady) return [];
     const book = books.find(b => b.id === activeBookId);
     const raw = book?.sheet_order;
     if (raw) {
@@ -715,7 +773,7 @@ export function useAppState(): UseAppStateReturn {
       ...chartSheetOrder.map(name => ({ type: 'chart' as const, name })),
       ...viewSheetOrder.map(name => ({ type: 'view' as const, name })),
     ];
-  }, [books, activeBookId, tableOrder, chartSheetOrder, viewSheetOrder]);
+  }, [books, activeBookId, tableOrder, chartSheetOrder, viewSheetOrder, bookReady]);
 
   const doReorderAllSheetsTo = useCallback((items: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[]) => {
     const newTableOrder = items.filter(i => i.type === 'table').map(i => i.name);
@@ -792,6 +850,42 @@ export function useAppState(): UseAppStateReturn {
 
   // ---- Row operations with client-side validation + async server writes ----
 
+  const persistCellEdit = useCallback((
+    table: string, row: Row, column: string, value: string, previous: string, entry?: UndoEntry,
+  ) => {
+    if (!activeBookId) return;
+    const rowId = row[INTERNAL_ROW_ID];
+    const queueKey = JSON.stringify([activeBookId, table, rowId]);
+    const rowsByTable = rowsRef.current;
+    const undoStack = undoStackRef.current;
+    const cells = pendingCellsRef.current.get(row) ?? new Map<string, PendingCell>();
+    pendingCellsRef.current.set(row, cells);
+    const version = Symbol();
+    const cell = cells.get(column) ?? { confirmed: previous, latest: version };
+    cell.latest = version;
+    cells.set(column, cell);
+
+    enqueueWrite(queueKey, async () => {
+      if (entry) entry.oldValue = cell.confirmed;
+      try {
+        await api.updateRow(activeBookId, table, rowId, { [column]: value });
+        cell.confirmed = value;
+      } catch (error) {
+        console.error('Server write failed:', error);
+        if (entry) {
+          const index = undoStack.indexOf(entry);
+          if (index !== -1) undoStack.splice(index, 1);
+        }
+      } finally {
+        if (cell.latest === version) {
+          cells.delete(column);
+          row[column] = cell.confirmed;
+        }
+        if (rowsRef.current === rowsByTable) bump();
+      }
+    });
+  }, [activeBookId, bump]);
+
   const applyEdit = useCallback((tableId: string, rowIndex: number, columnName: string, newValue: string): ValidationError[] => {
     const schema = schemasRef.current.get(tableId);
     const rows = rowsRef.current.get(tableId);
@@ -827,30 +921,14 @@ export function useAppState(): UseAppStateReturn {
     const rowId = rows[rowIndex][INTERNAL_ROW_ID];
     rows[rowIndex][columnName] = newValue;
 
-    // Push undo entry
-    undoStackRef.current.push({ type: 'update', tableId, rowId, column: columnName, oldValue, newValue });
+    const entry: UndoEntry = { type: 'update', tableId, rowId, column: columnName, oldValue, newValue };
+    undoStackRef.current.push(entry);
     log('applyEdit:', tableId, rowId, columnName, oldValue, '->', newValue);
-
-    // Async server write (per-row queue)
-    if (activeBookId) {
-      const bookId = activeBookId;
-      enqueueWrite(rowId, () =>
-        api.updateRow(bookId, tableId, rowId, { [columnName]: newValue })
-          .catch(err => {
-            console.error('Server write failed, reverting:', err);
-            const currentRows = rowsRef.current.get(tableId);
-            const row = currentRows?.find(r => r[INTERNAL_ROW_ID] === rowId);
-            if (row) {
-              row[columnName] = oldValue;
-              bump();
-            }
-          })
-      );
-    }
+    persistCellEdit(tableId, rows[rowIndex], columnName, newValue, oldValue, entry);
 
     bump();
     return [];
-  }, [activeBookId, bump]);
+  }, [bump, persistCellEdit]);
 
   const doInsertRow = useCallback((tableId: string, row: Row): ValidationError[] => {
     const schema = schemasRef.current.get(tableId);
@@ -881,7 +959,7 @@ export function useAppState(): UseAppStateReturn {
 
     // Sequential integer _rowId (max existing + 1)
     const completeRow: Row = {};
-    const maxId = Math.max(0, ...rows.map(r => Number(r[INTERNAL_ROW_ID]) || 0));
+    const maxId = rows.reduce((max, row) => Math.max(max, Number(row[INTERNAL_ROW_ID]) || 0), 0);
     const rowId = String(maxId + 1);
     completeRow[INTERNAL_ROW_ID] = rowId;
     for (const col of schema.columns) {
@@ -889,7 +967,9 @@ export function useAppState(): UseAppStateReturn {
     }
 
     rows.push(completeRow);
-    undoStackRef.current.push({ type: 'insert', tableId, rowId, row: { ...completeRow } });
+    const entry: UndoEntry = { type: 'insert', tableId, rowId, row: { ...completeRow } };
+    const undoStack = undoStackRef.current;
+    undoStack.push(entry);
     log('insertRow:', tableId, rowId);
 
     // Async server write
@@ -899,9 +979,13 @@ export function useAppState(): UseAppStateReturn {
         console.error('Server insert failed, removing row:', err);
         const currentRows = rowsRef.current.get(tableId);
         if (currentRows) {
-          const idx = currentRows.findIndex(r => r[INTERNAL_ROW_ID] === rowId);
-          if (idx >= 0) currentRows.splice(idx, 1);
-          bump();
+          const idx = currentRows.indexOf(completeRow);
+          if (idx >= 0) {
+            currentRows.splice(idx, 1);
+            const undoIndex = undoStack.indexOf(entry);
+            if (undoIndex >= 0) undoStack.splice(undoIndex, 1);
+            bump();
+          }
         }
       });
     }
@@ -910,125 +994,69 @@ export function useAppState(): UseAppStateReturn {
     return [];
   }, [activeBookId, bump]);
 
-  const doDeleteRow = useCallback((tableId: string, rowIndex: number): ValidationError[] => {
-    const schema = schemasRef.current.get(tableId);
+  const doDeleteRows = useCallback(async (tableId: string, rowIndices: number[]): Promise<ValidationError[]> => {
     const rows = rowsRef.current.get(tableId);
-    if (!schema || !rows || rowIndex < 0 || rowIndex >= rows.length) {
-      return [{ message: 'Row not found', rowIndex }];
+    if (!schemasRef.current.has(tableId) || !rows) return [{ message: 'Table not found', rowIndex: 0 }];
+    const rowsByTable = rowsRef.current;
+    const selected = [...new Set(rowIndices)].map(index => ({ index, row: rows[index] }));
+    const references = [...schemasRef.current].flatMap(([name, schema]) =>
+      schema.columns.filter(col => referencedTable(col) === tableId).map(column => ({ name, column })),
+    );
+    try {
+      if (activeBookId && references.length) await loadRows([...new Set(references.map(ref => ref.name))]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load reference rows';
+      return selected.map(({ index }) => ({ message, rowIndex: index }));
     }
 
-    const rowId = rows[rowIndex][INTERNAL_ROW_ID];
-
-    // Check references from other tables
-    for (const [otherName, otherSchema] of schemasRef.current) {
-      for (const col of otherSchema.columns) {
-        if (referencedTable(col) === tableId) {
-          const otherRows = rowsRef.current.get(otherName);
-          if (otherRows?.some(r => columnReferencesRow(col, r[col.name], rowId))) {
-            return [{ message: `Cannot delete: row referenced by "${otherName}"`, rowIndex }];
-          }
-        }
-      }
-    }
-
-    const deletedRow = { ...rows[rowIndex] };
-
-    if (!activeBookId) {
-      rows.splice(rowIndex, 1);
-      undoStackRef.current.push({ type: 'delete', tableId, rowId, row: deletedRow });
-      bump();
-      return [];
-    }
-
-    // Awaited delete — perform server call, remove on success
-    const bookId = activeBookId;
-    api.deleteRow(bookId, tableId, rowId).then(() => {
-      const currentRows = rowsRef.current.get(tableId);
-      if (currentRows) {
-        const idx = currentRows.findIndex(r => r[INTERNAL_ROW_ID] === rowId);
-        if (idx >= 0) currentRows.splice(idx, 1);
-      }
-      undoStackRef.current.push({ type: 'delete', tableId, rowId, row: deletedRow });
-      bump();
-    }).catch(err => {
-      console.error('Server delete failed:', err);
-    });
-
-    // Return empty to indicate no client error — the actual removal happens async
-    return [];
-  }, [activeBookId, bump]);
-
-  const doDeleteRows = useCallback((tableId: string, rowIndices: number[]): ValidationError[] => {
-    const schema = schemasRef.current.get(tableId);
-    const rows = rowsRef.current.get(tableId);
-    if (!schema || !rows) return [{ message: 'Table not found', rowIndex: 0 }];
-
-    // Sort descending so indices stay valid during removal
-    const sorted = [...rowIndices].sort((a, b) => b - a);
-
-    const validRows: { idx: number; rowId: string; row: Row }[] = [];
     const errors: ValidationError[] = [];
-
-    for (const idx of sorted) {
-      if (idx < 0 || idx >= rows.length) {
-        errors.push({ message: 'Row not found', rowIndex: idx });
+    const valid: { index: number; row: Row }[] = [];
+    const presentRows = new Set(rowsByTable.get(tableId));
+    for (const { index, row } of selected) {
+      if (!row || !presentRows.has(row)) {
+        errors.push({ message: 'Row not found', rowIndex: index });
         continue;
       }
-      const rowId = rows[idx][INTERNAL_ROW_ID];
-
-      // Check references from other tables
-      let refError: string | null = null;
-      for (const [otherName, otherSchema] of schemasRef.current) {
-        for (const col of otherSchema.columns) {
-          if (referencedTable(col) === tableId) {
-            const otherRows = rowsRef.current.get(otherName);
-            if (otherRows?.some(r => columnReferencesRow(col, r[col.name], rowId))) {
-              refError = `Cannot delete: row referenced by "${otherName}"`;
-            }
-          }
-        }
+      const rowId = row[INTERNAL_ROW_ID];
+      const reference = references.find(({ name, column }) =>
+        rowsByTable.get(name)?.some(other => columnReferencesRow(column, other[column.name], rowId)),
+      );
+      if (reference) {
+        errors.push({ message: `Cannot delete: row referenced by "${reference.name}"`, rowIndex: index });
+      } else {
+        valid.push({ index, row });
       }
-      if (refError) {
-        errors.push({ message: refError, rowIndex: idx });
-        continue;
-      }
-
-      validRows.push({ idx, rowId, row: { ...rows[idx] } });
     }
 
-    if (validRows.length === 0) return errors;
-
-    if (!activeBookId) {
-      // Offline: remove all valid rows (already sorted desc)
-      for (const { idx, rowId, row } of validRows) {
-        rows.splice(idx, 1);
-        undoStackRef.current.push({ type: 'delete', tableId, rowId, row });
+    if (valid.length === 0) return errors;
+    const rowIds = new Set(valid.map(({ row }) => row[INTERNAL_ROW_ID]));
+    try {
+      if (activeBookId) {
+        if (rowIds.size === 1) await api.deleteRow(activeBookId, tableId, [...rowIds][0]);
+        else await api.deleteRows(activeBookId, tableId, [...rowIds]);
       }
-      bump();
-      return errors;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Delete failed';
+      return [...errors, ...valid.map(({ index }) => ({ message, rowIndex: index }))];
     }
 
-    // Online: single bulk request
-    const bookId = activeBookId;
-    const rowIds = validRows.map(v => v.rowId);
-    api.deleteRows(bookId, tableId, rowIds).then(() => {
-      const currentRows = rowsRef.current.get(tableId);
-      if (currentRows) {
-        const idSet = new Set(rowIds);
-        for (let i = currentRows.length - 1; i >= 0; i--) {
-          if (idSet.has(currentRows[i][INTERNAL_ROW_ID])) {
-            const removed = currentRows.splice(i, 1)[0];
-            undoStackRef.current.push({ type: 'delete', tableId, rowId: removed[INTERNAL_ROW_ID], row: removed });
-          }
+    const currentRows = rowsByTable.get(tableId);
+    if (rowsRef.current === rowsByTable && currentRows) {
+      for (let i = currentRows.length - 1; i >= 0; i--) {
+        const row = currentRows[i];
+        if (rowIds.has(row[INTERNAL_ROW_ID])) {
+          currentRows.splice(i, 1);
+          undoStackRef.current.push({ type: 'delete', tableId, rowId: row[INTERNAL_ROW_ID], row: { ...row } });
         }
       }
       bump();
-    }).catch(err => {
-      console.error('Server bulk delete failed:', err);
-    });
-
+    }
     return errors;
-  }, [activeBookId, bump]);
+  }, [activeBookId, bump, loadRows]);
+
+  const doDeleteRow = useCallback((tableId: string, rowIndex: number) =>
+    doDeleteRows(tableId, [rowIndex]), [doDeleteRows]);
+
   const canUndo = undoStackRef.current.length > 0;
 
   const doUndo = useCallback((): ValidationError[] => {
@@ -1041,12 +1069,9 @@ export function useAppState(): UseAppStateReturn {
     if (entry.type === 'update' && entry.column && entry.oldValue !== undefined) {
       const row = rows.find(r => r[INTERNAL_ROW_ID] === entry.rowId);
       if (row) {
+        const previous = row[entry.column] ?? '';
         row[entry.column] = entry.oldValue;
-        if (activeBookId) {
-          enqueueWrite(entry.rowId, () =>
-            api.updateRow(activeBookId, entry.tableId, entry.rowId, { [entry.column!]: entry.oldValue! })
-          );
-        }
+        persistCellEdit(entry.tableId, row, entry.column, entry.oldValue, previous);
       }
     } else if (entry.type === 'insert') {
       const idx = rows.findIndex(r => r[INTERNAL_ROW_ID] === entry.rowId);
@@ -1065,7 +1090,7 @@ export function useAppState(): UseAppStateReturn {
 
     bump();
     return [];
-  }, [activeBookId, bump]);
+  }, [activeBookId, bump, persistCellEdit]);
 
   // ---- Chart sheets ----
   const getChartSheet = useCallback((id: string) => chartSheetsRef.current.get(id), []);
@@ -1176,7 +1201,13 @@ export function useAppState(): UseAppStateReturn {
     renameBook,
     deleteBook: doDeleteBook,
 
-    tableIds: tableOrder,
+    bookReady,
+    bookLoadError,
+    reloadBookData,
+    getRequiredTables,
+    hasRows,
+    loadRows,
+    tableIds: bookReady ? tableOrder : [],
     activeTableId,
     setActiveTableId,
     getSchema,
