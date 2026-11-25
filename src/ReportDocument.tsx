@@ -108,8 +108,10 @@ const getChartKey = (sheet: string, id: string) => JSON.stringify([sheet, id]);
 function ChartField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const { state } = useReport();
   const charts = state.chartSheetIds.flatMap(sheet => (state.getChartSheet(sheet)?.charts ?? [])
-    .filter(chart => chart.type !== 'table')
-    .map(chart => ({ key: getChartKey(sheet, chart.id), name: `${sheet} · ${chart.title || chart.type}` })));
+    .map(chart => ({
+      key: getChartKey(sheet, chart.id),
+      name: `${sheet} · ${chart.title || (chart.type === 'table' ? 'Pivot table' : chart.type)}`,
+    })));
   return (
     <FieldLabel label="Workbook chart">
       <select aria-label="Workbook chart" value={value} onChange={event => onChange(event.target.value)}>
@@ -168,7 +170,7 @@ function ReportTable({ table, title }: { table: string; title: string }) {
 function ChartBlock({ chart: key, title }: { chart: string; title: string }) {
   const { state } = useReport();
   const charts = state.chartSheetIds.flatMap(sheet => (state.getChartSheet(sheet)?.charts ?? [])
-    .filter(chart => chart.type !== 'table').map(chart => ({ sheet, chart })));
+    .map(chart => ({ sheet, chart })));
   const exact = charts.find(({ sheet, chart }) => getChartKey(sheet, chart.id) === key);
   let chart: ChartConfig | undefined = exact?.chart;
   if (!chart && key) {
@@ -181,10 +183,13 @@ function ChartBlock({ chart: key, title }: { chart: string; title: string }) {
   if (result.error) return <p data-report-data="error" role="alert">{result.error} <button type="button" onClick={result.retry}>Retry</button></p>;
   if (result.loading) return <p data-report-data="loading" role="status">Loading chart…</p>;
   if (!chart || !hasTable) return <p className="report-placeholder">{key ? 'Chart data is unavailable.' : 'Choose a workbook chart.'}</p>;
+  const isPivot = chart.type === 'table';
   return (
-    <section className="report-chart-block">
+    <section className={isPivot ? 'report-table-section' : 'report-chart-block'}>
       {(title || chart.title) && <h2>{title || chart.title}</h2>}
-      <div className="report-chart"><ReportChart config={chart} state={state} /></div>
+      <div className={isPivot ? 'report-pivot' : 'report-chart'}>
+        <ReportChart config={chart} state={state} />
+      </div>
     </section>
   );
 }

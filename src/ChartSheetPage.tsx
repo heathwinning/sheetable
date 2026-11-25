@@ -483,6 +483,59 @@ const PivotTableGrid: React.FC<{
   );
 };
 
+function ReportPivotTable({ config, colDefs, rowData, totalRow }: {
+  config: ChartConfig;
+  colDefs: (ColDef | ColGroupDef)[];
+  rowData: Record<string, unknown>[];
+  totalRow: Record<string, unknown>;
+}) {
+  const headers: { label?: string; colSpan: number; group: boolean }[][] = [];
+  const columns: { field: string; numeric: boolean }[] = [];
+
+  function addHeader(column: ColDef | ColGroupDef, depth: number): number {
+    const row = headers[depth] ?? (headers[depth] = []);
+    if ('children' in column) {
+      const colSpan = column.children.reduce((count, child) => count + addHeader(child, depth + 1), 0);
+      row.push({ label: column.headerName, colSpan, group: true });
+      return colSpan;
+    }
+    if (!column.field) return 0;
+    columns.push({ field: column.field, numeric: column.type === 'numericColumn' });
+    row.push({ label: column.headerName, colSpan: 1, group: false });
+    return 1;
+  }
+
+  colDefs.forEach(column => addHeader(column, 0));
+
+  return (
+    <table>
+      <thead>
+        {headers.map((row, depth) => (
+          <tr key={depth}>
+            {row.map(({ label, colSpan, group }, index) => (
+              <th key={index} colSpan={colSpan} rowSpan={group ? 1 : headers.length - depth}
+                scope={group ? undefined : 'col'}>{label}</th>
+            ))}
+          </tr>
+        ))}
+      </thead>
+      <tbody>
+        {[...rowData, totalRow].map((row, index) => (
+          <tr key={index} className={row === totalRow ? 'report-pivot-total' : undefined}>
+            {columns.map(({ field, numeric }) => {
+              const value = row[field];
+              if (!numeric && field === '_dim_0') return <th key={field} scope="row">{String(value ?? '')}</th>;
+              return <td key={field} className={numeric ? 'report-pivot-value' : undefined}>
+                {typeof value === 'number' ? formatValue(value, config) : String(value ?? '')}
+              </td>;
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 // ── Chart Renderer ────────────────────────────────────────────────────────────
 
 const ChartRendererInner: React.FC<{
@@ -494,7 +547,8 @@ const ChartRendererInner: React.FC<{
   getColumnPaths?: (tableId: string) => { path: string; label: string; type?: string }[];
   onSortChange?: (sort: { key: string; dir: 'asc' | 'desc' } | undefined) => void;
   revision?: number;
-}> = ({ config, data, seriesKeys, rows, resolveColumnPath, getColumnPaths }) => {
+  report?: boolean;
+}> = ({ config, data, seriesKeys, rows, resolveColumnPath, getColumnPaths, report }) => {
   if (config.type === 'table') {
     const rowDims = config.tableRows?.length ? config.tableRows : (config.xColumn ? [config.xColumn] : []);
     const colDims = config.tableColumns?.length ? config.tableColumns : (config.groupBy ? [config.groupBy] : []);
@@ -698,7 +752,9 @@ const ChartRendererInner: React.FC<{
       ...(config.tableTotalPosition === 'start' ? [totalColDef, ...valueColDefs] : [...valueColDefs, totalColDef]),
     ];
 
-    return <PivotTableGrid config={config} colDefs={colDefs} rowData={rowData} totalRow={totalRow} />;
+    return report
+      ? <ReportPivotTable config={config} colDefs={colDefs} rowData={rowData} totalRow={totalRow} />
+      : <PivotTableGrid config={config} colDefs={colDefs} rowData={rowData} totalRow={totalRow} />;
   }
 
   if (data.length === 0) {
@@ -854,6 +910,8 @@ const ChartRenderer = React.memo(ChartRendererInner, (prev, next) =>
   && prev.seriesKeys === next.seriesKeys
   && prev.rows === next.rows
   && prev.revision === next.revision
+  && prev.report === next.report
+  && prev.getColumnPaths === next.getColumnPaths
   && prev.resolveColumnPath === next.resolveColumnPath);
 
 const FORMAT_HINT_ROWS: { tpl: string; desc: string }[] = [
@@ -1270,12 +1328,14 @@ const ChartConfigModal: React.FC<{
 
 export function ReportChart({ config, state }: { config: ChartConfig; state: UseAppStateReturn }) {
   const rows = state.getRows(config.table);
-  const { data, seriesKeys } = useMemo(() => aggregateData(
-    rows, config.xColumn, config.yColumn, config.aggregate, config.groupBy,
-    state.resolveColumnPath, config.table, rows,
-  ), [rows, config, state.resolveColumnPath, state.revision]);
+  const { data, seriesKeys } = useMemo(() => config.type === 'table'
+    ? { data: [], seriesKeys: [] }
+    : aggregateData(rows, config.xColumn, config.yColumn, config.aggregate, config.groupBy,
+      state.resolveColumnPath, config.table, rows),
+  [rows, config, state.resolveColumnPath, state.revision]);
 
-  return <ChartRenderer config={config} data={data} seriesKeys={seriesKeys} revision={state.revision} />;
+  return <ChartRenderer config={config} data={data} seriesKeys={seriesKeys} revision={state.revision}
+    rows={rows} resolveColumnPath={state.resolveColumnPath} getColumnPaths={state.getColumnPaths} report />;
 }
 
 export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {

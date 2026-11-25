@@ -246,6 +246,11 @@
 .report-table-section :is(th, td) { text-align: start; padding: 6px; border-bottom: 1px solid var(--color-border); }
 .report-table-section th { background: var(--report-soft); }
 .report-chart { height: 265px; margin-block-start: 8px; overflow: clip; }
+.report-pivot { overflow-x: auto; }
+.report-pivot table { table-layout: auto; }
+.report-pivot tbody th { background: transparent; font-weight: inherit; }
+.report-pivot .report-pivot-value { text-align: end; font-variant-numeric: tabular-nums; }
+.report-pivot .report-pivot-total { background: var(--report-soft); font-weight: 600; }
 .report-tab.active { box-shadow: inset 0 -2px #8b5cf6; }
 
 @media (max-width: 540px) {
@@ -291,5 +296,7 @@
   .report-paper h2 { font-size: 19pt; break-after: avoid; }
   .report-paper :is(.report-cover, .report-figure, .report-chart-block, tr) { break-inside: avoid; }
   .report-paper thead { display: table-header-group; }
+  .report-pivot { overflow: visible; }
+  .report-pivot :is(th, td) { padding-inline: 4px; }
   .report-paper .report-page-break { break-before: page; }
 }
