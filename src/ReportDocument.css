@@ -253,6 +253,19 @@
 .report-pivot .report-pivot-total { background: var(--report-soft); font-weight: 600; }
 .report-tab.active { box-shadow: inset 0 -2px #8b5cf6; }
 
+@media screen {
+  .report-pivot {
+    container: report-pivot / inline-size;
+    overflow-wrap: normal;
+  }
+  .report-pivot .report-pivot-value { white-space: nowrap; }
+
+  @container report-pivot (max-width: 480px) {
+    .report-pivot table { font-size: .8em; }
+    .report-pivot :is(th, td) { padding-inline: 4px; }
+  }
+}
+
 @media (max-width: 540px) {
   .report-text-section[data-layout="split"] { grid-template-columns: 1fr; }
 }
