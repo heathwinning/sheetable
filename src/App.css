@@ -334,6 +334,12 @@ body {
   @apply flex flex-col items-center justify-center h-full gap-3 text-text-muted text-center;
 }
 .empty-state-main h2 { @apply text-text; }
+.empty-state-main h1 { @apply text-text text-2xl font-semibold; }
+.guest-sign-in { @apply px-4; }
+.guest-sign-in .btn-primary {
+  @apply max-w-full whitespace-normal;
+  overflow-wrap: anywhere;
+}
 .empty-state { @apply p-6 text-center text-text-muted; }
 
 /* ============================================================

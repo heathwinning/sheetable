@@ -1,6 +1,6 @@
 import type { SheetOrderEntry, SheetType } from '../shared/reportTypes';
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
-import { Routes, Route, useNavigate, useParams, Link, useLocation, Navigate, useSearchParams } from 'react-router-dom';
+import { Routes, Route, useNavigate, useParams, Link, useLocation, Navigate, useSearchParams, matchPath } from 'react-router-dom';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, themeQuartz } from 'ag-grid-community';
 import type { ColDef, RowDragEndEvent } from 'ag-grid-community';
@@ -620,19 +620,10 @@ const HomePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
           ) : (
             <>
               <h2>Welcome to Sheetable</h2>
-              {state.user ? (
-                <>
-                  <p>Create or open a book to get started.</p>
-                  <Link className="btn-primary" to="/book/new/settings">
-                    Create Book
-                  </Link>
-                </>
-              ) : (
-                <>
-                  <p>Sign in to get started.</p>
-                  <button className="btn-primary" onClick={state.signIn}>Sign in</button>
-                </>
-              )}
+              <p>Create or open a book to get started.</p>
+              <Link className="btn-primary" to="/book/new/settings">
+                Create Book
+              </Link>
             </>
           )}
         </div>
@@ -669,7 +660,7 @@ const UserButton: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
 
   if (!state.user) {
     return (
-      <button onClick={state.signIn} className="drive-btn drive-btn-signin">
+      <button onClick={() => state.signIn()} className="drive-btn drive-btn-signin">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" />
         </svg>
@@ -1968,7 +1959,7 @@ const InviteAcceptPage: React.FC<{ state: ReturnType<typeof useAppState> }> = ({
         {info.status === 'sign-in-required' && (
           <>
             <p>Sign in with Google to accept this invitation.</p>
-            <button className="btn-primary" onClick={state.signIn}>Sign in with Google</button>
+            <button className="btn-primary" onClick={() => state.signIn()}>Sign in with Google</button>
           </>
         )}
         {info.status === 'pending' && (
@@ -2122,18 +2113,21 @@ const App: React.FC = () => {
 
   const headerReportId = location.pathname.match(/\/report\/([^/]+)$/)?.[1];
   const headerReportName = state.reportSheets.find(report => report.id === headerReportId)?.name;
+  const showSignIn = !state.user && !matchPath('/invite/:bookId', location.pathname);
 
   // Update document title based on current sheet
   useEffect(() => {
     const sheetName = headerTableId ?? headerChartId ?? headerViewId ?? headerReportName;
-    if (sheetName && headerBookId) {
+    if (showSignIn) {
+      document.title = 'Sheetable';
+    } else if (sheetName && headerBookId) {
       document.title = `${sheetName} — ${headerBookId}`;
     } else if (headerBookId) {
       document.title = headerBookId;
     } else {
       document.title = 'Sheetable';
     }
-  }, [headerTableId, headerChartId, headerViewId, headerReportName, headerBookId]);
+  }, [showSignIn, headerTableId, headerChartId, headerViewId, headerReportName, headerBookId]);
 
   const canEdit = state.bookReady && (!headerBookId || state.activeBookName === headerBookId)
     && (state.activeBookRole === 'owner' || state.activeBookRole === 'editor');
@@ -2166,6 +2160,35 @@ const App: React.FC = () => {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  if (showSignIn) {
+    const account = state.rememberedAccount;
+    return (
+      <div className="app">
+        <main className="empty-state-main guest-sign-in">
+          {state.isLoading ? (
+            <p role="status">Loading…</p>
+          ) : (
+            <>
+              <h1>Welcome to Sheetable</h1>
+              {account ? (
+                <>
+                  <button type="button" className="btn-primary" onClick={() => state.signIn(account.id)}>
+                    Continue as {account.email}
+                  </button>
+                  <button type="button" className="btn-ghost" onClick={() => state.signIn()}>
+                    Use another Google account
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="btn-primary" onClick={() => state.signIn()}>Sign in with Google</button>
+              )}
+            </>
+          )}
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="app">

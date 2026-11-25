@@ -39,6 +39,7 @@ export function error(message: string, status = 400): Response {
 // ---- Session cookie (HMAC-signed JSON) ----
 
 const COOKIE_NAME = 'sheetable_session';
+const SESSION_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
 const encoder = new TextEncoder();
 
 async function getSigningKey(secret: string): Promise<CryptoKey> {
@@ -88,7 +89,7 @@ export async function verifySession(cookie: string, secret: string): Promise<Ses
 
 export function setSessionCookie(response: Response, token: string): Response {
   const headers = new Headers(response.headers);
-  headers.append('Set-Cookie', `${COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`);
+  headers.append('Set-Cookie', `${COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_SECONDS}`);
   return new Response(response.body, { status: response.status, headers });
 }
 

@@ -21,8 +21,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ---- Auth ----
 
-export function loginUrl(): string {
-  return `${BASE}/auth/login`;
+export function loginUrl(loginHint?: string): string {
+  const path = `${BASE}/auth/login`;
+  return loginHint ? `${path}?${new URLSearchParams({ login_hint: loginHint })}` : path;
 }
 
 export async function getMe(): Promise<SessionUser> {

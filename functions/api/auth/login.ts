@@ -6,6 +6,7 @@ const STATE_COOKIE = 'sheetable_oauth_state';
 export const onRequestGet: PagesFunction<Env, string, RequestData> = async (context) => {
   const url = new URL(context.request.url);
   const redirectUri = `${url.origin}/api/auth/callback`;
+  const loginHint = url.searchParams.get('login_hint')?.trim();
 
   const state = crypto.randomUUID();
 
@@ -15,9 +16,13 @@ export const onRequestGet: PagesFunction<Env, string, RequestData> = async (cont
     response_type: 'code',
     scope: 'openid email profile',
     access_type: 'online',
-    prompt: 'select_account',
     state,
   });
+  if (loginHint && loginHint.length <= 255) {
+    params.set('login_hint', loginHint);
+  } else {
+    params.set('prompt', 'select_account');
+  }
 
   const response = new Response(null, {
     status: 302,

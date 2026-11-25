@@ -6,11 +6,29 @@ import * as api from './api';
 import { log } from './DebugLogger';
 import { applyChartValueFormat } from './chartFormat';
 
+type RememberedAccount = Pick<SessionUser, 'id' | 'email'>;
+const REMEMBERED_ACCOUNT_KEY = 'sheetable-remembered-account';
+
+function readRememberedAccount(): RememberedAccount | null {
+  try {
+    const saved = localStorage.getItem(REMEMBERED_ACCOUNT_KEY);
+    if (!saved) return null;
+    const account = JSON.parse(saved) as Partial<RememberedAccount> | null;
+    if (typeof account?.id === 'string' && account.id && typeof account.email === 'string' && account.email) {
+      return { id: account.id, email: account.email };
+    }
+  } catch {
+    // An unavailable or malformed browser preference should not block sign-in.
+  }
+  return null;
+}
+
 export interface UseAppStateReturn {
   // Auth
   user: SessionUser | null;
   isLoading: boolean;
-  signIn: () => void;
+  rememberedAccount: RememberedAccount | null;
+  signIn: (loginHint?: string) => void;
   signOut: () => Promise<void>;
 
   // Books
@@ -197,6 +215,7 @@ function enqueueWrite(rowId: string, fn: () => Promise<void>): void {
 
 export function useAppState(): UseAppStateReturn {
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [rememberedAccount, setRememberedAccount] = useState(readRememberedAccount);
   const [isLoading, setIsLoading] = useState(true);
   const [books, setBooks] = useState<BookInfo[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
@@ -250,8 +269,19 @@ export function useAppState(): UseAppStateReturn {
   // ---- Check auth on mount ----
   useEffect(() => {
     api.getMe()
-      .then(u => { setUser(u); setIsLoading(false); })
-      .catch(() => setIsLoading(false));
+      .then(u => {
+        setUser(u);
+        if (!u.id || !u.email) return;
+        const account = { id: u.id, email: u.email };
+        setRememberedAccount(account);
+        try {
+          localStorage.setItem(REMEMBERED_ACCOUNT_KEY, JSON.stringify(account));
+        } catch {
+          // The account can still be offered in this tab after sign-out.
+        }
+      })
+      .catch(() => {})
+      .finally(() => setIsLoading(false));
   }, []);
 
   // ---- Load books when user changes ----
@@ -390,13 +420,15 @@ export function useAppState(): UseAppStateReturn {
   }, [books, activeBookId]);
 
   // ---- Auth ----
-  const signIn = useCallback(() => {
+  const signIn = useCallback((loginHint?: string) => {
     // Save current hash route so we can redirect back after OAuth
     const hash = window.location.hash;
     if (hash && hash !== '#/' && hash !== '#') {
       localStorage.setItem('sheetable-post-login-redirect', hash);
+    } else {
+      localStorage.removeItem('sheetable-post-login-redirect');
     }
-    window.location.href = api.loginUrl();
+    window.location.href = api.loginUrl(loginHint);
   }, []);
 
   const signOut = useCallback(async () => {
@@ -1222,6 +1254,7 @@ export function useAppState(): UseAppStateReturn {
   return {
     user,
     isLoading,
+    rememberedAccount,
     signIn,
     signOut,
 
