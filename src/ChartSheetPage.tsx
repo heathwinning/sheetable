@@ -1268,6 +1268,16 @@ const ChartConfigModal: React.FC<{
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+export function ReportChart({ config, state }: { config: ChartConfig; state: UseAppStateReturn }) {
+  const rows = state.getRows(config.table);
+  const { data, seriesKeys } = useMemo(() => aggregateData(
+    rows, config.xColumn, config.yColumn, config.aggregate, config.groupBy,
+    state.resolveColumnPath, config.table, rows,
+  ), [rows, config, state.resolveColumnPath, state.revision]);
+
+  return <ChartRenderer config={config} data={data} seriesKeys={seriesKeys} revision={state.revision} />;
+}
+
 export const ChartSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   const { chartId } = useParams<{ bookId?: string; chartId: string }>();
   const chartSheet = chartId ? state.getChartSheet(chartId) : undefined;

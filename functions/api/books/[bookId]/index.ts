@@ -1,3 +1,4 @@
+import type { SheetOrderEntry } from '../../../../shared/reportTypes';
 import type { Env, RequestData } from '../../../lib';
 import { json, error, requireUser, requireOwner, requireEditor } from '../../../lib';
 
@@ -10,7 +11,7 @@ export const onRequestPatch: PagesFunction<Env, 'bookId', RequestData> = async (
     name?: string;
     tableOrder?: string[];
     chartOrder?: string[];
-    sheetOrder?: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[];
+    sheetOrder?: SheetOrderEntry[];
   };
 
   // Renaming requires owner
@@ -67,6 +68,10 @@ export const onRequestPatch: PagesFunction<Env, 'bookId', RequestData> = async (
       } else if (item.type === 'view') {
         stmts.push(context.env.DB.prepare(
           'UPDATE _view_sheets SET display_order = ? WHERE book_id = ? AND name = ?'
+        ).bind(globalIdx, bookId, item.name));
+      } else if (item.type === 'report') {
+        stmts.push(context.env.DB.prepare(
+          'UPDATE _report_sheets SET display_order = ? WHERE book_id = ? AND id = ?'
         ).bind(globalIdx, bookId, item.name));
       }
     });

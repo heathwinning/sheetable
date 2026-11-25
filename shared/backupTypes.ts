@@ -1,3 +1,5 @@
+import type { ReportDefinition, ReportSummary } from './reportTypes';
+
 export interface BackupColumn {
   name: string;
   displayName?: string;
@@ -53,4 +55,5 @@ export interface BackupPayload {
   tables: BackupTable[];
   views?: ExportView[];
   charts?: ExportChart[];
+  reports?: (ReportSummary & { definition: ReportDefinition })[];
 }

@@ -1,3 +1,4 @@
+import type { ReportAssetPage, ReportDefinition, ReportSheet, ReportSummary, SheetOrderEntry } from '../shared/reportTypes';
 import type { BackupPayload } from '../shared/backupTypes';
 import type { SessionUser, BookInfo, BookMember, BookInvite, TableSchema, Row, ChartSheet, ViewSheet } from './types';
 
@@ -57,7 +58,7 @@ export async function reorderSheets(bookId: string, tableOrder?: string[], chart
   });
 }
 
-export async function reorderAllSheets(bookId: string, sheetOrder: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[]): Promise<void> {
+export async function reorderAllSheets(bookId: string, sheetOrder: SheetOrderEntry[]): Promise<void> {
   await request(`/books/${bookId}`, {
     method: 'PATCH',
     body: JSON.stringify({ sheetOrder }),
@@ -328,7 +329,33 @@ export async function deleteView(bookId: string, name: string): Promise<void> {
   await request(`/books/${bookId}/views/${encodeURIComponent(name)}`, { method: 'DELETE' });
 }
 
+// ---- Reports ----
+
+export function listReports(bookId: string): Promise<ReportSummary[]> {
+  return request(`/books/${bookId}/reports`);
+}
+
+export function getReport(bookId: string, id: string): Promise<ReportSheet> {
+  return request(`/books/${bookId}/reports/${encodeURIComponent(id)}`);
+}
+
+export function createReport(bookId: string, name: string, definition: ReportDefinition): Promise<ReportSheet> {
+  return request(`/books/${bookId}/reports`, { method: 'POST', body: JSON.stringify({ name, definition }) });
+}
+
+export function updateReport(bookId: string, report: ReportSheet): Promise<ReportSheet> {
+  return request(`/books/${bookId}/reports/${encodeURIComponent(report.id)}`, { method: 'PATCH', body: JSON.stringify(report) });
+}
+
+export async function deleteReport(bookId: string, id: string): Promise<void> {
+  await request(`/books/${bookId}/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 // ---- Images ----
+
+export function listReportAssets(bookId: string, cursor?: string): Promise<ReportAssetPage> {
+  return request(`/books/${bookId}/images${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
+}
 
 export async function getUploadUrl(bookId: string, filename: string): Promise<{ key: string; uploadUrl: string }> {
   return request(`/books/${bookId}/images/upload-url`, {

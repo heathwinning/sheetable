@@ -22,10 +22,24 @@ export const onRequestPatch: PagesFunction<Env, 'bookId' | 'name', RequestData> 
 
   const stmts: D1PreparedStatement[] = [];
 
-  if (body.name?.trim() && body.name.trim() !== name) {
+  const newName = body.name?.trim();
+  if (newName && newName !== name) {
     stmts.push(
-      context.env.DB.prepare('UPDATE _tables SET name = ? WHERE id = ?')
-        .bind(body.name.trim(), table.id)
+      context.env.DB.prepare('UPDATE _tables SET name = ? WHERE id = ?').bind(newName, table.id),
+      context.env.DB.prepare(
+        `UPDATE _report_sheets AS report
+         SET definition = json_set(definition, '$.data.content', (
+           SELECT json_group_array(json(CASE
+             WHEN json_extract(block.value, '$.type') = 'Table' AND json_extract(block.value, '$.props.table') = ?
+             THEN json_set(block.value, '$.props.table', ?)
+             ELSE block.value END))
+           FROM json_each(report.definition, '$.data.content') AS block
+         )), revision = revision + 1
+         WHERE report.book_id = ? AND EXISTS (
+           SELECT 1 FROM json_each(report.definition, '$.data.content') AS block
+           WHERE json_extract(block.value, '$.type') = 'Table' AND json_extract(block.value, '$.props.table') = ?
+         )`
+      ).bind(name, newName, bookId, name),
     );
   }
 

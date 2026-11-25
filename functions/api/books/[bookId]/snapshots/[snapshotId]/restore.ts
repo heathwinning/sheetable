@@ -23,7 +23,7 @@ export const onRequestPost: PagesFunction<Env, 'bookId' | 'snapshotId', RequestD
   const payload = await readSnapshotData(context.env, row.data_key);
   if (!payload) return error('Snapshot data not found in storage', 500);
 
-  const stats = await restoreBackupBook(db, user.id, payload);
+  const stats = await restoreBackupBook(db, user.id, payload, { bucket: context.env.BUCKET, sourceBookId: bookId });
 
   return json(stats, 201);
 };

@@ -257,12 +257,17 @@ export async function gatherExportPayload(env: Env, bookId: string): Promise<Bac
     'SELECT name, table_name, mode, charts as chart_data FROM _chart_sheets WHERE book_id = ? ORDER BY display_order'
   ).bind(bookId).all<{ name: string; table_name: string | null; mode: string | null; chart_data: string | null }>();
 
+  const { results: reports } = await db.prepare(
+    'SELECT id, name, definition FROM _report_sheets WHERE book_id = ? ORDER BY display_order, id'
+  ).bind(bookId).all<{ id: string; name: string; definition: string }>();
+
   return {
     version: 1,
     exportedAt: new Date().toISOString(),
     bookName: book.name,
     sheetOrder: book.sheet_order,
     tables,
+    reports: reports.map(report => ({ ...report, definition: JSON.parse(report.definition) })),
     views: views.map(v => ({
       name: v.name,
       tableName: v.table_name,

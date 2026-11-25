@@ -1,3 +1,4 @@
+import type { ReportSummary, SheetOrderEntry } from '../shared/reportTypes';
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { TableSchema, ColumnDef, Row, ValidationError, ChartSheet, ChartConfig, ChartLayoutItem, ViewSheet, UndoEntry, SessionUser, BookInfo } from './types';
 import { INTERNAL_ROW_ID } from './types';
@@ -46,8 +47,8 @@ export interface UseAppStateReturn {
   reorderTablesTo: (ids: string[]) => void;
   reorderChartsTo: (ids: string[]) => void;
   reorderViewsTo: (ids: string[]) => void;
-  sortedSheets: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[];
-  reorderAllSheetsTo: (items: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[]) => void;
+  sortedSheets: SheetOrderEntry[];
+  reorderAllSheetsTo: (items: SheetOrderEntry[]) => void;
   updateSchema: (tableId: string, schema: TableSchema) => Promise<void>;
 
   // Row operations
@@ -75,6 +76,10 @@ export interface UseAppStateReturn {
   deleteViewSheet: (name: string) => Promise<void>;
   renameViewSheet: (oldName: string, newName: string) => Promise<void>;
   updateViewSheet: (name: string, updates: Partial<Pick<ViewSheet, 'name' | 'tableName' | 'viewType' | 'dateColumn' | 'hideSourceTableTab'>>) => Promise<void>;
+
+  reportSheets: ReportSummary[];
+  updateReportTab: (bookId: string, report: ReportSummary) => void;
+  removeReportTab: (bookId: string, id: string) => void;
 
   // Reference helpers (replacement for DataModel methods)
   getReferencedRow: (refTable: string, rowId: string) => Row | undefined;
@@ -208,6 +213,27 @@ export function useAppState(): UseAppStateReturn {
   const [tableOrder, setTableOrder] = useState<string[]>([]);
   const [chartSheetOrder, setChartSheetOrder] = useState<string[]>([]);
   const [viewSheetOrder, setViewSheetOrder] = useState<string[]>([]);
+  const [reportsByBook, setReportsByBook] = useState<Record<string, ReportSummary[]>>({});
+  const reportSheets = activeBookId ? reportsByBook[activeBookId] : undefined;
+
+  const updateReportTab = useCallback((bookId: string, { id, name }: ReportSummary) => {
+    setReportsByBook(current => {
+      const reports = current[bookId] ?? [];
+      return {
+        ...current,
+        [bookId]: reports.some(report => report.id === id)
+          ? reports.map(report => report.id === id ? { id, name } : report)
+          : [...reports, { id, name }],
+      };
+    });
+  }, []);
+
+  const removeReportTab = useCallback((bookId: string, id: string) => {
+    setReportsByBook(current => ({
+      ...current,
+      [bookId]: (current[bookId] ?? []).filter(report => report.id !== id),
+    }));
+  }, []);
 
   // In-memory data store (replaces DataModel)
   const schemasRef = useRef<Map<string, TableSchema>>(new Map());
@@ -258,10 +284,11 @@ export function useAppState(): UseAppStateReturn {
 
     (async () => {
       try {
-        const [schemas, charts, views] = await Promise.all([
+        const [schemas, charts, views, reports] = await Promise.all([
           api.listTables(activeBookId),
           api.listCharts(activeBookId),
           api.listViews(activeBookId),
+          api.listReports(activeBookId),
         ]);
 
         if (cancelled) return;
@@ -296,6 +323,7 @@ export function useAppState(): UseAppStateReturn {
           viewOrder.push(view.name);
         }
         setViewSheetOrder(viewOrder);
+        setReportsByBook(current => ({ ...current, [activeBookId]: reports }));
 
         setLoadedBook({ id: activeBookId, reload: reloadCount });
         bump();
@@ -738,19 +766,21 @@ export function useAppState(): UseAppStateReturn {
   // ---- Global cross-type sheet ordering ----
   const sortedSheets = useMemo(() => {
     if (!bookReady) return [];
+    const reportOrder = reportSheets?.map(report => report.id) ?? [];
     const book = books.find(b => b.id === activeBookId);
     const raw = book?.sheet_order;
     if (raw) {
       try {
-        const parsed: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[] = JSON.parse(raw);
+        const parsed: SheetOrderEntry[] = JSON.parse(raw);
         const existing = new Set<string>();
-        const result: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[] = [];
+        const result: SheetOrderEntry[] = [];
         for (const item of parsed) {
           const key = `${item.type}:${item.name}`;
           if (
             (item.type === 'table' && tableOrder.includes(item.name)) ||
             (item.type === 'chart' && chartSheetOrder.includes(item.name)) ||
-            (item.type === 'view' && viewSheetOrder.includes(item.name))
+            (item.type === 'view' && viewSheetOrder.includes(item.name)) ||
+            (item.type === 'report' && reportOrder.includes(item.name))
           ) {
             result.push(item);
             existing.add(key);
@@ -765,6 +795,9 @@ export function useAppState(): UseAppStateReturn {
         for (const name of viewSheetOrder) {
           if (!existing.has(`view:${name}`)) result.push({ type: 'view', name });
         }
+        for (const name of reportOrder) {
+          if (!existing.has(`report:${name}`)) result.push({ type: 'report', name });
+        }
         return result;
       } catch { /* fall through */ }
     }
@@ -772,10 +805,11 @@ export function useAppState(): UseAppStateReturn {
       ...tableOrder.map(name => ({ type: 'table' as const, name })),
       ...chartSheetOrder.map(name => ({ type: 'chart' as const, name })),
       ...viewSheetOrder.map(name => ({ type: 'view' as const, name })),
+      ...reportOrder.map(name => ({ type: 'report' as const, name })),
     ];
-  }, [books, activeBookId, tableOrder, chartSheetOrder, viewSheetOrder, bookReady]);
+  }, [books, activeBookId, tableOrder, chartSheetOrder, viewSheetOrder, reportSheets, bookReady]);
 
-  const doReorderAllSheetsTo = useCallback((items: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[]) => {
+  const doReorderAllSheetsTo = useCallback((items: SheetOrderEntry[]) => {
     const newTableOrder = items.filter(i => i.type === 'table').map(i => i.name);
     const newChartOrder = items.filter(i => i.type === 'chart').map(i => i.name);
     const newViewOrder = items.filter(i => i.type === 'view').map(i => i.name);
@@ -1248,6 +1282,10 @@ export function useAppState(): UseAppStateReturn {
   deleteViewSheet: doDeleteViewSheet,
   renameViewSheet: doRenameViewSheet,
   updateViewSheet: doUpdateViewSheet,
+
+    reportSheets: reportSheets ?? [],
+    updateReportTab,
+    removeReportTab,
 
     getReferencedRow,
     getReferenceRows,

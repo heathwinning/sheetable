@@ -1,6 +1,7 @@
 import type { Env, RequestData } from '../../lib';
 import { json, error, requireUser } from '../../lib';
 import type { BackupPayload } from '../../../shared/backupTypes';
+import { isReportDefinition, reportName } from '../../../shared/reportTypes';
 import { restoreBackupBook, validateBackupColumns } from '../../restoreBackup';
 
 export const onRequestPost: PagesFunction<Env, string, RequestData> = async (context) => {
@@ -13,8 +14,15 @@ export const onRequestPost: PagesFunction<Env, string, RequestData> = async (con
     return error('Invalid JSON body', 400);
   }
 
-  if (!body.bookName?.trim()) return error('bookName is required');
-  if (!body.tables?.length) return error('tables array is required');
+  if (typeof body?.bookName !== 'string' || !body.bookName.trim()) return error('bookName is required');
+  if (body.reports !== undefined && (!Array.isArray(body.reports) || body.reports.some(report =>
+    !report || typeof report.id !== 'string' || !reportName(report.name) || !isReportDefinition(report.definition)
+  ) || new Set(body.reports.map(report => report.id)).size !== body.reports.length)) {
+    return error('Invalid reports in backup');
+  }
+  if (!Array.isArray(body.tables) || (!body.tables.length && !body.reports?.length)) {
+    return error('A backup must include tables or reports');
+  }
   for (const table of body.tables) {
     const validationError = validateBackupColumns(table.schema?.columns ?? []);
     if (validationError) return error(`${validationError} in table "${table.name}"`);

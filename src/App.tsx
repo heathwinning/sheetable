@@ -1,3 +1,4 @@
+import type { SheetOrderEntry, SheetType } from '../shared/reportTypes';
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route, useNavigate, useParams, Link, useLocation, Navigate, useSearchParams } from 'react-router-dom';
 import { AgGridReact } from 'ag-grid-react';
@@ -19,6 +20,7 @@ import './App.css';
 
 const EditTablePage = lazy(() => import('./EditTablePage').then(m => ({ default: m.EditTablePage })));
 const ChartSheetPage = lazy(() => import('./ChartSheetPage').then(m => ({ default: m.ChartSheetPage })));
+const ReportSheetPage = lazy(() => import('./ReportSheetPage'));
 const ImportPage = lazy(() => import('./ImportPage').then(m => ({ default: m.ImportPage })));
 
 const bookPrefix = (bookName?: string) => (bookName ? `/book/${encodeURIComponent(bookName)}` : '');
@@ -145,7 +147,7 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string; onOpen
 
   return (
     <>
-      <button ref={btnRef} className="table-tab add-tab" onClick={toggle} title="Add sheet">
+      <button ref={btnRef} className="table-tab add-tab" onClick={toggle} title="Add sheet" aria-label="Add sheet">
         +
       </button>
       {open && (
@@ -164,6 +166,9 @@ const AddSheetMenu: React.FC<{ state: UseAppStateReturn; bookId?: string; onOpen
           <button className="add-sheet-option" onClick={() => { void addView(); }}>
             Calendar View
           </button>
+          <Link className="add-sheet-option" to={withBook(bookId, '/report/new')}>
+            Report
+          </Link>
           <button
             className="add-sheet-option"
             onClick={() => {
@@ -186,11 +191,25 @@ const TabOrderModal: React.FC<{ open: boolean; onClose: () => void; state: UseAp
   const sections: Array<{
     title: string;
     ids: string[];
+    label?: (id: string) => string;
     move: (fromIndex: number, toIndex: number) => void;
   }> = [
     { title: 'Spreadsheets', ids: state.tableIds, move: state.reorderTables },
     { title: 'Charts', ids: state.chartSheetIds, move: state.reorderCharts },
     { title: 'Views', ids: state.viewSheetIds, move: state.reorderViews },
+    {
+      title: 'Reports',
+      ids: state.sortedSheets.filter(sheet => sheet.type === 'report').map(sheet => sheet.name),
+      label: id => state.reportSheets.find(report => report.id === id)?.name ?? id,
+      move: (fromIndex, toIndex) => {
+        const items = [...state.sortedSheets];
+        const indices = items.flatMap((sheet, index) => sheet.type === 'report' ? [index] : []);
+        const from = indices[fromIndex];
+        const to = indices[toIndex];
+        [items[from], items[to]] = [items[to], items[from]];
+        state.reorderAllSheetsTo(items);
+      },
+    },
   ];
 
   return (
@@ -225,7 +244,7 @@ const TabOrderModal: React.FC<{ open: boolean; onClose: () => void; state: UseAp
                         background: 'var(--color-surface)',
                       }}
                     >
-                      <span style={{ fontSize: 13 }}>{id}</span>
+                      <span style={{ fontSize: 13 }}>{section.label?.(id) ?? id}</span>
                       <button
                         className="app-dialog-btn app-dialog-btn-secondary"
                         onClick={() => section.move(index, index - 1)}
@@ -562,13 +581,7 @@ const HomePage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
     });
     if (!firstSheet) return;
 
-    if (firstSheet.type === 'table') {
-      navigate(withBook(bookId, `/table/${encodeURIComponent(firstSheet.name)}`), { replace: true });
-    } else if (firstSheet.type === 'chart') {
-      navigate(withBook(bookId, `/chart/${encodeURIComponent(firstSheet.name)}`), { replace: true });
-    } else {
-      navigate(withBook(bookId, `/view/${encodeURIComponent(firstSheet.name)}`), { replace: true });
-    }
+    navigate(withBook(bookId, `/${firstSheet.type}/${encodeURIComponent(firstSheet.name)}`), { replace: true });
   }, [isRouteBookActive, state.sortedSheets, state.viewSheetIds, state.getViewSheet, navigate, bookId]);
 
   if (!isRouteBookActive) return null;
@@ -1044,17 +1057,19 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
   );
 };
 
-type SheetOrderItem = { id: string; type: 'table' | 'chart' | 'view'; hidden: boolean };
+type SheetOrderItem = { id: string; label: string; type: SheetType; hidden: boolean };
 
 const SHEET_TYPE_LABELS: Record<SheetOrderItem['type'], string> = {
   table: 'Table',
   chart: 'Chart',
   view: 'View',
+  report: 'Report',
 };
 const SHEET_TYPE_COLORS: Record<SheetOrderItem['type'], string> = {
   table: '#3b82f6',
   chart: '#22c55e',
   view: '#f59e0b',
+  report: '#7c3aed',
 };
 
 const SheetTypeBadge: React.FC<{ value: SheetOrderItem['type'] }> = ({ value }) => (
@@ -1071,11 +1086,12 @@ const sheetOrderTheme = themeQuartz.withParams({ rowHeight: 32, fontSize: 13, sp
 const previewGridTheme = themeQuartz.withParams({ rowHeight: 28, fontSize: 12, spacing: 4, cellHorizontalPaddingScale: 0.5 });
 
 const SheetOrderGrid: React.FC<{
-  sheets: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[];
+  sheets: SheetOrderEntry[];
   getViewSheet: (id: string) => { tableName: string; hideSourceTableTab?: boolean } | undefined;
   viewSheetIds: string[];
-  onReorderAll: (items: { type: 'table' | 'chart' | 'view'; name: string; hidden?: boolean }[]) => void;
-}> = ({ sheets, getViewSheet, viewSheetIds, onReorderAll }) => {
+  reportSheets: UseAppStateReturn['reportSheets'];
+  onReorderAll: (items: SheetOrderEntry[]) => void;
+}> = ({ sheets, getViewSheet, viewSheetIds, reportSheets, onReorderAll }) => {
   const rowData = useMemo<SheetOrderItem[]>(() =>
     sheets.map(sheet => {
       let hidden = sheet.hidden === true;
@@ -1085,9 +1101,10 @@ const SheetOrderGrid: React.FC<{
           return view?.tableName === sheet.name && view?.hideSourceTableTab === true;
         });
       }
-      return { id: sheet.name, type: sheet.type, hidden };
+      const label = sheet.type === 'report' ? reportSheets.find(report => report.id === sheet.name)?.name : sheet.name;
+      return { id: sheet.name, label: label ?? sheet.name, type: sheet.type, hidden };
     }),
-  [sheets, viewSheetIds, getViewSheet]);
+  [sheets, viewSheetIds, getViewSheet, reportSheets]);
 
   const handleToggle = useCallback((id: string, type: SheetOrderItem['type'], makeVisible: boolean) => {
     const newItems = sheets.map(s =>
@@ -1099,7 +1116,7 @@ const SheetOrderGrid: React.FC<{
   }, [sheets, onReorderAll]);
 
   const colDefs = useMemo<ColDef<SheetOrderItem>[]>(() => [
-    { field: 'id', headerName: 'Name', flex: 1, rowDrag: true, suppressMovable: true },
+    { field: 'label', headerName: 'Name', flex: 1, rowDrag: true, suppressMovable: true },
     {
       field: 'type', headerName: 'Type', width: 80, suppressMovable: true,
       cellRenderer: ({ value }: { value: SheetOrderItem['type'] }) => <SheetTypeBadge value={value} />,
@@ -1519,6 +1536,11 @@ const BackupModal: React.FC<{
                       <strong>Charts:</strong> {previewData.data.charts.map(c => c.name).join(', ')}
                     </div>
                   )}
+                  {!!previewData.data.reports?.length && (
+                    <div style={{ marginTop: 4, fontSize: 13 }}>
+                      <strong>Reports:</strong> {previewData.data.reports.map(report => report.name).join(', ')}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1829,17 +1851,16 @@ const BookSettingsPage: React.FC<{ state: UseAppStateReturn; createMode?: boolea
           {!createMode && !state.user && <div className="book-settings-note">Sign in to manage members.</div>}
         </div>
 
-        {!createMode && (state.tableIds.length > 0 || state.chartSheetIds.length > 0 || state.viewSheetIds.length > 0) && (
+        {!createMode && state.sortedSheets.length > 0 && (
           <div className="book-settings-section">
             <label className="book-settings-label">Sheet Order</label>
-            {(state.tableIds.length > 0 || state.chartSheetIds.length > 0 || state.viewSheetIds.length > 0) && (
-              <SheetOrderGrid
-                sheets={state.sortedSheets}
-                getViewSheet={state.getViewSheet}
-                viewSheetIds={state.viewSheetIds}
-                onReorderAll={state.reorderAllSheetsTo}
-              />
-            )}
+            <SheetOrderGrid
+              sheets={state.sortedSheets}
+              getViewSheet={state.getViewSheet}
+              viewSheetIds={state.viewSheetIds}
+              reportSheets={state.reportSheets}
+              onReorderAll={state.reorderAllSheetsTo}
+            />
           </div>
         )}
 
@@ -2044,7 +2065,7 @@ const App: React.FC = () => {
   // Derive current book route for header tabs
   const headerBookMatch = location.pathname.match(/^\/book\/([^/]+)/);
   const headerBookId = headerBookMatch ? decodeURIComponent(headerBookMatch[1]) : undefined;
-  const isOnSheetRoute = /\/(table|chart|view)\//.test(location.pathname) || location.pathname.match(/^\/book\/[^/]+$/);
+  const isOnSheetRoute = /\/(table|chart|view|report)\//.test(location.pathname) || location.pathname.match(/^\/book\/[^/]+$/);
 
   // Derive active table ID for header actions
   const tableMatch = location.pathname.match(/\/table\/([^/]+)$/);
@@ -2076,7 +2097,7 @@ const App: React.FC = () => {
 
     initialSheetRouteCheckedRef.current = routeBookName;
 
-    const currentType = sheetRouteMatch[1] as 'table' | 'chart' | 'view';
+    const currentType = sheetRouteMatch[1] as SheetType;
     const currentName = decodeURIComponent(sheetRouteMatch[2]);
 
     // Check if the sheet in the URL actually exists
@@ -2099,9 +2120,12 @@ const App: React.FC = () => {
     navigate(`/book/${encodeURIComponent(routeBookName)}/${firstVisible.type}/${encodeURIComponent(firstVisible.name)}`, { replace: true });
   }, [location.pathname, navigate, state.activeBookName, state.sortedSheets, state.viewSheetIds, state.getViewSheet]);
 
+  const headerReportId = location.pathname.match(/\/report\/([^/]+)$/)?.[1];
+  const headerReportName = state.reportSheets.find(report => report.id === headerReportId)?.name;
+
   // Update document title based on current sheet
   useEffect(() => {
-    const sheetName = headerTableId ?? headerChartId ?? headerViewId;
+    const sheetName = headerTableId ?? headerChartId ?? headerViewId ?? headerReportName;
     if (sheetName && headerBookId) {
       document.title = `${sheetName} — ${headerBookId}`;
     } else if (headerBookId) {
@@ -2109,7 +2133,7 @@ const App: React.FC = () => {
     } else {
       document.title = 'Sheetable';
     }
-  }, [headerTableId, headerChartId, headerViewId, headerBookId]);
+  }, [headerTableId, headerChartId, headerViewId, headerReportName, headerBookId]);
 
   const canEdit = state.bookReady && (!headerBookId || state.activeBookName === headerBookId)
     && (state.activeBookRole === 'owner' || state.activeBookRole === 'editor');
@@ -2169,7 +2193,7 @@ const App: React.FC = () => {
             <span className="header-role-badge">{state.activeBookRole}</span>
           )}
         </div>
-        {isOnSheetRoute && (state.tableIds.length > 0 || state.chartSheetIds.length > 0 || state.viewSheetIds.length > 0) && (
+        {isOnSheetRoute && (state.sortedSheets.length > 0 || canEdit) && (
           <div className="header-tabs">
             {state.sortedSheets.map(sheet => {
               if (sheet.type === 'table') {
@@ -2218,6 +2242,19 @@ const App: React.FC = () => {
                     to={withBook(headerBookId, `/view/${encodeURIComponent(id)}`)}
                   >
                     {id}
+                  </Link>
+                );
+              }
+              if (sheet.type === 'report' && !sheet.hidden) {
+                const report = state.reportSheets.find(item => item.id === sheet.name);
+                if (!report) return null;
+                return (
+                  <Link
+                    key={`report-${report.id}`}
+                    className={`table-tab report-tab ${headerReportId === report.id ? 'active' : ''}`}
+                    to={withBook(headerBookId, `/report/${report.id}`)}
+                  >
+                    {report.name}
                   </Link>
                 );
               }
@@ -2375,6 +2412,7 @@ const App: React.FC = () => {
             <Route path="/book/:bookId/table/new" element={<SheetRoute state={state} rows="all"><EditTablePage state={state} /></SheetRoute>} />
             <Route path="/book/:bookId/table/:tableId" element={<SheetRoute state={state} rows="table"><TableViewPage state={state} /></SheetRoute>} />
             <Route path="/book/:bookId/chart/:chartId" element={<SheetRoute state={state}><ChartSheetPage state={state} /></SheetRoute>} />
+            <Route path="/book/:bookId/report/:reportId" element={<SheetRoute state={state}><ReportSheetPage state={state} /></SheetRoute>} />
             <Route path="/book/:bookId/settings" element={<BookSettingsPage state={state} />} />
             <Route path="/book/:bookId/view/:viewId" element={<SheetRoute state={state} rows="view"><ViewSheetPage state={state} /></SheetRoute>} />
             <Route path="/book/:bookId/table/:tableId/edit" element={<SheetRoute state={state} rows="all"><EditTablePage state={state} /></SheetRoute>} />

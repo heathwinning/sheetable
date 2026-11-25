@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@kanaries/graphic-walker": "^0.5.0-alpha.4",
+    "@puckeditor/core": "^0.24.2",
     "@tailwindcss/vite": "^4.2.2",
     "ag-grid-community": "^35.2.0",
     "ag-grid-react": "^35.2.0",

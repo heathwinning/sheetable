@@ -1,3 +1,5 @@
+import { isReportDefinition, reportName } from '../shared/reportTypes';
+import type { ReportDefinition, SheetOrderEntry } from '../shared/reportTypes';
 import type { BackupColumn, BackupPayload, BackupTable } from '../shared/backupTypes';
 
 const VALID_TYPES = new Set(['text', 'integer', 'decimal', 'date', 'datetime', 'bool', 'reference', 'image', 'calculated', 'list']);
@@ -88,17 +90,58 @@ export async function restoreBackupTable(
   return tableId;
 }
 
-export async function restoreBackupBook(db: D1Database, userId: string, backup: BackupPayload) {
+export async function restoreBackupBook(
+  db: D1Database, userId: string, backup: BackupPayload,
+  reportImages?: { bucket: R2Bucket; sourceBookId: string },
+) {
   const bookId = crypto.randomUUID();
   const bookName = backup.bookName.trim();
+  const reports = backup.reports ?? [];
+  const reportIds = new Map(reports.map(report => [report.id, crypto.randomUUID()]));
+  let sheetOrder = backup.sheetOrder ?? '';
+  if (sheetOrder && reports.length > 0) {
+    try {
+      const items = JSON.parse(sheetOrder) as SheetOrderEntry[];
+      sheetOrder = JSON.stringify(items.map(item => item.type === 'report'
+        ? { ...item, name: reportIds.get(item.name) ?? item.name }
+        : item));
+    } catch {
+      sheetOrder = '';
+    }
+  }
   await db.batch([
     db.prepare('INSERT INTO books (id, name, owner_id, sheet_order) VALUES (?, ?, ?, ?)')
-      .bind(bookId, bookName, userId, backup.sheetOrder ?? ''),
+      .bind(bookId, bookName, userId, sheetOrder),
     db.prepare('INSERT INTO book_members (book_id, user_id, role) VALUES (?, ?, ?)')
       .bind(bookId, userId, 'owner'),
   ]);
 
   const tableIds: number[] = [];
+  const copiedImages = new Map<string, string>();
+  async function copyReportImage(key: string) {
+    if (!reportImages || !key.startsWith(`${reportImages.sourceBookId}/`)) return key;
+    const known = copiedImages.get(key);
+    if (known) return known;
+    const original = await reportImages.bucket.get(`${reportImages.sourceBookId}/${key}`);
+    if (!original) return key;
+    const newKey = `${bookId}/${key.slice(reportImages.sourceBookId.length + 1)}`;
+    await reportImages.bucket.put(`${bookId}/${newKey}`, original.body, { httpMetadata: original.httpMetadata });
+    copiedImages.set(key, newKey);
+    return newKey;
+  }
+
+  async function copyReportImages(definition: ReportDefinition) {
+    if (!reportImages) return;
+    for (const block of definition.data.content) {
+      if (block.type === 'Cover') {
+        block.props.logo = await copyReportImage(block.props.logo || '');
+      }
+      if (block.type === 'Cover' || block.type === 'Image') {
+        block.props.image = await copyReportImage(block.props.image || '');
+      }
+    }
+  }
+
   const views = backup.views ?? [];
   const charts = backup.charts ?? [];
   try {
@@ -118,9 +161,20 @@ export async function restoreBackupBook(db: D1Database, userId: string, backup: 
         chart.charts ? JSON.stringify(chart.charts) : '[]', index,
       ).run();
     }
+    for (const [index, report] of reports.entries()) {
+      if (!reportName(report.name) || !isReportDefinition(report.definition)) throw new Error('Invalid report in backup');
+      const definition = structuredClone(report.definition);
+      await copyReportImages(definition);
+      await db.prepare(
+        'INSERT INTO _report_sheets (id, book_id, name, definition, display_order) VALUES (?, ?, ?, ?, ?)'
+      ).bind(reportIds.get(report.id), bookId, report.name, JSON.stringify(definition), index).run();
+    }
   } catch (error) {
     for (const tableId of tableIds) await removeRestoredTable(db, tableId);
     await db.prepare('DELETE FROM books WHERE id = ?').bind(bookId).run();
+    if (reportImages && copiedImages.size > 0) {
+      await reportImages.bucket.delete([...copiedImages.values()].map(key => `${bookId}/${key}`));
+    }
     throw error;
   }
 
