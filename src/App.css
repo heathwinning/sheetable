@@ -1535,7 +1535,7 @@ body {
 }
 
 .calendar-day-number {
-  @apply inline-flex items-center justify-center text-[13px] font-medium text-primary border-0 cursor-pointer;
+  @apply inline-flex items-center justify-center text-[13px] font-medium text-text border-0 cursor-pointer;
   min-width: 24px;
   min-height: 28px;
   padding: 0 4px;
@@ -1549,7 +1549,7 @@ body {
 
 .calendar-day-number:focus-visible,
 .calendar-event-overflow:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid currentColor;
   outline-offset: 1px;
   position: relative;
   z-index: 1;
@@ -1570,7 +1570,7 @@ body {
 }
 
 .calendar-event-overflow {
-  @apply text-[10px] text-primary underline border-0 bg-transparent cursor-pointer;
+  @apply text-[10px] text-text-muted underline border-0 bg-transparent cursor-pointer;
   min-height: 24px;
   max-width: 100%;
 }
