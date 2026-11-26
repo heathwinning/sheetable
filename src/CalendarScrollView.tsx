@@ -28,7 +28,6 @@ interface CalendarScrollViewProps {
   events: ScrollEvent[];
   year: number;
   onSelectDateNumber: (date: Date) => void;
-  onSelectDayTile?: (date: Date) => void;
   onSelectEvent?: (event: ScrollEvent) => void;
 }
 
@@ -50,9 +49,8 @@ const MonthGrid: React.FC<{
   events: ScrollEvent[];
   todayRef: React.RefObject<HTMLDivElement | null>;
   onSelectDateNumber: (date: Date) => void;
-  onSelectDayTile?: (date: Date) => void;
   onSelectEvent?: (event: ScrollEvent) => void;
-}> = ({ monthStart, events, todayRef, onSelectDateNumber, onSelectDayTile, onSelectEvent }) => {
+}> = ({ monthStart, events, todayRef, onSelectDateNumber, onSelectEvent }) => {
   const days = useMemo(() => getMonthDays(monthStart), [monthStart]);
 
   const eventsByDay = useMemo(() => {
@@ -85,8 +83,7 @@ const MonthGrid: React.FC<{
             <div
               key={key}
               ref={today ? (todayRef as React.RefObject<HTMLDivElement>) : undefined}
-              onClick={() => inMonth && onSelectDayTile?.(day)}
-              className={`calendar-day-cell ${inMonth ? 'in-month' : 'not-in-month'} ${inMonth && onSelectDayTile ? 'can-add-entry' : ''}`}
+              className={`calendar-day-cell ${inMonth ? 'in-month' : 'not-in-month'}`}
             >
               {inMonth && (
                 <>
@@ -96,22 +93,10 @@ const MonthGrid: React.FC<{
                       className={`calendar-day-number ${today ? 'today' : ''}`}
                       title={`View entries for ${fullDate}`}
                       aria-label={`View entries for ${fullDate}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectDateNumber(day);
-                      }}
+                      onClick={() => onSelectDateNumber(day)}
                     >
                       {format(day, 'd')}
                     </button>
-                    {onSelectDayTile && (
-                      <button
-                        type="button"
-                        className="calendar-day-add"
-                        title={`Add entry for ${fullDate}`}
-                        aria-label={`Add entry for ${fullDate}`}
-                        onClick={e => { e.stopPropagation(); onSelectDayTile(day); }}
-                      >+</button>
-                    )}
                   </div>
                   {dayEvents.slice(0, 3).map((ev, j) => (
                     <div
@@ -127,7 +112,7 @@ const MonthGrid: React.FC<{
                       type="button"
                       className="calendar-event-overflow"
                       aria-label={`View all entries for ${fullDate}`}
-                      onClick={e => { e.stopPropagation(); onSelectDateNumber(day); }}
+                      onClick={() => onSelectDateNumber(day)}
                     >
                       +{dayEvents.length - 3} more
                     </button>
@@ -239,7 +224,6 @@ export const CalendarScrollView: React.FC<CalendarScrollViewProps> = ({
   events,
   year,
   onSelectDateNumber,
-  onSelectDayTile,
   onSelectEvent,
 }) => {
   const todayRef = useRef<HTMLDivElement | null>(null);
@@ -402,7 +386,6 @@ const _scrollToMonth = useCallback((key: string) => {
                   events={events}
                   todayRef={todayRef}
                   onSelectDateNumber={onSelectDateNumber}
-                  onSelectDayTile={onSelectDayTile}
                   onSelectEvent={onSelectEvent}
                 />
               </div>

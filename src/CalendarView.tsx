@@ -65,7 +65,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     const saved = localStorage.getItem(`sheetable-cal-mode-${configKey}`);
     return saved === 'agenda' ? 'agenda' : 'calendar';
   });
-  const [temporaryDrilldown, setTemporaryDrilldown] = useState(false);
   const setViewMode = (mode: 'calendar' | 'agenda') => {
     setViewModeRaw(mode);
     if (configKey) localStorage.setItem(`sheetable-cal-mode-${configKey}`, mode);
@@ -202,7 +201,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const handleSelectSlot = (date: Date) => {
     // Clicking a date number drills into agenda for that specific day.
     setAgendaDateFilter(date);
-    setTemporaryDrilldown(true);
     // Temporary mode switch only; don't persist to localStorage.
     setViewModeRaw('agenda');
   };
@@ -266,31 +264,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       {/* Toolbar row */}
       <div className="calendar-toolbar">
         <div className="calendar-toolbar-group">
-          <div className="calendar-toolbar-year-group">
-          <select
-            className="calendar-toolbar-select"
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(Number(e.target.value))}
-            title="Year"
-          >
-            {availableYears.map((year) => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </select>
-          <button
-            className="calendar-toolbar-btn"
-            onClick={() => setSelectedYear(new Date().getFullYear())}
-            title="Jump to current year"
-          >
-            This year
-          </button>
-          </div>
-
-          {temporaryDrilldown && agendaDateFilter && (
+          {agendaDateFilter ? (
             <button
               className="calendar-toolbar-btn"
               onClick={() => {
-                setTemporaryDrilldown(false);
                 setAgendaDateFilter(null);
                 setViewModeRaw('calendar');
               }}
@@ -298,6 +275,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             >
               {`Back to calendar (${format(agendaDateFilter, 'MMM d')})`}
             </button>
+          ) : (
+            <select
+              className="calendar-toolbar-select"
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              title="Year"
+              aria-label="Year"
+            >
+              {availableYears.map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
           )}
 
           {showInlineConfig && (
@@ -365,16 +354,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         </div>
 
         <div className="calendar-toolbar-group calendar-toolbar-group-right">
-          {viewMode === 'agenda' && !readOnly && onCreateRow && (
-            <button type="button" className="calendar-toolbar-btn" onClick={() => handleCreateEntry(agendaDateFilter ?? new Date())}>
-              + Add entry
+          {!readOnly && onCreateRow && (
+            <button type="button" className="calendar-toolbar-btn" aria-label="New entry" title="New entry" onClick={() => handleCreateEntry(agendaDateFilter ?? new Date())}>
+              +
             </button>
           )}
           <div className="calendar-toolbar-segmented" role="group" aria-label="View mode">
             <button
               className={`calendar-toolbar-btn calendar-toolbar-segment-btn ${viewMode === 'calendar' ? 'active' : ''}`}
               onClick={() => {
-                setTemporaryDrilldown(false);
                 setAgendaDateFilter(null);
                 setViewMode('calendar');
               }}
@@ -384,7 +372,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             <button
               className={`calendar-toolbar-btn calendar-toolbar-segment-btn ${viewMode === 'agenda' ? 'active' : ''}`}
               onClick={() => {
-                setTemporaryDrilldown(false);
                 setAgendaDateFilter(null);
                 setViewMode('agenda');
               }}
@@ -400,7 +387,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           events={events}
           year={selectedYear}
           onSelectDateNumber={handleSelectSlot}
-          onSelectDayTile={!readOnly && onCreateRow ? handleCreateEntry : undefined}
           onSelectEvent={(scrollEv) => handleSelectEvent(scrollEv as CalEvent)}
         />
       ) : (

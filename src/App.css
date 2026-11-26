@@ -1458,10 +1458,6 @@ body {
   @apply inline-flex items-center border border-border rounded-md overflow-hidden bg-surface;
 }
 
-.calendar-toolbar-year-group {
-  @apply inline-flex items-center gap-1;
-}
-
 .calendar-toolbar-btn {
   @apply px-2.5 py-1 text-[13px] font-medium border border-border rounded bg-transparent text-text-muted cursor-pointer transition-colors;
 }
@@ -1525,10 +1521,6 @@ body {
   cursor: default;
 }
 
-.calendar-day-cell.can-add-entry {
-  cursor: pointer;
-}
-
 .calendar-day-cell.not-in-month {
   @apply cursor-default;
 }
@@ -1538,7 +1530,7 @@ body {
 }
 
 .calendar-day-number-container {
-  @apply flex justify-center items-center flex-wrap gap-0.5 mb-0.5;
+  @apply flex justify-center mb-0.5;
   min-width: 0;
 }
 
@@ -1555,15 +1547,7 @@ body {
   background: var(--color-primary);
 }
 
-.calendar-day-add {
-  @apply inline-flex items-center justify-center text-xs font-semibold text-text border border-border rounded bg-surface cursor-pointer;
-  min-width: 24px;
-  min-height: 28px;
-  padding: 0 4px;
-}
-
 .calendar-day-number:focus-visible,
-.calendar-day-add:focus-visible,
 .calendar-event-overflow:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 1px;
