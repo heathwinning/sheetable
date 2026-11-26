@@ -27,7 +27,7 @@ export interface ScrollEvent {
 interface CalendarScrollViewProps {
   events: ScrollEvent[];
   year: number;
-  onSelectDateNumber?: (date: Date) => void;
+  onSelectDateNumber: (date: Date) => void;
   onSelectDayTile?: (date: Date) => void;
   onSelectEvent?: (event: ScrollEvent) => void;
 }
@@ -49,7 +49,7 @@ const MonthGrid: React.FC<{
   monthStart: Date;
   events: ScrollEvent[];
   todayRef: React.RefObject<HTMLDivElement | null>;
-  onSelectDateNumber?: (date: Date) => void;
+  onSelectDateNumber: (date: Date) => void;
   onSelectDayTile?: (date: Date) => void;
   onSelectEvent?: (event: ScrollEvent) => void;
 }> = ({ monthStart, events, todayRef, onSelectDateNumber, onSelectDayTile, onSelectEvent }) => {
@@ -79,26 +79,39 @@ const MonthGrid: React.FC<{
           const inMonth = isSameMonth(day, monthStart);
           const today = isToday(day);
           const key = format(day, 'yyyy-MM-dd');
+          const fullDate = format(day, 'EEEE, MMMM d, yyyy');
           const dayEvents = inMonth ? (eventsByDay.get(key) ?? []) : [];
           return (
             <div
               key={key}
               ref={today ? (todayRef as React.RefObject<HTMLDivElement>) : undefined}
               onClick={() => inMonth && onSelectDayTile?.(day)}
-              className={`calendar-day-cell ${inMonth ? 'in-month' : 'not-in-month'}`}
+              className={`calendar-day-cell ${inMonth ? 'in-month' : 'not-in-month'} ${inMonth && onSelectDayTile ? 'can-add-entry' : ''}`}
             >
               {inMonth && (
                 <>
                   <div className="calendar-day-number-container">
-                    <span
+                    <button
+                      type="button"
                       className={`calendar-day-number ${today ? 'today' : ''}`}
+                      title={`View entries for ${fullDate}`}
+                      aria-label={`View entries for ${fullDate}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        onSelectDateNumber?.(day);
+                        onSelectDateNumber(day);
                       }}
                     >
                       {format(day, 'd')}
-                    </span>
+                    </button>
+                    {onSelectDayTile && (
+                      <button
+                        type="button"
+                        className="calendar-day-add"
+                        title={`Add entry for ${fullDate}`}
+                        aria-label={`Add entry for ${fullDate}`}
+                        onClick={e => { e.stopPropagation(); onSelectDayTile(day); }}
+                      >+</button>
+                    )}
                   </div>
                   {dayEvents.slice(0, 3).map((ev, j) => (
                     <div
@@ -110,7 +123,14 @@ const MonthGrid: React.FC<{
                     </div>
                   ))}
                   {dayEvents.length > 3 && (
-                    <div className="calendar-event-overflow">+{dayEvents.length - 3} more</div>
+                    <button
+                      type="button"
+                      className="calendar-event-overflow"
+                      aria-label={`View all entries for ${fullDate}`}
+                      onClick={e => { e.stopPropagation(); onSelectDateNumber(day); }}
+                    >
+                      +{dayEvents.length - 3} more
+                    </button>
                   )}
                 </>
               )}
@@ -130,10 +150,9 @@ export const AgendaView: React.FC<{
   selectedDate?: Date | null;
   todayRef: React.RefObject<HTMLDivElement | null>;
   onSelectEvent?: (event: ScrollEvent) => void;
-  onCreateEntry?: (date: Date) => void;
   imageColumns?: ColumnDef[];
   bookId?: string | null;
-}> = ({ events, year, selectedDate = null, todayRef, onSelectEvent, onCreateEntry, imageColumns = [], bookId }) => {
+}> = ({ events, year, selectedDate = null, todayRef, onSelectEvent, imageColumns = [], bookId }) => {
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const selectedDateKey = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : null;
   const sorted = useMemo(() =>
@@ -166,7 +185,6 @@ export const AgendaView: React.FC<{
 
   return (
     <div ref={containerRef}>
-      {onCreateEntry && <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}><button className="calendar-toolbar-btn" onClick={() => onCreateEntry(selectedDate ?? new Date())}>+ Add entry</button></div>}
       {groups.length === 0 && <div className="agenda-empty">No events</div>}
       {groups.map(({ key, date, evs }) => {
         const today = key === todayKey;

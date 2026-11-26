@@ -1522,6 +1522,10 @@ body {
   @apply p-1 border-t border-border rounded transition-colors;
   min-height: 54px;
   min-width: 0;
+  cursor: default;
+}
+
+.calendar-day-cell.can-add-entry {
   cursor: pointer;
 }
 
@@ -1534,20 +1538,37 @@ body {
 }
 
 .calendar-day-number-container {
-  @apply flex justify-center mb-0.5;
+  @apply flex justify-center items-center flex-wrap gap-0.5 mb-0.5;
+  min-width: 0;
 }
 
 .calendar-day-number {
-  @apply inline-flex items-center justify-center text-[13px] font-medium text-text;
-  width: 26px;
-  height: 26px;
+  @apply inline-flex items-center justify-center text-[13px] font-medium text-primary bg-cell-selected border-0 cursor-pointer;
+  min-width: 24px;
+  min-height: 28px;
+  padding: 0 4px;
   border-radius: 50%;
-  background: transparent;
 }
 
 .calendar-day-number.today {
   @apply font-bold text-white;
   background: var(--color-primary);
+}
+
+.calendar-day-add {
+  @apply inline-flex items-center justify-center text-xs font-semibold text-text border border-border rounded bg-surface cursor-pointer;
+  min-width: 24px;
+  min-height: 28px;
+  padding: 0 4px;
+}
+
+.calendar-day-number:focus-visible,
+.calendar-day-add:focus-visible,
+.calendar-event-overflow:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+  position: relative;
+  z-index: 1;
 }
 
 .calendar-event-item {
@@ -1565,7 +1586,9 @@ body {
 }
 
 .calendar-event-overflow {
-  @apply text-[10px] text-text-muted pl-1;
+  @apply text-[10px] text-primary underline border-0 bg-transparent cursor-pointer;
+  min-height: 24px;
+  max-width: 100%;
 }
 
 /* Agenda view */

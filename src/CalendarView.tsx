@@ -207,7 +207,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     setViewModeRaw('agenda');
   };
 
-  const handleSelectDayTile = (date: Date) => {
+  const handleCreateEntry = (date: Date) => {
     if (readOnly || !onCreateRow) return;
 
     const initialValues: Row = {};
@@ -222,18 +222,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       }
     }
 
-    setDialog({ open: true, title: 'New Entry', initialValues });
-  };
-
-  const handleCreateAgendaEntry = (date: Date) => {
-    if (readOnly || !onCreateRow) return;
-    const initialValues: Row = {};
-    for (const col of schema.columns) {
-      if (col.name === INTERNAL_ROW_ID) continue;
-      initialValues[col.name] = col.name === dateColumn
-        ? (col.type === 'date' ? format(date, 'yyyy-MM-dd') : format(date, "yyyy-MM-dd'T'00:00"))
-        : '';
-    }
     setDialog({ open: true, title: 'New Entry', initialValues });
   };
 
@@ -377,6 +365,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         </div>
 
         <div className="calendar-toolbar-group calendar-toolbar-group-right">
+          {viewMode === 'agenda' && !readOnly && onCreateRow && (
+            <button type="button" className="calendar-toolbar-btn" onClick={() => handleCreateEntry(agendaDateFilter ?? new Date())}>
+              + Add entry
+            </button>
+          )}
           <div className="calendar-toolbar-segmented" role="group" aria-label="View mode">
             <button
               className={`calendar-toolbar-btn calendar-toolbar-segment-btn ${viewMode === 'calendar' ? 'active' : ''}`}
@@ -407,7 +400,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           events={events}
           year={selectedYear}
           onSelectDateNumber={handleSelectSlot}
-          onSelectDayTile={handleSelectDayTile}
+          onSelectDayTile={!readOnly && onCreateRow ? handleCreateEntry : undefined}
           onSelectEvent={(scrollEv) => handleSelectEvent(scrollEv as CalEvent)}
         />
       ) : (
@@ -418,7 +411,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             selectedDate={agendaDateFilter}
             todayRef={{ current: null }}
             onSelectEvent={(scrollEv) => handleSelectEvent(scrollEv as CalEvent)}
-            onCreateEntry={!readOnly && onCreateRow ? handleCreateAgendaEntry : undefined}
             imageColumns={schema.columns.filter(isImageColumn)}
             bookId={bookId}
           />
