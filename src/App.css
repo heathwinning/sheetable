@@ -1535,16 +1535,16 @@ body {
 }
 
 .calendar-day-number {
-  @apply inline-flex items-center justify-center text-[13px] font-medium text-primary bg-cell-selected border-0 cursor-pointer;
+  @apply inline-flex items-center justify-center text-[13px] font-medium text-primary border-0 cursor-pointer;
   min-width: 24px;
   min-height: 28px;
   padding: 0 4px;
   border-radius: 50%;
+  background: transparent;
 }
 
 .calendar-day-number.today {
-  @apply font-bold text-white;
-  background: var(--color-primary);
+  @apply font-bold;
 }
 
 .calendar-day-number:focus-visible,
