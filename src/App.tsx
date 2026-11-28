@@ -1008,6 +1008,7 @@ const ViewSheetPage: React.FC<{ state: UseAppStateReturn }> = ({ state }) => {
           </div>
         ) : viewSheet.viewType === 'calendar' && dateColumn ? (
           <CalendarView
+            key={JSON.stringify([viewId, viewSheet.tableName])}
             schema={schema}
             rows={rows}
             dateColumn={dateColumn}

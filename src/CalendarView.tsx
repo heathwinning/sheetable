@@ -2,8 +2,11 @@ import React, { useMemo, useState, useRef, useEffect } from 'react';
 import type { TableSchema, ColumnDef, Row, ValidationError } from './types';
 import { INTERNAL_ROW_ID } from './types';
 import { parseTemporalUnknown } from './dateFormat';
+import { endOfDay } from 'date-fns/endOfDay';
 import { format } from 'date-fns/format';
+import { parseISO } from 'date-fns/parseISO';
 import { CalendarScrollView, AgendaView } from './CalendarScrollView';
+import { AgendaFilterDialog, type AgendaFilters } from './AgendaFilterDialog';
 import { RecordCard } from './RecordCard';
 import { resolveRefLabel } from './RefListEditor';
 import { parseListItems } from './listValue';
@@ -73,6 +76,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const [colPickerOpen, setColPickerOpen] = useState(false);
   const colPickerRef = useRef<HTMLDivElement>(null);
   const [agendaDateFilter, setAgendaDateFilter] = useState<Date | null>(null);
+  const [agendaFilters, setAgendaFilters] = useState<AgendaFilters>({ search: '', from: '', through: '' });
+  const [agendaFiltersOpen, setAgendaFiltersOpen] = useState(false);
 
   // Columns available for display on event chips (all non-date, non-internal)
   const displayableColumns = useMemo(
@@ -195,6 +200,19 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       resource: row,
     };
   }).filter(Boolean) as CalEvent[], [rows, dateColumn, effectiveDisplayColumns, schema.columns, isDateOnly, resolveColumnPath, resolveReferencePath, getReferenceRows]);
+
+  const agendaFilterCount = Number(Boolean(agendaFilters.search)) + Number(Boolean(agendaFilters.from || agendaFilters.through));
+  const agendaEvents = useMemo(() => {
+    if (!agendaFilterCount) return events;
+    const search = agendaFilters.search.toLowerCase();
+    const from = agendaFilters.from ? parseISO(agendaFilters.from) : null;
+    const through = agendaFilters.through ? endOfDay(parseISO(agendaFilters.through)) : null;
+    return events.filter(event =>
+      (!search || event.title.toLowerCase().includes(search)) &&
+      (!from || event.start >= from) &&
+      (!through || event.start <= through)
+    );
+  }, [events, agendaFilters, agendaFilterCount]);
 
   const hasPicker = dateColumns.length > 1;
 
@@ -354,6 +372,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         </div>
 
         <div className="calendar-toolbar-group calendar-toolbar-group-right">
+          {viewMode === 'agenda' && (
+            <button
+              type="button"
+              className={`calendar-toolbar-btn ${agendaFilterCount ? 'active' : ''}`}
+              aria-haspopup="dialog"
+              onClick={() => setAgendaFiltersOpen(true)}
+            >
+              {agendaFilterCount ? `Filters (${agendaFilterCount})` : 'Filters'}
+            </button>
+          )}
           {!readOnly && onCreateRow && (
             <button type="button" className="calendar-toolbar-btn" aria-label="New entry" title="New entry" onClick={() => handleCreateEntry(agendaDateFilter ?? new Date())}>
               +
@@ -392,15 +420,26 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       ) : (
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 16px 24px', maxWidth: 720, margin: '0 auto', width: '100%', boxSizing: 'border-box', color: 'var(--color-text)' }}>
           <AgendaView
-            events={events}
+            events={agendaEvents}
             year={selectedYear}
             selectedDate={agendaDateFilter}
+            filtersActive={agendaFilterCount > 0}
             todayRef={{ current: null }}
             onSelectEvent={(scrollEv) => handleSelectEvent(scrollEv as CalEvent)}
             imageColumns={schema.columns.filter(isImageColumn)}
             bookId={bookId}
           />
         </div>
+      )}
+      {viewMode === 'agenda' && agendaFiltersOpen && (
+        <AgendaFilterDialog
+          filters={agendaFilters}
+          onApply={filters => {
+            setAgendaFilters(filters);
+            setAgendaFiltersOpen(false);
+          }}
+          onClose={() => setAgendaFiltersOpen(false)}
+        />
       )}
       {dialog.open && (
         <RecordCard

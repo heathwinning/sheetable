@@ -133,11 +133,12 @@ export const AgendaView: React.FC<{
   events: ScrollEvent[];
   year: number;
   selectedDate?: Date | null;
+  filtersActive?: boolean;
   todayRef: React.RefObject<HTMLDivElement | null>;
   onSelectEvent?: (event: ScrollEvent) => void;
   imageColumns?: ColumnDef[];
   bookId?: string | null;
-}> = ({ events, year, selectedDate = null, todayRef, onSelectEvent, imageColumns = [], bookId }) => {
+}> = ({ events, year, selectedDate = null, filtersActive = false, todayRef, onSelectEvent, imageColumns = [], bookId }) => {
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const selectedDateKey = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : null;
   const sorted = useMemo(() =>
@@ -170,7 +171,7 @@ export const AgendaView: React.FC<{
 
   return (
     <div ref={containerRef}>
-      {groups.length === 0 && <div className="agenda-empty">No events</div>}
+      {groups.length === 0 && <div className="agenda-empty" role="status">{filtersActive ? 'No events match your filters' : 'No events'}</div>}
       {groups.map(({ key, date, evs }) => {
         const today = key === todayKey;
         const past = isBefore(date, new Date()) && !today;

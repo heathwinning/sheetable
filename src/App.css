@@ -543,6 +543,16 @@ body {
 .app-dialog-btn-danger { @apply bg-danger text-white; }
 .app-dialog-btn-danger:hover { @apply opacity-90; }
 
+.agenda-filter-dialog {
+  @apply m-auto w-[400px] min-w-0 max-w-[calc(100%-2rem)] overflow-y-auto text-text;
+  max-height: calc(100dvh - 2rem);
+}
+.agenda-filter-dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+.agenda-filter-dialog .app-dialog-input { @apply m-0 min-w-0; }
+.agenda-filter-dates { @apply grid grid-cols-2 gap-3 max-[380px]:grid-cols-1; }
+.agenda-filter-error { @apply mb-4 text-sm text-danger; }
+.agenda-filter-dialog .app-dialog-btn:disabled { @apply cursor-not-allowed opacity-50; }
+
 .app-dialog-close {
   @apply bg-transparent border-none cursor-pointer text-text-muted text-lg leading-none px-1 py-0.5;
 }
